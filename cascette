@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Cascette Tools - Executable wrapper script.
+
+This script provides a direct executable for cascette_tools that can be used
+without requiring 'python -m' prefix.
+
+Usage:
+    ./cascette --help
+    ./cascette version
+    ./cascette examine encoding <hash>
+"""
+
+import sys
+from pathlib import Path
+
+# Add the package to Python path if running directly
+if __name__ == "__main__":
+    # Get the directory containing this script
+    script_dir = Path(__file__).parent.absolute()
+
+    # Add it to sys.path if not already there
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+
+    # Import and run the main function
+    from cascette_tools.__main__ import main
+
+    main()

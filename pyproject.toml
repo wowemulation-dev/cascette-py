@@ -1,0 +1,140 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cascette-tools"
+version = "0.1.0"
+description = "Python tools for NGDP/CASC format analysis"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Cascette Team"},
+]
+keywords = ["ngdp", "casc", "blizzard", "wow", "parsing", "game-data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "click>=8.1.7",
+    "pydantic>=2.5.0",
+    "httpx>=0.25.2",
+    "rich>=13.7.0",
+    "structlog>=23.2.0",
+    "lz4>=4.3.2",
+    "cryptography>=41.0.7",
+    "aiofiles>=23.2.1",
+    "diskcache>=5.6.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/wowemulation-dev/cascette-py"
+Repository = "https://github.com/wowemulation-dev/cascette-py"
+Issues = "https://github.com/wowemulation-dev/cascette-py/issues"
+Documentation = "https://github.com/wowemulation-dev/cascette-py#readme"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.1",
+    "pytest-mock>=3.12.0",
+    "pyright>=1.1.0",
+    "ruff>=0.1.7",
+    "black>=23.11.0",
+    "types-aiofiles>=23.2.0",
+    "markdownlint-cli2>=0.5.0",
+]
+
+[project.scripts]
+cascette = "cascette_tools.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["cascette_tools*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=cascette_tools",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=80",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnknownParameterType = true
+reportUnknownArgumentType = true
+reportUnknownMemberType = true
+reportGeneralTypeIssues = true
+reportUntypedFunctionDecorator = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B018"]  # Allow useless expression in tests
+
+[tool.black]
+target-version = ["py312"]
+line-length = 88
+skip-string-normalization = true
+
+[tool.coverage.run]
+source = ["cascette_tools"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
