@@ -11,7 +11,6 @@ from rich.console import Console
 
 from cascette_tools.commands.fetch import (
     _get_context_objects,
-    _output_json,
     _save_file,
     _show_config_metadata,
     fetch,
@@ -650,16 +649,7 @@ class TestFetchUtilityFunctions:
         assert verbose is True
         assert debug is False
 
-    def test_output_json(self, capsys):
-        """Test _output_json outputs properly formatted JSON."""
-        mock_console = Mock(spec=Console)
-        data = {"key": "value", "number": 42, "list": [1, 2, 3]}
-
-        _output_json(data, mock_console)
-
-        captured = capsys.readouterr()
-        output_data = json.loads(captured.out)
-        assert output_data == data
+    # test_output_json removed: _output_json function no longer exists in fetch module
 
     def test_save_file(self, tmp_path):
         """Test _save_file saves data and creates directories."""
