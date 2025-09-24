@@ -4,7 +4,7 @@ import csv
 import gzip
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -70,7 +70,7 @@ class TestFileDataEntry:
 
     def test_create_full_file_entry(self):
         """Test creating a complete file entry."""
-        added_date = datetime.now(timezone.utc)
+        added_date = datetime.now(UTC)
         entry = FileDataEntry(
             fdid=67890,
             path="Sound/Music/theme.mp3",
@@ -106,7 +106,7 @@ class TestListfileCacheMetadata:
 
     def test_create_cache_metadata(self):
         """Test creating cache metadata."""
-        fetch_time = datetime.now(timezone.utc)
+        fetch_time = datetime.now(UTC)
         metadata = ListfileCacheMetadata(
             fetch_time=fetch_time,
             entry_count=1000,
@@ -121,7 +121,7 @@ class TestListfileCacheMetadata:
 
     def test_cache_metadata_serialization(self):
         """Test cache metadata JSON serialization."""
-        fetch_time = datetime(2023, 1, 15, 12, 30, 45, tzinfo=timezone.utc)
+        fetch_time = datetime(2023, 1, 15, 12, 30, 45, tzinfo=UTC)
         metadata = ListfileCacheMetadata(
             fetch_time=fetch_time,
             entry_count=500,
@@ -244,7 +244,7 @@ class TestListfileManager:
 
         # Write metadata file
         metadata = ListfileCacheMetadata(
-            fetch_time=datetime.now(timezone.utc),
+            fetch_time=datetime.now(UTC),
             entry_count=len(sample_listfile_entries),
             file_size=cache_file.stat().st_size,
             source="test"
@@ -274,7 +274,7 @@ class TestListfileManager:
             writer.writerow([12345, "test.txt"])
 
         # Create expired metadata
-        expired_time = datetime.now(timezone.utc) - timedelta(hours=25)
+        expired_time = datetime.now(UTC) - timedelta(hours=25)
         metadata = ListfileCacheMetadata(
             fetch_time=expired_time,
             entry_count=1,

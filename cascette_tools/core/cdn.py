@@ -150,8 +150,18 @@ class CDNClient:
         """
         last_error = None
 
+        # Determine which mirrors to use
+        # For non-WoW products, prefer TACT servers if available
+        wow_products = ["wow", "wow_classic", "wow_classic_era"]
+        if self.product.value not in wow_products and self.cdn_servers:
+            # Use TACT servers for non-WoW products
+            mirrors = self.cdn_servers
+        else:
+            # Use configured mirrors for WoW products
+            mirrors = self.config.mirrors
+
         # Try each mirror in order
-        for mirror_idx, mirror in enumerate(self.config.mirrors):
+        for mirror_idx, mirror in enumerate(mirrors):
             url = self._build_url(hash_str, file_type, mirror)
 
             for attempt in range(self.config.max_retries):

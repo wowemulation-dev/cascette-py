@@ -53,6 +53,30 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
+def _get_cdn_mirrors_for_product(product: str) -> list[str]:
+    """Get appropriate CDN mirrors based on product type.
+
+    Args:
+        product: Product code string
+
+    Returns:
+        List of CDN mirror URLs in priority order
+    """
+    # WoW products use community mirrors
+    wow_products = ["wow", "wow_classic", "wow_classic_era"]
+
+    if product in wow_products:
+        return ["https://cdn.arctium.tools"]
+    else:
+        # Non-WoW products use official Blizzard CDNs
+        # These are extracted from the TACT cdns endpoint
+        return [
+            "http://blzddist1-a.akamaihd.net",
+            "http://level3.blizzard.com",
+            "http://cdn.blizzard.com"
+        ]
+
+
 def _output_json(data: dict[str, Any], console: Console) -> None:
     """Output data as JSON."""
     print(json.dumps(data, indent=2, default=str))
@@ -180,7 +204,7 @@ def config(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
+            mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -279,7 +303,7 @@ def data(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
+            mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -408,6 +432,8 @@ def build(
             build_config_hash = None
             cdn_config_hash = None
             version_string = build_id  # Default for directory naming
+            build_info = None  # Track for EKEY updates
+            discovered_ekeys = {}  # Track discovered EKEYs
 
             if validate_hash_string(build_id):
                 # Direct hash provided
@@ -510,6 +536,10 @@ def build(
                             # Single hash: it's the encoding key
                             encoding_key = parts[0]
 
+                        # Track discovered EKEY
+                        if encoding_key:
+                            discovered_ekeys['encoding_ekey'] = encoding_key
+
                     # First, fetch the encoding manifest if we have its key
                     encoding_parser = None
                     encoding_manifest = None
@@ -592,6 +622,10 @@ def build(
                                         if encoding_parser:
                                             console.print(f"[yellow]Warning: Content key {content_key_str[:8]}... not found in encoding manifest, trying direct fetch[/yellow]")
 
+                                # Track discovered EKEY for this manifest type
+                                if encoding_key_for_content:
+                                    discovered_ekeys[f'{manifest_type}_ekey'] = encoding_key_for_content
+
                                 # Fetch using the encoding key
                                 manifest_data = cdn_client.fetch_data(encoding_key_for_content)
                                 # CRITICAL: Save with encoding key name, NOT content key!
@@ -647,6 +681,34 @@ def build(
 
             console.print(table)
             console.print(f"[green]Build data saved to {output_dir}[/green]")
+
+            # Update database with discovered EKEYs if we have a build_info object
+            if build_info and discovered_ekeys:
+                from cascette_tools.database.wago import WagoClient
+
+                try:
+                    with WagoClient(config_obj) as wago_client:
+                        # Update the build with discovered EKEYs
+                        success = wago_client.update_build_ekeys(
+                            build_id=build_info.id,
+                            product=build_info.product,
+                            encoding_ekey=discovered_ekeys.get('encoding_ekey'),
+                            root_ekey=discovered_ekeys.get('root_ekey'),
+                            install_ekey=discovered_ekeys.get('install_ekey'),
+                            download_ekey=discovered_ekeys.get('download_ekey')
+                        )
+
+                        if success:
+                            if verbose:
+                                console.print(f"[dim]Updated database with {len(discovered_ekeys)} discovered EKEYs[/dim]")
+                        else:
+                            if verbose:
+                                console.print("[yellow]Warning: Failed to update database with discovered EKEYs[/yellow]")
+
+                except Exception as e:
+                    # Don't fail the whole operation if database update fails
+                    if verbose:
+                        console.print(f"[yellow]Warning: Could not update database with EKEYs: {e}[/yellow]")
 
     except Exception as e:
         logger.error("build_fetch_failed", build_id=build_id, error=str(e))
@@ -711,7 +773,7 @@ def encoding(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
+            mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -1045,7 +1107,7 @@ def patch(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
+            mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )

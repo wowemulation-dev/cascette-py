@@ -3,7 +3,7 @@
 import csv
 import gzip
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 import httpx
@@ -76,7 +76,7 @@ class TestFileDataEntry:
 
     def test_file_data_entry_all_fields(self):
         """Test FileDataEntry with all fields populated."""
-        added_date = datetime.now(timezone.utc)
+        added_date = datetime.now(UTC)
         entry = FileDataEntry(
             fdid=123456,
             path="world/maps/azeroth/elwynn.adt",
@@ -96,7 +96,7 @@ class TestListfileCacheMetadata:
 
     def test_cache_metadata_required_fields(self):
         """Test ListfileCacheMetadata with required fields."""
-        fetch_time = datetime.now(timezone.utc)
+        fetch_time = datetime.now(UTC)
         metadata = ListfileCacheMetadata(
             fetch_time=fetch_time,
             entry_count=1000,
@@ -112,7 +112,7 @@ class TestListfileCacheMetadata:
     def test_cache_metadata_custom_version(self):
         """Test ListfileCacheMetadata with custom cache version."""
         metadata = ListfileCacheMetadata(
-            fetch_time=datetime.now(timezone.utc),
+            fetch_time=datetime.now(UTC),
             entry_count=500,
             file_size=262144,
             source="custom",
@@ -304,7 +304,7 @@ invalid_fdid,"should/be/skipped.adt"
             writer.writerow([999999, "cached/file.adt"])
 
         # Create fresh metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = ListfileCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             entry_count=1,
@@ -337,7 +337,7 @@ invalid_fdid,"should/be/skipped.adt"
             writer.writerow([888888, "old/cached/file.adt"])
 
         # Expired metadata (25 hours ago)
-        old_time = datetime.now(timezone.utc) - timedelta(hours=25)
+        old_time = datetime.now(UTC) - timedelta(hours=25)
         metadata = ListfileCacheMetadata(
             fetch_time=old_time,
             entry_count=1,

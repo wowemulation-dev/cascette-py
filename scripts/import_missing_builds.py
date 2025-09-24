@@ -4,8 +4,13 @@
 import html
 import json
 import re
+import sys
 import time
+from datetime import datetime, UTC
 from pathlib import Path
+
+# Add parent directory to path to import cascette_tools
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
 from rich.console import Console
@@ -112,13 +117,13 @@ def import_missing_builds(test_mode=False):
                             if parts[-1] == build_id:
                                 build_product = build.get('product', '')
 
-                                # Map Wago product names to our product codes
-                                # wowt (PTR), wow_beta, wowdev, etc. all map to 'wow'
-                                if product_code == 'wow' and build_product in ['wow', 'wowt', 'wow_beta', 'wowdev']:
+                                # Only accept builds from the exact product we're searching for
+                                # We only support these three canonical products
+                                if product_code == 'wow' and build_product == 'wow':
                                     matching_builds.append(build)
-                                elif product_code == 'wow_classic' and build_product in ['wow_classic', 'wow_classic_ptr', 'wow_classic_beta']:
+                                elif product_code == 'wow_classic' and build_product == 'wow_classic':
                                     matching_builds.append(build)
-                                elif product_code == 'wow_classic_era' and build_product in ['wow_classic_era', 'wow_classic_era_ptr']:
+                                elif product_code == 'wow_classic_era' and build_product == 'wow_classic_era':
                                     matching_builds.append(build)
 
                     if matching_builds:
@@ -153,24 +158,35 @@ def import_missing_builds(test_mode=False):
                         # Extract build number from version (e.g., "11.2.5.63092" -> "63092")
                         build_number = version.split('.')[-1] if '.' in version else ''
 
-                        # Normalize product names to our canonical three
-                        raw_product = build.get('product', product_code)
-                        if raw_product in ['wowt', 'wow_beta', 'wowdev', 'wow']:
-                            normalized_product = 'wow'
-                        elif raw_product in ['wow_classic', 'wow_classic_ptr', 'wow_classic_beta']:
-                            normalized_product = 'wow_classic'
-                        elif raw_product in ['wow_classic_era', 'wow_classic_era_ptr']:
-                            normalized_product = 'wow_classic_era'
-                        else:
-                            # Default to the product_code we're searching for
-                            normalized_product = product_code
+                        # Use the product directly from the search results
+                        # Since we already filtered to only exact matches, we can trust the product field
+                        normalized_product = build.get('product', product_code)
+
+                        # Handle build_time conversion
+                        build_time = None
+                        if build.get('created_at'):
+                            try:
+                                # Parse the datetime string
+                                if isinstance(build['created_at'], str):
+                                    # Try parsing the format "2025-09-11 02:10:05"
+                                    build_time = datetime.strptime(
+                                        build['created_at'], "%Y-%m-%d %H:%M:%S"
+                                    ).replace(tzinfo=UTC)
+                            except ValueError:
+                                # Try ISO format as fallback
+                                try:
+                                    build_time = datetime.fromisoformat(
+                                        build['created_at'].replace("Z", "+00:00")
+                                    )
+                                except:
+                                    pass
 
                         wago_build = WagoBuild(
                             id=build.get('id', 0),
                             build=build_number,
                             version=version,
                             product=normalized_product,
-                            build_time=build.get('created_at'),
+                            build_time=build_time,
                             build_config=build.get('build_config'),
                             cdn_config=build.get('cdn_config'),
                             product_config=build.get('product_config'),

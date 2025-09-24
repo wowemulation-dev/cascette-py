@@ -1,7 +1,7 @@
 """Comprehensive tests for cascette_tools.database.wago module."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 import httpx
@@ -32,7 +32,7 @@ class TestWagoBuild:
 
     def test_wagobuild_full_fields(self):
         """Test WagoBuild with all fields populated."""
-        build_time = datetime.now(timezone.utc)
+        build_time = datetime.now(UTC)
         build = WagoBuild(
             id=12345,
             build="10.2.5.52902",
@@ -62,7 +62,7 @@ class TestWagoCacheMetadata:
 
     def test_cache_metadata_required_fields(self):
         """Test WagoCacheMetadata with required fields."""
-        fetch_time = datetime.now(timezone.utc)
+        fetch_time = datetime.now(UTC)
         expires_at = fetch_time + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
@@ -78,8 +78,8 @@ class TestWagoCacheMetadata:
     def test_cache_metadata_custom_api_version(self):
         """Test WagoCacheMetadata with custom API version."""
         metadata = WagoCacheMetadata(
-            fetch_time=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            fetch_time=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=24),
             build_count=50,
             api_version="v2"
         )
@@ -201,7 +201,7 @@ class TestWagoClient:
             json.dump(cache_data, f)
 
         # Fresh metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
@@ -222,7 +222,7 @@ class TestWagoClient:
             json.dump(cache_data, f)
 
         # Expired metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=25),
             expires_at=now - timedelta(hours=1),
@@ -238,7 +238,7 @@ class TestWagoClient:
         wago_client.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Create cache data with datetime
-        build_time = datetime.now(timezone.utc)
+        build_time = datetime.now(UTC)
         cache_data = [{
             "id": 12345,
             "build": "10.2.5.52902",
@@ -263,7 +263,7 @@ class TestWagoClient:
         wago_client.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Create builds to save
-        build_time = datetime.now(timezone.utc)
+        build_time = datetime.now(UTC)
         builds = [WagoBuild(
             id=12345,
             build="10.2.5.52902",
@@ -358,7 +358,7 @@ class TestWagoClient:
             json.dump(cache_data, f)
 
         # Fresh metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
@@ -481,7 +481,7 @@ class TestWagoClient:
         # Create cache files
         wago_client.cache_file.write_text("[]")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
@@ -599,11 +599,11 @@ class TestWagoClient:
         builds = [
             WagoBuild(
                 id=1, build="1.0.0", version="1.0.0", product="wow",
-                build_time=datetime.now(timezone.utc)
+                build_time=datetime.now(UTC)
             ),
             WagoBuild(
                 id=2, build="2.0.0", version="2.0.0", product="wow_classic",
-                build_time=datetime.now(timezone.utc)
+                build_time=datetime.now(UTC)
             ),
         ]
         wago_client.import_builds_to_database(builds)

@@ -133,10 +133,12 @@ class DownloadParser(FormatParser[DownloadFile]):
         entry_count = struct.unpack('>I', header_data[5:9])[0]  # big-endian
         tag_count = struct.unpack('>H', header_data[9:11])[0]  # big-endian
 
-        # Skip reserved byte (1 byte)
-        reserved = stream.read(1)
-        if len(reserved) < 1:
-            raise ValueError("Insufficient data for reserved byte")
+        # Skip reserved byte (1 byte) - only present in version 2+
+        # Version 1 (used by Agent) doesn't have this reserved byte
+        if version >= 2:
+            reserved = stream.read(1)
+            if len(reserved) < 1:
+                raise ValueError("Insufficient data for reserved byte")
 
         logger.debug("Parsed download header",
                     version=version, ekey_size=ekey_size, has_checksum=has_checksum,
@@ -153,38 +155,40 @@ class DownloadParser(FormatParser[DownloadFile]):
         # Calculate priority mask size
         priority_mask_size = (entry_count + 7) // 8
 
-        # Parse tags
-        tags = []
-        for _ in range(tag_count):
-            # Read tag name (null-terminated)
-            name_bytes = bytearray()
-            while True:
-                byte = stream.read(1)
-                if not byte or byte == b'\x00':
-                    break
-                name_bytes.extend(byte)
+        # Version 1 has tags AFTER entries, version 2+ has tags BEFORE entries
+        tags: list[DownloadTag] = []
+        if version >= 2:
+            # Parse tags first (version 2+)
+            for _ in range(tag_count):
+                # Read tag name (null-terminated)
+                name_bytes = bytearray()
+                while True:
+                    byte = stream.read(1)
+                    if not byte or byte == b'\x00':
+                        break
+                    name_bytes.extend(byte)
 
-            tag_name = name_bytes.decode('utf-8', errors='replace')
+                tag_name = name_bytes.decode('utf-8', errors='replace')
 
-            # Read tag type (2 bytes big-endian)
-            tag_type_data = stream.read(2)
-            if len(tag_type_data) < 2:
-                raise ValueError(f"Insufficient data for tag type: {tag_name}")
-            tag_type = struct.unpack('>H', tag_type_data)[0]
+                # Read tag type (2 bytes big-endian)
+                tag_type_data = stream.read(2)
+                if len(tag_type_data) < 2:
+                    raise ValueError(f"Insufficient data for tag type: {tag_name}")
+                tag_type = struct.unpack('>H', tag_type_data)[0]
 
-            # Read priority bitmask
-            priority_mask_data = stream.read(priority_mask_size)
-            if len(priority_mask_data) < priority_mask_size:
-                raise ValueError(f"Insufficient data for priority bitmask: {tag_name}")
+                # Read priority bitmask
+                priority_mask_data = stream.read(priority_mask_size)
+                if len(priority_mask_data) < priority_mask_size:
+                    raise ValueError(f"Insufficient data for priority bitmask: {tag_name}")
 
-            tags.append(DownloadTag(
-                name=tag_name,
-                tag_type=tag_type,
-                file_mask=priority_mask_data
-            ))
+                tags.append(DownloadTag(
+                    name=tag_name,
+                    tag_type=tag_type,
+                    file_mask=priority_mask_data
+                ))
 
         # Parse file entries
-        entries = []
+        entries: list[DownloadEntry] = []
         for i in range(entry_count):
             # Read encoding key
             ekey_data = stream.read(ekey_size)
@@ -212,7 +216,7 @@ class DownloadParser(FormatParser[DownloadFile]):
                 checksum = checksum_data
 
             # Determine tags for this file
-            file_tags = []
+            file_tags: list[str] = []
             for tag in tags:
                 if tag.has_file(i):
                     file_tags.append(tag.name)
@@ -224,6 +228,44 @@ class DownloadParser(FormatParser[DownloadFile]):
                 checksum=checksum,
                 tags=file_tags
             ))
+
+        # Version 1: Parse tags AFTER entries
+        if version == 1 and tag_count > 0:
+            for _ in range(tag_count):
+                # Read tag name (null-terminated)
+                name_bytes = bytearray()
+                while True:
+                    byte = stream.read(1)
+                    if not byte or byte == b'\x00':
+                        break
+                    name_bytes.extend(byte)
+
+                tag_name = name_bytes.decode('utf-8', errors='replace')
+
+                # Read tag type (2 bytes big-endian)
+                tag_type_data = stream.read(2)
+                if len(tag_type_data) < 2:
+                    raise ValueError(f"Insufficient data for tag type: {tag_name}")
+                tag_type = struct.unpack('>H', tag_type_data)[0]
+
+                # Read priority bitmask
+                priority_mask_data = stream.read(priority_mask_size)
+                if len(priority_mask_data) < priority_mask_size:
+                    raise ValueError(f"Insufficient data for priority bitmask: {tag_name}")
+
+                tags.append(DownloadTag(
+                    name=tag_name,
+                    tag_type=tag_type,
+                    file_mask=priority_mask_data
+                ))
+
+            # Update entries with tags (retroactively)
+            for i, entry in enumerate(entries):
+                file_tags: list[str] = []
+                for tag in tags:
+                    if tag.has_file(i):
+                        file_tags.append(tag.name)
+                entry.tags = file_tags
 
         return DownloadFile(
             header=header,
@@ -249,13 +291,16 @@ class DownloadParser(FormatParser[DownloadFile]):
         result.write(struct.pack('B', 1 if obj.header.has_checksum else 0))  # Has checksum
         result.write(struct.pack('>I', len(obj.entries)))  # Entry count (big-endian)
         result.write(struct.pack('>H', len(obj.tags)))  # Tag count (big-endian)
-        result.write(b'\x00')  # Reserved byte
+
+        # Reserved byte - only present in version 2+
+        if obj.header.version >= 2:
+            result.write(b'\x00')  # Reserved byte
 
         # Calculate priority mask size
         priority_mask_size = (len(obj.entries) + 7) // 8
 
         # Rebuild tag priority masks from entry tags
-        tag_masks = {}
+        tag_masks: dict[str, bytes] = {}
         for tag in obj.tags:
             mask = bytearray(priority_mask_size)
             for i, entry in enumerate(obj.entries):
@@ -265,17 +310,18 @@ class DownloadParser(FormatParser[DownloadFile]):
                     mask[byte_index] |= (1 << bit_offset)
             tag_masks[tag.name] = bytes(mask)
 
-        # Write tags
-        for tag in obj.tags:
-            # Write tag name (null-terminated)
-            result.write(tag.name.encode('utf-8'))
-            result.write(b'\x00')
+        # Version 2+: Write tags before entries
+        if obj.header.version >= 2:
+            for tag in obj.tags:
+                # Write tag name (null-terminated)
+                result.write(tag.name.encode('utf-8'))
+                result.write(b'\x00')
 
-            # Write tag type (2 bytes big-endian)
-            result.write(struct.pack('>H', tag.tag_type))
+                # Write tag type (2 bytes big-endian)
+                result.write(struct.pack('>H', tag.tag_type))
 
-            # Write priority bitmask (use rebuilt mask to ensure consistency)
-            result.write(tag_masks[tag.name])
+                # Write priority bitmask (use rebuilt mask to ensure consistency)
+                result.write(tag_masks[tag.name])
 
         # Write file entries
         for entry in obj.entries:
@@ -304,6 +350,19 @@ class DownloadParser(FormatParser[DownloadFile]):
                 result.write(entry.checksum)
             elif entry.checksum is not None:
                 raise ValueError("Checksum provided but not expected")
+
+        # Version 1: Write tags after entries
+        if obj.header.version == 1:
+            for tag in obj.tags:
+                # Write tag name (null-terminated)
+                result.write(tag.name.encode('utf-8'))
+                result.write(b'\x00')
+
+                # Write tag type (2 bytes big-endian)
+                result.write(struct.pack('>H', tag.tag_type))
+
+                # Write priority bitmask (use rebuilt mask to ensure consistency)
+                result.write(tag_masks[tag.name])
 
         return result.getvalue()
 

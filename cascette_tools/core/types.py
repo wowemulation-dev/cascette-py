@@ -36,6 +36,8 @@ class Product(str, Enum):
     WARCRAFT_3_REFORGED = "w3"
     DIABLO_2_RESURRECTED = "osi"
     CALL_OF_DUTY_MW2 = "wlby"
+    AGENT = "agent"
+    BNA = "bna"
 
 
 class BuildInfo(BaseModel):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -57,10 +57,10 @@ def adapt_datetime_iso(val: datetime) -> str:
     """
     if val.tzinfo is None:
         # Assume naive datetimes are UTC
-        val = val.replace(tzinfo=timezone.utc)
-    elif val.tzinfo != timezone.utc:
+        val = val.replace(tzinfo=UTC)
+    elif val.tzinfo != UTC:
         # Convert to UTC for consistent storage
-        val = val.astimezone(timezone.utc)
+        val = val.astimezone(UTC)
 
     return val.isoformat()
 
@@ -81,9 +81,9 @@ def convert_datetime_iso(val: bytes) -> datetime:
     # Parse ISO format string and ensure UTC timezone
     dt = datetime.fromisoformat(datestr)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    elif dt.tzinfo != timezone.utc:
-        dt = dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    elif dt.tzinfo != UTC:
+        dt = dt.astimezone(UTC)
 
     return dt
 
@@ -202,7 +202,7 @@ class WagoClient:
             with open(self.metadata_file) as f:
                 metadata = WagoCacheMetadata(**json.load(f))
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if now < metadata.expires_at:
                 age = now - metadata.fetch_time
                 logger.info(
@@ -259,7 +259,7 @@ class WagoClient:
             json.dump(data, f, indent=2)
 
         # Save metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now,
             expires_at=now + self.CACHE_LIFETIME,
@@ -332,7 +332,7 @@ class WagoClient:
                                 try:
                                     build_data["build_time"] = datetime.strptime(
                                         created_at, "%Y-%m-%d %H:%M:%S"
-                                    ).replace(tzinfo=timezone.utc)
+                                    ).replace(tzinfo=UTC)
                                 except ValueError:
                                     # Try ISO format as fallback
                                     build_data["build_time"] = datetime.fromisoformat(
@@ -525,7 +525,7 @@ class WagoClient:
         with open(self.metadata_file) as f:
             metadata = WagoCacheMetadata(**json.load(f))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         age = now - metadata.fetch_time
         remaining = metadata.expires_at - now
 
@@ -538,6 +538,96 @@ class WagoClient:
             "build_count": metadata.build_count,
             "cache_size_kb": round(self.cache_file.stat().st_size / 1024, 1),
         }
+
+    def update_build_ekeys(
+        self,
+        build_id: int,
+        product: str,
+        encoding_ekey: str | None = None,
+        root_ekey: str | None = None,
+        install_ekey: str | None = None,
+        download_ekey: str | None = None
+    ) -> bool:
+        """Update EKEY fields for a specific build.
+
+        Args:
+            build_id: Build ID to update
+            product: Product code for the build
+            encoding_ekey: Encoding EKEY hash
+            root_ekey: Root manifest EKEY hash
+            install_ekey: Install manifest EKEY hash
+            download_ekey: Download manifest EKEY hash
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            # Build update query dynamically based on provided EKEYs
+            updates = []
+            params = []
+
+            if encoding_ekey is not None:
+                updates.append("encoding_ekey = ?")
+                params.append(encoding_ekey)
+
+            if root_ekey is not None:
+                updates.append("root_ekey = ?")
+                params.append(root_ekey)
+
+            if install_ekey is not None:
+                updates.append("install_ekey = ?")
+                params.append(install_ekey)
+
+            if download_ekey is not None:
+                updates.append("download_ekey = ?")
+                params.append(download_ekey)
+
+            # Only proceed if there are fields to update
+            if not updates:
+                return True  # Nothing to update
+
+            # Add updated_at timestamp
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+
+            # Add WHERE clause parameters
+            params.extend([build_id, product])
+
+            # Execute update
+            with self.conn:
+                cursor = self.conn.execute(
+                    f"""
+                    UPDATE builds
+                    SET {', '.join(updates)}
+                    WHERE id = ? AND product = ?
+                    """,
+                    params
+                )
+
+                # Check if any rows were updated
+                if cursor.rowcount > 0:
+                    logger.info(
+                        "build_ekeys_updated",
+                        build_id=build_id,
+                        product=product,
+                        rows_updated=cursor.rowcount
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        "build_ekeys_update_no_match",
+                        build_id=build_id,
+                        product=product
+                    )
+                    return False
+
+        except Exception as e:
+            logger.error(
+                "build_ekeys_update_failed",
+                build_id=build_id,
+                product=product,
+                error=str(e)
+            )
+            return False
 
     def __enter__(self) -> WagoClient:
         """Context manager entry."""

@@ -7,7 +7,7 @@ import gzip
 import io
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -199,7 +199,7 @@ class ListfileManager:
 
             try:
                 metadata = ListfileCacheMetadata.model_validate(metadata_dict)
-                if datetime.now(timezone.utc) - metadata.fetch_time < self.CACHE_LIFETIME:
+                if datetime.now(UTC) - metadata.fetch_time < self.CACHE_LIFETIME:
                     logger.info("using_cached_listfile")
                     return self._load_cached_listfile(cache_file)
             except Exception as e:
@@ -224,7 +224,7 @@ class ListfileManager:
                     writer.writerow([entry.fdid, entry.path])
 
             metadata = ListfileCacheMetadata(
-                fetch_time=datetime.now(timezone.utc),
+                fetch_time=datetime.now(UTC),
                 entry_count=len(entries),
                 file_size=cache_file.stat().st_size,
                 source="wowdev/wow-listfile"

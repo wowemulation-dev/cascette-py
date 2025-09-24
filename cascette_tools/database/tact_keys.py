@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -209,7 +209,7 @@ class TACTKeyManager:
                     metadata = json.load(f)
 
                 fetch_time = datetime.fromisoformat(metadata["fetch_time"])
-                if datetime.now(timezone.utc) - fetch_time < self.CACHE_LIFETIME:
+                if datetime.now(UTC) - fetch_time < self.CACHE_LIFETIME:
                     # Cache is valid, load from cache
                     with open(cache_file) as f:
                         data = json.load(f)
@@ -259,7 +259,7 @@ class TACTKeyManager:
 
             with open(metadata_file, 'w') as f:
                 json.dump({
-                    "fetch_time": datetime.now(timezone.utc).isoformat(),
+                    "fetch_time": datetime.now(UTC).isoformat(),
                     "key_count": len(keys),
                     "source": "wowdev/TACTKeys"
                 }, f, indent=2)
@@ -352,7 +352,7 @@ class TACTKeyManager:
             keys = self.get_all_keys()
 
         export_data = {
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "total_keys": len(keys),
             "product_family_filter": product_family,
             "keys": [key.model_dump() for key in keys]

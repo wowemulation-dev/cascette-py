@@ -1,7 +1,7 @@
 """Comprehensive tests for cascette_tools.database.tact_keys module."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock, patch
 
 import httpx
@@ -306,7 +306,7 @@ FEDC9876BA54321;FEDCBA0987654321FEDCBA0987654321;Test Key 2
 
         # Create fresh metadata
         metadata = {
-            "fetch_time": datetime.now(timezone.utc).isoformat(),
+            "fetch_time": datetime.now(UTC).isoformat(),
             "key_count": 1,
             "source": "wowdev/TACTKeys"
         }
@@ -338,7 +338,7 @@ FEDC9876BA54321;FEDCBA0987654321FEDCBA0987654321;Test Key 2
             json.dump(cached_keys, f)
 
         # Expired metadata (25 hours ago)
-        old_time = datetime.now(timezone.utc) - timedelta(hours=25)
+        old_time = datetime.now(UTC) - timedelta(hours=25)
         metadata = {
             "fetch_time": old_time.isoformat(),
             "key_count": 1,

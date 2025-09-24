@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Scrape public client builds from Warcraft Wiki - improved version."""
 
+import json
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+# Add parent directory to path to import cascette_tools if needed
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
 from bs4 import BeautifulSoup
@@ -276,7 +281,6 @@ def main():
 
     # Save to file for next step
     if missing:
-        import json
         with open("missing_builds.json", "w") as f:
             json.dump(missing, f, indent=2)
 

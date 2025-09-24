@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -122,7 +122,7 @@ def sample_wago_builds():
             build="56647",
             version="11.0.5.56647",
             product="wow",
-            build_time=datetime(2024, 9, 15, 10, 30, 0, tzinfo=timezone.utc),
+            build_time=datetime(2024, 9, 15, 10, 30, 0, tzinfo=UTC),
             build_config="abc123def456",
             cdn_config="def456abc123",
             product_config="789abc123def",
@@ -136,7 +136,7 @@ def sample_wago_builds():
             build="56646",
             version="11.0.5.56646",
             product="wow",
-            build_time=datetime(2024, 9, 14, 10, 30, 0, tzinfo=timezone.utc),
+            build_time=datetime(2024, 9, 14, 10, 30, 0, tzinfo=UTC),
             build_config="abc123def455",
             cdn_config="def456abc122",
             product_config="789abc123dee",
@@ -169,7 +169,7 @@ class TestWagoBuild:
 
     def test_create_full_build(self):
         """Test creating build with all fields."""
-        build_time = datetime(2024, 9, 15, 10, 30, 0, tzinfo=timezone.utc)
+        build_time = datetime(2024, 9, 15, 10, 30, 0, tzinfo=UTC)
         build = WagoBuild(
             id=12345,
             build="56647",
@@ -211,7 +211,7 @@ class TestWagoCacheMetadata:
 
     def test_create_metadata(self):
         """Test creating cache metadata."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
@@ -227,7 +227,7 @@ class TestWagoCacheMetadata:
 
     def test_model_serialization(self):
         """Test metadata serialization."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires = now + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
@@ -292,7 +292,7 @@ class TestWagoClient:
     def test_cache_validation_expired(self, wago_client):
         """Test cache validation with expired cache."""
         # Create expired metadata
-        past_time = datetime.now(timezone.utc) - timedelta(hours=25)
+        past_time = datetime.now(UTC) - timedelta(hours=25)
         metadata = WagoCacheMetadata(
             fetch_time=past_time,
             expires_at=past_time + timedelta(hours=24),
@@ -309,7 +309,7 @@ class TestWagoClient:
     def test_cache_validation_valid(self, wago_client):
         """Test cache validation with valid cache."""
         # Create valid metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
             fetch_time=now,
             expires_at=now + timedelta(hours=24),
