@@ -143,7 +143,7 @@ def blte(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -155,7 +155,7 @@ def blte(
 
         if config.output_format == "json":
             # JSON output
-            result = {
+            result: dict[str, Any] = {
                 "magic": blte_file.header.magic.decode('ascii', errors='ignore'),
                 "header_size": blte_file.header.header_size,
                 "flags": blte_file.header.flags,
@@ -288,7 +288,7 @@ def encoding(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -300,7 +300,7 @@ def encoding(
 
         if config.output_format == "json":
             # JSON output
-            result = {
+            result: dict[str, Any] = {
                 "magic": encoding_file.header.magic.decode('ascii', errors='ignore'),
                 "version": encoding_file.header.version,
                 "ckey_size": encoding_file.header.ckey_size,
@@ -378,7 +378,7 @@ def config(ctx: click.Context, input_path: str) -> None:
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, _, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -405,7 +405,7 @@ def config(ctx: click.Context, input_path: str) -> None:
 
         if config_obj.output_format == "json":
             # JSON output
-            result = {
+            result: dict[str, Any] = {
                 "type": config_type,
                 "entries": {}
             }
@@ -432,11 +432,11 @@ def config(ctx: click.Context, input_path: str) -> None:
             for key, value in entries.items():
                 # Format complex values
                 if isinstance(value, (list, tuple)):
-                    value_str = ", ".join(str(v) for v in value)
+                    value_str = ", ".join(str(v) for v in value)  # type: ignore
                     if len(value_str) > 60:
                         value_str = value_str[:57] + "..."
                 elif isinstance(value, dict):
-                    value_str = f"{len(value)} entries"
+                    value_str = f"{len(value)} entries"  # type: ignore
                 else:
                     value_str = str(value)
 
@@ -460,7 +460,7 @@ def archive(ctx: click.Context, input_path: str) -> None:
     INPUT can be either a file path or CDN hash with .index extension.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -472,7 +472,7 @@ def archive(ctx: click.Context, input_path: str) -> None:
 
         if config.output_format == "json":
             # JSON output
-            result = {
+            result: dict[str, Any] = {
                 "footer": {
                     "toc_hash": archive_index.footer.toc_hash.hex(),
                     "version": archive_index.footer.version,

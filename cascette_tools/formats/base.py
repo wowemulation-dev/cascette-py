@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import BinaryIO, Generic, TypeVar
+from typing import BinaryIO
 
 import structlog
 from pydantic import BaseModel
 
 logger = structlog.get_logger()
 
-T = TypeVar("T", bound=BaseModel)
 
-
-class FormatParser(ABC, Generic[T]):
+class FormatParser[T: BaseModel](ABC):
     """Base class for format parsers."""
 
     @abstractmethod

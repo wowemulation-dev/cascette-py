@@ -17,18 +17,18 @@ logger = structlog.get_logger()
 
 try:
     import lz4.block
-    HAS_LZ4 = True
+    has_lz4 = True
 except ImportError:
     lz4 = None  # type: ignore
-    HAS_LZ4 = False
+    has_lz4 = False
 
 try:
     from Crypto.Cipher import ARC4, Salsa20  # type: ignore[import-untyped]
-    HAS_CRYPTO = True
+    has_crypto = True
 except ImportError:
     ARC4 = None  # type: ignore[assignment]
     Salsa20 = None  # type: ignore[assignment]
-    HAS_CRYPTO = False
+    has_crypto = False
 
 
 class BLTEChunk(BaseModel):
@@ -306,7 +306,7 @@ class BLTEParser(FormatParser[BLTEFile]):
 
     def _decrypt_chunk(self, chunk: BLTEChunk) -> bytes:
         """Decrypt an encrypted chunk using TACT keys."""
-        if not HAS_CRYPTO:
+        if not has_crypto:
             raise ValueError("Encryption support not available - install pycryptodome")
 
         if not chunk.encryption_key_name:
@@ -327,7 +327,7 @@ class BLTEParser(FormatParser[BLTEFile]):
 
     def _decrypt_salsa20(self, data: bytes, key: bytes) -> bytes:
         """Decrypt using Salsa20 stream cipher."""
-        if not HAS_CRYPTO or Salsa20 is None:
+        if not has_crypto or Salsa20 is None:
             raise ValueError("Crypto support not available - install pycryptodome")
         if len(key) != 16:
             raise ValueError("Salsa20 key must be 16 bytes")
@@ -347,7 +347,7 @@ class BLTEParser(FormatParser[BLTEFile]):
 
     def _decrypt_arc4(self, data: bytes, key: bytes) -> bytes:
         """Decrypt using ARC4 stream cipher."""
-        if not HAS_CRYPTO or ARC4 is None:
+        if not has_crypto or ARC4 is None:
             raise ValueError("Crypto support not available - install pycryptodome")
         cipher = ARC4.new(key)
         return cipher.decrypt(data)
@@ -362,7 +362,7 @@ class BLTEParser(FormatParser[BLTEFile]):
             except zlib.error as e:
                 raise ValueError(f"ZLIB decompression failed: {e}") from e
         elif compression_mode == CompressionMode.LZ4:
-            if not HAS_LZ4 or lz4 is None:
+            if not has_lz4 or lz4 is None:
                 raise ValueError("LZ4 support not available - install lz4")
             try:
                 return lz4.block.decompress(data)
@@ -490,7 +490,7 @@ class BLTEBuilder:
         compressed_data = data
         if compression == CompressionMode.ZLIB:
             compressed_data = zlib.compress(data)
-        elif compression == CompressionMode.LZ4 and HAS_LZ4:
+        elif compression == CompressionMode.LZ4 and has_lz4:
             compressed_data = lz4.block.compress(data)  # type: ignore[attr-defined]
 
         # Create chunk
@@ -530,7 +530,7 @@ class BLTEBuilder:
             compressed_data = data
             if compression == CompressionMode.ZLIB:
                 compressed_data = zlib.compress(data)
-            elif compression == CompressionMode.LZ4 and HAS_LZ4:
+            elif compression == CompressionMode.LZ4 and has_lz4:
                 compressed_data = lz4.block.compress(data)  # type: ignore[attr-defined]
 
             # Create chunk

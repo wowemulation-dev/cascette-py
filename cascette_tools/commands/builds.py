@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -11,6 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from cascette_tools.core.config import AppConfig
+from cascette_tools.database.wago import WagoBuild
 
 
 def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, bool]:
@@ -96,7 +98,7 @@ def sync_builds(
                 progress.update(task, description=f"Fetched {len(builds)} builds")
 
             # Group builds by product for summary
-            by_product = {}
+            by_product: dict[str, list[WagoBuild]] = {}
             for build in builds:
                 if build.product not in by_product:
                     by_product[build.product] = []
@@ -110,8 +112,8 @@ def sync_builds(
             table.add_column("Date Range", style="magenta")
 
             for product, product_builds in sorted(by_product.items()):
-                versions = sorted({b.version for b in product_builds if b.version})
-                dates = sorted([b.build_time for b in product_builds if b.build_time])
+                versions: list[str] = sorted({b.version for b in product_builds if b.version})
+                dates: list[datetime] = sorted([b.build_time for b in product_builds if b.build_time])
 
                 version_range = f"{versions[0]} - {versions[-1]}" if versions else "N/A"
                 date_range = f"{dates[0].strftime('%Y-%m-%d')} - {dates[-1].strftime('%Y-%m-%d')}" if dates else "N/A"
@@ -254,7 +256,7 @@ def search_builds(
     field: str,
 ) -> None:
     """Search for builds matching a query."""
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, _, debug = _get_context_objects(ctx)
 
     try:
         from cascette_tools.database.wago import WagoClient
@@ -385,7 +387,7 @@ def export_builds(
     product: str | None,
 ) -> None:
     """Export build database to file."""
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, _, debug = _get_context_objects(ctx)
 
     try:
         from cascette_tools.database.wago import WagoClient
@@ -473,10 +475,10 @@ def import_builds(
     format: str | None,
 ) -> None:
     """Import builds from file to database."""
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, _, debug = _get_context_objects(ctx)
 
     try:
-        from cascette_tools.database.wago import WagoBuild, WagoClient
+        from cascette_tools.database.wago import WagoClient
 
         # Auto-detect format if not specified
         if not format:

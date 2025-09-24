@@ -432,7 +432,7 @@ class RootBuilder:
 
 def format_content_flags(flags: int) -> str:
     """Format content flags as human-readable string."""
-    flag_names = []
+    flag_names: list[str] = []
 
     if flags & 0x00000001:
         flag_names.append("LoadOnWindows")
@@ -476,7 +476,7 @@ def format_locale_flags(flags: int) -> str:
         0x00002000: "ptPT"
     }
 
-    active_locales = []
+    active_locales: list[str] = []
     for flag, locale in locales.items():
         if flags & flag:
             active_locales.append(locale)

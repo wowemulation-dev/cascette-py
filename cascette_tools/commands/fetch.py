@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
 
 import click
 import structlog
@@ -75,11 +73,6 @@ def _get_cdn_mirrors_for_product(product: str) -> list[str]:
             "http://level3.blizzard.com",
             "http://cdn.blizzard.com"
         ]
-
-
-def _output_json(data: dict[str, Any], console: Console) -> None:
-    """Output data as JSON."""
-    print(json.dumps(data, indent=2, default=str))
 
 
 def _save_file(data: bytes, output_path: Path, console: Console, verbose: bool) -> None:
@@ -193,7 +186,7 @@ def config(
 
     HASH_STR can be a configuration file hash.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -292,7 +285,7 @@ def data(
 
     HASH_STR can be an archive hash for data or index files.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -413,7 +406,7 @@ def build(
 
     If BUILD_ID is a number, looks it up in the build database for the specified product.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Create TACT and CDN clients
@@ -692,15 +685,15 @@ def build(
                         success = wago_client.update_build_ekeys(
                             build_id=build_info.id,
                             product=build_info.product,
-                            encoding_ekey=discovered_ekeys.get('encoding_ekey'),
-                            root_ekey=discovered_ekeys.get('root_ekey'),
-                            install_ekey=discovered_ekeys.get('install_ekey'),
-                            download_ekey=discovered_ekeys.get('download_ekey')
+                            encoding_ekey=discovered_ekeys.get('encoding_ekey'),  # type: ignore
+                            root_ekey=discovered_ekeys.get('root_ekey'),  # type: ignore
+                            install_ekey=discovered_ekeys.get('install_ekey'),  # type: ignore
+                            download_ekey=discovered_ekeys.get('download_ekey')  # type: ignore
                         )
 
                         if success:
                             if verbose:
-                                console.print(f"[dim]Updated database with {len(discovered_ekeys)} discovered EKEYs[/dim]")
+                                console.print(f"[dim]Updated database with {len(discovered_ekeys)} discovered EKEYs[/dim]")  # type: ignore
                         else:
                             if verbose:
                                 console.print("[yellow]Warning: Failed to update database with discovered EKEYs[/yellow]")
@@ -762,7 +755,7 @@ def encoding(
 
     HASH_STR must be an encoding file hash.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -895,11 +888,11 @@ def batch(
 
     INPUT_FILE should contain one hash per line.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Read hash list
-        hashes = []
+        hashes: list[str] = []
         with input_file.open('r') as f:
             for line_num, line in enumerate(f, 1):
                 hash_str = line.strip()
@@ -929,7 +922,7 @@ def batch(
             max_retries=config_obj.cdn_max_retries,
         )
 
-        failed_hashes = []
+        failed_hashes: list[tuple[str, str]] = []
         successful_downloads = 0
 
         def fetch_single_hash(hash_str: str) -> tuple[str, bool, str]:
@@ -1096,7 +1089,7 @@ def patch(
 
     HASH_STR can be a patch manifest or patch archive hash.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -1187,7 +1180,7 @@ def manifests(
     Downloads the core TACT API manifests that list available versions
     and CDN configurations.
     """
-    config_obj, console, verbose, debug = _get_context_objects(ctx)
+    _, console, _, _ = _get_context_objects(ctx)
 
     try:
         # Create TACT client

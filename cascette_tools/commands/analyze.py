@@ -151,8 +151,8 @@ def _analyze_blte_compression(data: bytes) -> dict[str, Any]:
         total_compressed = sum(chunk.compressed_size for chunk in blte_file.chunks)
         total_decompressed = sum(chunk.decompressed_size for chunk in blte_file.chunks)
 
-        compression_modes = defaultdict(int)
-        chunk_details = []
+        compression_modes: defaultdict[str, int] = defaultdict(int)
+        chunk_details: list[dict[str, Any]] = []
 
         for chunk in blte_file.chunks:
             mode = chunk.compression_mode.name
@@ -205,7 +205,7 @@ def stats(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -274,7 +274,7 @@ def dependencies(
     ENCODING_FILE can be either a file path or CDN hash.
     CONTENT_KEY should be a hex string of the content key to trace.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _, _ = _get_context_objects(ctx)
 
     try:
         # Validate content key
@@ -340,10 +340,10 @@ def coverage(
     ENCODING_FILE is required. ROOT_FILE and INSTALL_FILE are optional.
     All can be either file paths or CDN hashes.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _, _ = _get_context_objects(ctx)
 
     try:
-        coverage_data = {
+        coverage_data: dict[str, Any] = {
             "encoding_file": encoding_file,
             "root_file": root_file,
             "install_file": install_file
@@ -445,7 +445,7 @@ def compression(
     INPUT can be either a file path or CDN hash.
     Shows compression ratios and identifies poorly compressed content.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         # Fetch data
