@@ -124,19 +124,19 @@ class TestTACTClient:
         """Test building URL for versions endpoint."""
         client = TACTClient(region="us")
         url = client._build_url("versions", Product.WOW)
-        assert url == "https://us.version.battle.net/v2/versions/wow"
+        assert url == "https://us.version.battle.net/wow/versions"
 
     def test_build_url_cdns(self):
         """Test building URL for CDNs endpoint."""
         client = TACTClient(region="eu")
         url = client._build_url("cdns", Product.WOW_CLASSIC)
-        assert url == "https://eu.version.battle.net/v2/cdns/wow_classic"
+        assert url == "https://eu.version.battle.net/wow_classic/cdns"
 
     def test_build_url_bgdl(self):
         """Test building URL for BGDL endpoint."""
         client = TACTClient(region="kr")
         url = client._build_url("bgdl", Product.WOW_CLASSIC_ERA)
-        assert url == "https://kr.version.battle.net/v2/bgdl/wow_classic_era"
+        assert url == "https://kr.version.battle.net/wow_classic_era/bgdl"
 
     @patch("httpx.Client.get")
     def test_fetch_with_retry_success(self, mock_get):

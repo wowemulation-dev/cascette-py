@@ -11,6 +11,7 @@ import structlog
 from rich.console import Console
 
 from cascette_tools.commands.analyze import analyze
+from cascette_tools.commands.archive import archive
 from cascette_tools.commands.builds import builds_group
 from cascette_tools.commands.examine import examine
 from cascette_tools.commands.fetch import fetch
@@ -137,6 +138,7 @@ def version(ctx: click.Context) -> None:
 
 # Register commands
 main.add_command(analyze)
+main.add_command(archive)
 main.add_command(builds_group)
 main.add_command(examine)
 main.add_command(fetch)

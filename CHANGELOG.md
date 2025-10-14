@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CDN archive index parser supporting both regular archives and archive-groups
+- New `archive` CLI command for examining CDN archive indices and archive-groups
 - Battle.net agent/app examination support
 - Enhanced Wago.tools database integration for agent builds
 - Download manifest parser improvements for handling agent files
@@ -20,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pyright and ruff linting issues resolved
 - Type hints corrections across multiple modules
 - Test compatibility improvements
+
+### Changed
+
+- Documentation updated to reflect current CLI commands and coverage statistics
+- Migrated from mypy to pyright for type checking
+- Updated Python version requirement to 3.12+
+- Command references updated (`cascette builds sync` instead of deprecated commands)
+- Removed marketing language in favor of factual descriptions
 
 ## [0.1.0] - 2025-09-19
 
@@ -36,4 +46,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FileDataID to path mapping (listfile) support
 - Build database management commands
 - Comprehensive test suite with 80% coverage requirement
-

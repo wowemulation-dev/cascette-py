@@ -26,7 +26,7 @@ and parsing game data files.
 - **Async Support**: Efficient concurrent operations for network requests
 - **Caching**: Multi-layer caching for improved performance
 - **CLI Interface**: Rich command-line interface with comprehensive subcommands
-- **Test Coverage**: Comprehensive test suite with >80% coverage target
+- **Test Coverage**: Comprehensive test suite with 905 tests (74% coverage)
 
 ## Installation
 
@@ -186,7 +186,7 @@ pytest
 pytest --cov=cascette_tools --cov-report=html
 
 # Type checking
-mypy cascette_tools
+pyright cascette_tools
 
 # Code formatting
 black cascette_tools tests
@@ -206,7 +206,7 @@ All Python code in the cascette-tools package must pass these validation steps:
 ruff check cascette_tools tests        # Fast, comprehensive linting
 
 # Type checking and static analysis
-mypy cascette_tools                    # Strict type checking enabled
+pyright cascette_tools                 # Strict type checking enabled
 
 # Code formatting (auto-fix)
 black cascette_tools tests              # Consistent formatting
@@ -222,7 +222,7 @@ Before committing changes:
 ```bash
 # Run all quality checks
 ruff check cascette_tools tests && \
-mypy cascette_tools && \
+pyright cascette_tools && \
 pytest --cov=cascette_tools --cov-fail-under=80
 
 # Auto-fix formatting issues
@@ -236,7 +236,7 @@ The package enforces strict typing:
 
 - All functions have type hints
 - Pydantic models for data validation
-- `mypy` in strict mode catches type errors
+- `pyright` in strict mode catches type errors
 - Generic types for format parsers
 
 ### Testing Strategy
@@ -282,15 +282,15 @@ cascette fetch build wow 11.0.2.56461
 # Products include: wow, wow_classic, wow_classic_era, wowt, wow_beta
 ```
 
-**Why Wago.tools data is essential:**
+Wago.tools data provides:
 
-- **Complete History**: Only source with builds back to WoD 6.0.x
+- Complete build history from WoD 6.0.x onward
 
-- **All Products**: Covers retail, classic, PTR, beta branches
+- Coverage for retail, classic, PTR, and beta branches
 
-- **Fresh Data**: Updated regularly with new builds
+- Regular updates with new builds
 
-- **Reliable Access**: Wago.tools has better availability than official CDNs
+- Access to build metadata with good availability
 
 ### Quick Start
 
@@ -315,7 +315,7 @@ cascette analyze compression <blte_file>
 
 | Command | Purpose | Usage |
 |---------|---------|--------|
-| **`cascette fetch wago-builds`** | **Fetch WoW build database from Wago.tools** | **`cascette fetch wago-builds`** |
+| **`cascette builds sync`** | **Fetch WoW build database from Wago.tools** | **`cascette builds sync`** |
 
 ### Core Examination Commands
 
@@ -401,7 +401,7 @@ verification process:
 
 ```bash
 # Step 1: Fetch build database (one-time setup)
-cascette fetch wago-builds
+cascette builds sync
 
 # Step 2: Test all tools are working
 cascette validate tools
@@ -431,9 +431,9 @@ cascette analyze cache --list --detailed
 
 ```bash
 # Fetch comprehensive WoW build database (1,900+ builds)
-cascette fetch wago-builds
+cascette builds sync
 
-# This creates test_data/wago-builds-TIMESTAMP.json with all build metadata
+# This creates local database with all build metadata
 # All other commands automatically detect and use this data
 ```
 
@@ -445,7 +445,7 @@ Verify the tools are working correctly:
 
 ```bash
 # Fetch Wago build database
-cascette fetch wago-builds
+cascette builds sync
 
 # Test fetching a config file
 cascette fetch config <hash>
@@ -687,7 +687,7 @@ The package requires:
 
 ### System Requirements
 
-- Python 3.10+ (uses type hints and match statements)
+- Python 3.12+ (uses type hints and match statements)
 
 - Internet connection for initial downloads
 
@@ -700,7 +700,7 @@ For development and testing:
 - `pytest` - Testing framework
 - `pytest-cov` - Coverage reporting
 - `pytest-asyncio` - Async test support
-- `mypy` - Type checking
+- `pyright` - Type checking
 - `ruff` - Fast Python linter
 - `black` - Code formatting
 
@@ -725,7 +725,7 @@ cascette validate root-transitions
 
 **Missing Build Data**:
 
-- Ensure you've run `cascette fetch wago-builds` first
+- Ensure you've run `cascette builds sync` first
 
 - Verify build configuration hashes are correct
 
@@ -761,7 +761,7 @@ pytest
 pytest --cov=cascette_tools
 
 # Type checking
-mypy cascette_tools
+pyright cascette_tools
 
 # Linting
 ruff check cascette_tools tests

@@ -103,12 +103,7 @@ class TestDownloadParser:
         data.write(struct.pack('B', 0))  # Has checksum: no
         data.write(struct.pack('>I', 2))  # Entry count: 2
         data.write(struct.pack('>H', 1))  # Tag count: 1
-        data.write(b'\x00')  # Reserved
-
-        # Tag: "Windows" type 1, affects files 0 and 1
-        data.write(b'Windows\x00')  # Tag name
-        data.write(struct.pack('>H', 1))  # Tag type
-        data.write(b'\x03')  # Bitmask: 0b00000011 (files 0 and 1)
+        # No reserved byte for version 1
 
         # Entry 0: ekey, size 1000, priority 10
         data.write(b'\x01\x02\x03\x04\x05\x06\x07\x08\x09')  # EKey
@@ -119,6 +114,11 @@ class TestDownloadParser:
         data.write(b'\x11\x12\x13\x14\x15\x16\x17\x18\x19')  # EKey
         data.write(struct.pack('>Q', 2000)[3:])  # Size (5 bytes)
         data.write(struct.pack('B', 20))  # Priority
+
+        # Tag: "Windows" type 1, affects files 0 and 1 (version 1: tags come AFTER entries)
+        data.write(b'Windows\x00')  # Tag name
+        data.write(struct.pack('>H', 1))  # Tag type
+        data.write(b'\x03')  # Bitmask: 0b00000011 (files 0 and 1)
 
         parser = DownloadParser()
         result = parser.parse(data.getvalue())
@@ -160,7 +160,7 @@ class TestDownloadParser:
         data.write(struct.pack('B', 1))  # Has checksum: yes
         data.write(struct.pack('>I', 1))  # Entry count: 1
         data.write(struct.pack('>H', 0))  # Tag count: 0
-        data.write(b'\x00')  # Reserved
+        # No reserved byte for version 1
 
         # Entry 0: ekey, size 500, priority 5, checksum
         data.write(b'\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10')  # EKey (16 bytes)
@@ -195,7 +195,7 @@ class TestDownloadParser:
         data.write(struct.pack('B', 0))  # Has checksum: no
         data.write(struct.pack('>I', 1))  # Entry count: 1
         data.write(struct.pack('>H', 0))  # Tag count: 0
-        data.write(b'\x00')  # Reserved
+        # No reserved byte for version 1
 
         # Entry with large size (1TB = 2^40 bytes)
         large_size = (1 << 40) - 1  # Maximum 40-bit value
@@ -237,7 +237,7 @@ class TestDownloadParser:
             b'\x00'  # Has checksum: no
             b'\x00\x00\x00\x00'  # Entry count: 0 (big-endian)
             b'\x00\x00'  # Tag count: 0 (big-endian)
-            b'\x00'  # Reserved
+            # No reserved byte for version 1
         )
 
         assert data == expected
@@ -463,8 +463,8 @@ class TestDownloadParser:
         with pytest.raises(ValueError, match="Insufficient data for header"):
             parser.parse(b'DL\x01\x09\x00')
 
-        # Missing reserved byte
-        with pytest.raises(ValueError, match="Insufficient data for reserved byte"):
+        # Missing entry data (version 1 has no reserved byte, goes straight to entries)
+        with pytest.raises(ValueError, match="Insufficient data for encoding key at entry 0"):
             parser.parse(b'DL\x01\x09\x00\x00\x00\x00\x01\x00\x01')
 
     def test_build_validation_errors(self):

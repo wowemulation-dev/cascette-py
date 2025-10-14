@@ -135,7 +135,7 @@ def lookup_file(ctx: click.Context, identifier: str) -> None:
         table.add_column("Value", style="green")
 
         table.add_row("FileDataID", str(result["fdid"]))
-        table.add_row("Path", result["path"])
+        table.add_row("Path", str(result["path"]))
 
         # Get file info
         if "." in result["path"]:

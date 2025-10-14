@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import Mock, patch
 
 import pytest
@@ -231,6 +230,10 @@ class TestFetchCommands:
         mock_context_objects
     ):
         """Test build command fetching build by version string."""
+        # Add cdn_timeout and cdn_max_retries to the mock config object
+        config_obj, cache_obj, _, _ = mock_context_objects
+        config_obj.cdn_timeout = 30.0
+        config_obj.cdn_max_retries = 3
         mock_get_context.return_value = mock_context_objects
         mock_tact = Mock()
         mock_tact_class.return_value = mock_tact
@@ -244,35 +247,59 @@ class TestFetchCommands:
             with patch("cascette_tools.commands.fetch.BuildConfigParser") as mock_parser_class:
                 with patch("cascette_tools.commands.fetch.Progress") as mock_progress_class:
                     with patch("cascette_tools.commands.fetch._save_file"):
-                        mock_cdn = Mock()
-                        mock_cdn.fetch_config.return_value = b"build config data"
+                        with patch("pathlib.Path.mkdir"):
+                          with patch("cascette_tools.database.wago.WagoClient") as mock_wago_class:
+                              # Setup WagoClient context manager
+                              mock_wago = Mock()
+                              mock_wago.get_builds.return_value = []  # Return empty builds
+                              # Create a mock build that matches what the command expects
+                              mock_build = Mock()
+                              mock_build.product = "wow"
+                              mock_build.build_config = "build_hash"
+                              mock_build.cdn_config = "cdn_hash"
+                              mock_build.version = "11.0.2.56461"
+                              mock_wago.search_builds.return_value = [mock_build]  # Return the mock build
+                              mock_wago_instance = Mock()
+                              mock_wago_instance.__enter__ = Mock(return_value=mock_wago)
+                              mock_wago_instance.__exit__ = Mock(return_value=None)
+                              mock_wago_class.return_value = mock_wago_instance
 
-                        # Setup context manager properly
-                        mock_cdn_instance = Mock()
-                        mock_cdn_instance.__enter__ = Mock(return_value=mock_cdn)
-                        mock_cdn_instance.__exit__ = Mock(return_value=None)
-                        mock_cdn_class.return_value = mock_cdn_instance
+                              mock_cdn = Mock()
+                              mock_cdn.fetch_config.return_value = b"build config data"
 
-                        # Setup context manager properly for Progress
-                        mock_progress = Mock()
-                        mock_progress_instance = Mock()
-                        mock_progress_instance.__enter__ = Mock(return_value=mock_progress)
-                        mock_progress_instance.__exit__ = Mock(return_value=None)
-                        mock_progress_class.return_value = mock_progress_instance
-                        mock_progress.add_task = Mock(return_value=1)
-                        mock_progress.update = Mock()
+                              # Setup context manager properly
+                              mock_cdn_instance = Mock()
+                              mock_cdn_instance.__enter__ = Mock(return_value=mock_cdn)
+                              mock_cdn_instance.__exit__ = Mock(return_value=None)
+                              mock_cdn_class.return_value = mock_cdn_instance
 
-                        mock_parser = Mock()
-                        mock_parser_class.return_value = mock_parser
-                        mock_build_config = Mock()
-                        mock_build_config.extra_fields = {}
-                        mock_parser.parse.return_value = mock_build_config
+                              # Setup context manager properly for Progress
+                              mock_progress = Mock()
+                              mock_progress_instance = Mock()
+                              mock_progress_instance.__enter__ = Mock(return_value=mock_progress)
+                              mock_progress_instance.__exit__ = Mock(return_value=None)
+                              mock_progress_class.return_value = mock_progress_instance
+                              mock_progress.add_task = Mock(return_value=1)
+                              mock_progress.update = Mock()
 
-                        result = runner.invoke(fetch, ["build", "11.0.2.56461"])
+                              mock_parser = Mock()
+                              mock_parser_class.return_value = mock_parser
+                              mock_build_config = Mock()
+                              mock_build_config.extra_fields = {}
+                              mock_parser.parse.return_value = mock_build_config
 
-                        assert result.exit_code == 0
-                        mock_tact.fetch_versions.assert_called_once()
-                        mock_tact.parse_versions.assert_called_once()
+                              result = runner.invoke(fetch, ["build", "11.0.2.56461", "--output-dir", "/tmp"])
+
+                              # Debug output on failure
+                              if result.exit_code != 0:
+                                  print(f"Exit code: {result.exit_code}")
+                                  print(f"Output: {result.output}")
+                                  if result.exception:
+                                      import traceback
+                                      traceback.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
+                              assert result.exit_code == 0
+                              # When searching Wago succeeds, TACT isn't used
+                              mock_wago.search_builds.assert_called_once_with("11.0.2.56461", field="build")
 
     @patch("cascette_tools.commands.fetch._get_context_objects")
     @patch("cascette_tools.commands.fetch.CDNClient")
@@ -753,123 +780,4 @@ class TestFetchUtilityFunctions:
 
         mock_console.print.assert_called()
 
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedConfigCommand:
-    """Advanced tests for config command functionality."""
-
-    def test_config_auto_detection(self):
-        """Test config command with auto-detection of config type."""
-        pass
-
-    def test_config_all_types(self):
-        """Test config command with all supported config types."""
-        pass
-
-    def test_config_all_products_and_regions(self):
-        """Test config command with different products and regions."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedDataCommand:
-    """Advanced tests for data command functionality."""
-
-    def test_data_index_file(self):
-        """Test data command fetching index file."""
-        pass
-
-    def test_data_with_decompression(self):
-        """Test data command with decompression option."""
-        pass
-
-    def test_data_show_info(self):
-        """Test data command with show-info option."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedBuildCommand:
-    """Advanced tests for build command functionality."""
-
-    def test_build_with_hash(self):
-        """Test build command with build config hash."""
-        pass
-
-    def test_build_with_manifests(self):
-        """Test build command with manifest downloading."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedEncodingCommand:
-    """Advanced tests for encoding command functionality."""
-
-    def test_encoding_show_stats(self):
-        """Test encoding command with statistics display."""
-        pass
-
-    def test_encoding_with_decompression(self):
-        """Test encoding command with BLTE decompression."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedBatchCommand:
-    """Advanced tests for batch command functionality."""
-
-    def test_batch_different_file_types(self):
-        """Test batch command with different file types."""
-        pass
-
-    def test_batch_with_max_workers(self):
-        """Test batch command with different worker limits."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedPatchCommand:
-    """Advanced tests for patch command functionality."""
-
-    def test_patch_index_file(self):
-        """Test patch command fetching index file."""
-        pass
-
-    def test_patch_show_info(self):
-        """Test patch command with show-info option."""
-        pass
-
-    def test_patch_different_products_regions(self):
-        """Test patch command with different products and regions."""
-        pass
-
-
-@pytest.mark.skip(reason="Advanced test class - complex mocking setup issues")
-class TestAdvancedManifestsCommand:
-    """Advanced tests for manifests command functionality."""
-
-    def test_manifests_with_latest(self):
-        """Test manifests command with latest version display."""
-        pass
-
-    def test_manifests_different_products(self):
-        """Test manifests command with different products."""
-        pass
-
-
-@pytest.mark.skip(reason="Error handling test class - complex mocking setup issues")
-class TestErrorHandlingAndEdgeCases:
-    """Test error handling and edge cases across all commands."""
-
-    def test_invalid_hash_formats(self):
-        """Test all commands handle invalid hash formats."""
-        pass
-
-    def test_network_errors(self):
-        """Test network error handling across commands."""
-        pass
-
-    def test_build_edge_cases(self):
-        """Test build command edge cases."""
-        pass
 

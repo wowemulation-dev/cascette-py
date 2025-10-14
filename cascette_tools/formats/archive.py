@@ -1,4 +1,9 @@
-"""Archive index format parser for NGDP/CASC."""
+"""Legacy chunked archive index format parser for NGDP/CASC.
+
+This handles the older chunked archive index format with multiple chunks
+and a table of contents. For modern CDN archive indices (including
+archive-groups), use cdn_archive.py instead.
+"""
 
 from __future__ import annotations
 

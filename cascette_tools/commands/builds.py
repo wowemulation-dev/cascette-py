@@ -490,7 +490,7 @@ def import_builds(
                 console.print("[red]Cannot auto-detect format. Please specify --format[/red]")
                 raise click.Abort()
 
-        builds = []
+        builds: list[WagoBuild] = []
 
         if format == "json":
             with open(input) as f:

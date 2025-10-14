@@ -114,7 +114,7 @@ def sample_wago_response():
 
 
 @pytest.fixture
-def sample_wago_builds():
+def sample_builds():
     """Sample WagoBuild instances for testing."""
     return [
         WagoBuild(
@@ -190,9 +190,9 @@ class TestWagoBuild:
         assert build.cdn_config == "def456abc123"
         assert build.encoding_ekey == "encoding123"
 
-    def test_model_serialization(self, sample_wago_builds):
+    def test_model_serialization(self, sample_builds):
         """Test model serialization and deserialization."""
-        build = sample_wago_builds[0]
+        build = sample_builds[0]
 
         # Test serialization
         data = build.model_dump()
@@ -330,11 +330,11 @@ class TestWagoClient:
 
         assert not wago_client._is_cache_valid()
 
-    def test_load_cache(self, wago_client, sample_wago_builds):
+    def test_load_cache(self, wago_client, sample_builds):
         """Test loading cache."""
         # Prepare cache data
         cache_data = []
-        for build in sample_wago_builds:
+        for build in sample_builds:
             data = build.model_dump()
             if data.get("build_time"):
                 data["build_time"] = data["build_time"].isoformat()
@@ -348,11 +348,11 @@ class TestWagoClient:
         assert len(builds) == 2
         assert builds[0].id == 12345
         assert builds[0].version == "11.0.5.56647"
-        assert builds[0].build_time == sample_wago_builds[0].build_time
+        assert builds[0].build_time == sample_builds[0].build_time
 
-    def test_save_cache(self, wago_client, sample_wago_builds):
+    def test_save_cache(self, wago_client, sample_builds):
         """Test saving cache."""
-        wago_client._save_cache(sample_wago_builds)
+        wago_client._save_cache(sample_builds)
 
         # Verify cache file
         assert wago_client.cache_file.exists()
@@ -407,10 +407,10 @@ class TestWagoClient:
             wago_client.fetch_builds(force_refresh=True)
 
     @patch("httpx.Client.get")
-    def test_fetch_builds_api_error_with_cache_fallback(self, mock_get, wago_client, sample_wago_builds):
+    def test_fetch_builds_api_error_with_cache_fallback(self, mock_get, wago_client, sample_builds):
         """Test API error with cache fallback."""
         # Create expired cache
-        wago_client._save_cache(sample_wago_builds)
+        wago_client._save_cache(sample_builds)
 
         # Mock API error
         mock_get.side_effect = httpx.HTTPError("API Error")
@@ -419,10 +419,10 @@ class TestWagoClient:
         builds = wago_client.fetch_builds(force_refresh=True)
         assert len(builds) == 2
 
-    def test_fetch_builds_use_cache(self, wago_client, sample_wago_builds):
+    def test_fetch_builds_use_cache(self, wago_client, sample_builds):
         """Test using valid cache instead of API."""
         # Create valid cache
-        wago_client._save_cache(sample_wago_builds)
+        wago_client._save_cache(sample_builds)
 
         with patch("httpx.Client.get") as mock_get:
             builds = wago_client.fetch_builds()
@@ -501,10 +501,10 @@ class TestWagoClient:
             latest = wago_client.get_latest_build(Product.WOW, force_refresh=True)
             assert latest is None
 
-    def test_clear_cache(self, wago_client, sample_wago_builds):
+    def test_clear_cache(self, wago_client, sample_builds):
         """Test clearing cache."""
         # Create cache
-        wago_client._save_cache(sample_wago_builds)
+        wago_client._save_cache(sample_builds)
         assert wago_client.cache_file.exists()
         assert wago_client.metadata_file.exists()
 
@@ -525,9 +525,9 @@ class TestWagoClient:
         assert status["valid"] is False
         assert status["exists"] is False
 
-    def test_get_cache_status_valid(self, wago_client, sample_wago_builds):
+    def test_get_cache_status_valid(self, wago_client, sample_builds):
         """Test cache status when cache is valid."""
-        wago_client._save_cache(sample_wago_builds)
+        wago_client._save_cache(sample_builds)
 
         status = wago_client.get_cache_status()
 
@@ -665,15 +665,15 @@ class TestWagoClientDatabase:
         # Check schema exists
         cursor = wago_client.conn.execute("""
             SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN ('wago_builds', 'wago_import_log')
+            WHERE type='table' AND name IN ('builds', 'wago_import_log')
         """)
         tables = [row[0] for row in cursor]
-        assert "wago_builds" in tables
+        assert "builds" in tables
         assert "wago_import_log" in tables
 
-    def test_import_builds_to_database(self, wago_client, sample_wago_builds):
+    def test_import_builds_to_database(self, wago_client, sample_builds):
         """Test importing builds to database."""
-        stats = wago_client.import_builds_to_database(sample_wago_builds)
+        stats = wago_client.import_builds_to_database(sample_builds)
 
         assert stats["fetched"] == 2
         assert stats["imported"] == 2
@@ -681,7 +681,7 @@ class TestWagoClientDatabase:
         assert stats["skipped"] == 0
 
         # Verify builds in database
-        cursor = wago_client.conn.execute("SELECT COUNT(*) FROM wago_builds")
+        cursor = wago_client.conn.execute("SELECT COUNT(*) FROM builds")
         count = cursor.fetchone()[0]
         assert count == 2
 
@@ -692,13 +692,13 @@ class TestWagoClientDatabase:
         assert log_entry["builds_fetched"] == 2
         assert log_entry["builds_imported"] == 2
 
-    def test_import_builds_update_existing(self, wago_client, sample_wago_builds):
+    def test_import_builds_update_existing(self, wago_client, sample_builds):
         """Test updating existing builds in database."""
         # First import
-        wago_client.import_builds_to_database(sample_wago_builds)
+        wago_client.import_builds_to_database(sample_builds)
 
         # Modify build and import again
-        updated_build = sample_wago_builds[0].model_copy()
+        updated_build = sample_builds[0].model_copy()
         updated_build.version = "11.0.5.56647-updated"
         updated_build.build_config = "updated_config_hash"
 
@@ -710,17 +710,17 @@ class TestWagoClientDatabase:
 
         # Verify update in database
         cursor = wago_client.conn.execute(
-            "SELECT version, build_config FROM wago_builds WHERE id = ?",
+            "SELECT version, build_config FROM builds WHERE id = ?",
             (updated_build.id,)
         )
         row = cursor.fetchone()
         assert row["version"] == "11.0.5.56647-updated"
         assert row["build_config"] == "updated_config_hash"
 
-    def test_get_database_builds(self, wago_client, sample_wago_builds):
+    def test_get_database_builds(self, wago_client, sample_builds):
         """Test retrieving builds from database."""
         # Import builds
-        wago_client.import_builds_to_database(sample_wago_builds)
+        wago_client.import_builds_to_database(sample_builds)
 
         # Get all builds
         builds = wago_client.get_database_builds()
@@ -741,10 +741,10 @@ class TestWagoClientDatabase:
         builds = wago_client.get_database_builds()
         assert builds == []
 
-    def test_find_database_build(self, wago_client, sample_wago_builds):
+    def test_find_database_build(self, wago_client, sample_builds):
         """Test finding specific build in database."""
         # Import builds
-        wago_client.import_builds_to_database(sample_wago_builds)
+        wago_client.import_builds_to_database(sample_builds)
 
         # Find existing build
         build = wago_client.find_database_build("11.0.5.56647")
@@ -764,10 +764,10 @@ class TestWagoClientDatabase:
         build = wago_client.find_database_build("11.0.5.56647", product="wow_classic")
         assert build is None
 
-    def test_get_import_statistics(self, wago_client, sample_wago_builds):
+    def test_get_import_statistics(self, wago_client, sample_builds):
         """Test getting import statistics."""
         # Import builds
-        wago_client.import_builds_to_database(sample_wago_builds)
+        wago_client.import_builds_to_database(sample_builds)
 
         stats = wago_client.get_import_statistics()
 
@@ -816,15 +816,15 @@ class TestWagoClientDatabase:
         assert stats["imported"] == 4
 
         # Verify in database
-        cursor = wago_client.conn.execute("SELECT COUNT(*) FROM wago_builds")
+        cursor = wago_client.conn.execute("SELECT COUNT(*) FROM builds")
         count = cursor.fetchone()[0]
         assert count == 4
 
-    def test_import_error_logging(self, wago_client, sample_wago_builds):
+    def test_import_error_logging(self, wago_client, sample_builds):
         """Test error logging during import."""
         # Create a scenario that will cause database constraint violation
         # by inserting the same build twice without proper handling
-        build = sample_wago_builds[0]
+        build = sample_builds[0]
 
         # First insert should succeed
         wago_client.import_builds_to_database([build])
@@ -832,7 +832,7 @@ class TestWagoClientDatabase:
         # Manually insert duplicate to create constraint violation
         try:
             wago_client.conn.execute("""
-                INSERT INTO wago_builds (
+                INSERT INTO builds (
                     id, build, version, product
                 ) VALUES (?, ?, ?, ?)
             """, (build.id, build.build, build.version, build.product))
@@ -844,7 +844,7 @@ class TestWagoClientDatabase:
         # The import error logging is tested through exception paths in the code
         # Let's just verify the database has proper constraints
         cursor = wago_client.conn.execute(
-            "SELECT COUNT(*) FROM wago_builds WHERE id = ? AND product = ?",
+            "SELECT COUNT(*) FROM builds WHERE id = ? AND product = ?",
             (build.id, build.product)
         )
         count = cursor.fetchone()[0]
@@ -871,18 +871,18 @@ class TestWagoClientDatabase:
         with pytest.raises(sqlite3.ProgrammingError):
             wago_client._conn.execute("SELECT 1")
 
-    def test_incremental_import_preserves_data(self, wago_client, sample_wago_builds):
+    def test_incremental_import_preserves_data(self, wago_client, sample_builds):
         """Test that incremental imports preserve existing data."""
         # First import
-        wago_client.import_builds_to_database(sample_wago_builds[:1])
+        wago_client.import_builds_to_database(sample_builds[:1])
         assert len(wago_client.get_database_builds()) == 1
 
         # Second import with additional builds
-        wago_client.import_builds_to_database(sample_wago_builds[1:])
+        wago_client.import_builds_to_database(sample_builds[1:])
         assert len(wago_client.get_database_builds()) == 2
 
         # Third import with all builds (should not duplicate)
-        stats = wago_client.import_builds_to_database(sample_wago_builds)
+        stats = wago_client.import_builds_to_database(sample_builds)
         assert stats["imported"] == 0  # No new imports
         assert stats["updated"] == 2   # All existing updated
         assert len(wago_client.get_database_builds()) == 2

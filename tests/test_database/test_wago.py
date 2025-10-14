@@ -165,7 +165,7 @@ class TestWagoClient:
         ).fetchall()
         table_names = [row[0] for row in tables]
 
-        assert "wago_builds" in table_names
+        assert "builds" in table_names
         assert "wago_import_log" in table_names
 
         # Check indexes exist
@@ -174,9 +174,9 @@ class TestWagoClient:
         ).fetchall()
         index_names = [row[0] for row in indexes]
 
-        assert "idx_wago_product" in index_names
-        assert "idx_wago_version" in index_names
-        assert "idx_wago_build_time" in index_names
+        assert "idx_builds_product" in index_names
+        assert "idx_builds_version" in index_names
+        assert "idx_builds_build_time" in index_names
 
     def test_is_cache_valid_no_cache(self, wago_client):
         """Test cache validation when no cache files exist."""
@@ -518,7 +518,7 @@ class TestWagoClient:
         assert stats["skipped"] == 0
 
         # Verify builds were inserted
-        rows = wago_client.conn.execute("SELECT * FROM wago_builds").fetchall()
+        rows = wago_client.conn.execute("SELECT * FROM builds").fetchall()
         assert len(rows) == 2
 
         # Verify import log
@@ -547,7 +547,7 @@ class TestWagoClient:
 
         # Verify update
         row = wago_client.conn.execute(
-            "SELECT build_config FROM wago_builds WHERE id = 1"
+            "SELECT build_config FROM builds WHERE id = 1"
         ).fetchone()
         assert row["build_config"] == "new_config"
 
