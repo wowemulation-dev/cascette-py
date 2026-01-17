@@ -296,7 +296,7 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
 
     def _parse_control_entries(self, control_data: bytes) -> list[ZbsdiffControlEntry]:
         """Parse control block into entries."""
-        entries = []
+        entries: list[ZbsdiffControlEntry] = []
         offset = 0
         entry_size = 24  # 3 signed 64-bit integers
 

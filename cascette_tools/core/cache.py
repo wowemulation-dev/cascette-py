@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -40,6 +41,7 @@ class DiskCache:
         self.cdn_dir = self.base_dir / "cdn"
         self.api_dir = self.base_dir / "api"
         self.metadata_file = self.base_dir / "metadata.json"
+        self.metadata: dict[str, Any] = {}
 
         # Ensure directories exist
         self.cdn_dir.mkdir(parents=True, exist_ok=True)
@@ -53,7 +55,12 @@ class DiskCache:
         if self.metadata_file.exists():
             try:
                 with open(self.metadata_file, encoding="utf-8") as f:
-                    self.metadata = json.load(f)
+                    loaded_data: Any = json.load(f)
+                    if isinstance(loaded_data, dict):
+                        self.metadata = loaded_data
+                    else:
+                        logger.warning("metadata_invalid_format", type=type(loaded_data).__name__)
+                        self.metadata = {}
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("metadata_load_failed", error=str(e))
                 self.metadata = {}
@@ -86,12 +93,18 @@ class DiskCache:
         """
         self.metadata["last_updated"] = time.time()
 
-        stats = self.metadata["statistics"]
+        stats: Any = self.metadata["statistics"]
+        if not isinstance(stats, dict):
+            stats = {}
+            self.metadata["statistics"] = stats
+
         if file_type not in stats:
             stats[file_type] = {"count": 0, "total_size": 0}
 
-        stats[file_type]["count"] += 1
-        stats[file_type]["total_size"] += size
+        type_stats: Any = stats[file_type]
+        if isinstance(type_stats, dict):
+            type_stats["count"] = type_stats.get("count", 0) + 1
+            type_stats["total_size"] = type_stats.get("total_size", 0) + size
 
         self._save_metadata()
 

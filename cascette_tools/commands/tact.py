@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import click
 from rich.console import Console
@@ -209,21 +210,33 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
             import csv
             import json
 
-            keys_to_import = []
+            keys_to_import: list[dict[str, Any]] = []
 
             if format == "json":
                 with open(input_file) as f:
-                    data = json.load(f)
+                    data: Any = json.load(f)
                     # Handle both list and dict formats
                     if isinstance(data, list):
-                        keys_to_import = data
+                        # Ensure data is list of dicts
+                        for item in data:
+                            if isinstance(item, dict):
+                                # Annotate type for item as dict
+                                item_dict = cast(dict[str, Any], item)
+                                keys_to_import.append(item_dict)
                     elif isinstance(data, dict):
                         # Flatten dict format {"family": [keys...]}
-                        for family, keys in data.items():
-                            for key in keys:
-                                if not key.get("family"):
-                                    key["family"] = family
-                                keys_to_import.append(key)
+                        data_dict = cast(dict[str, Any], data)
+                        for family_key, family_keys in data_dict.items():
+                            # Annotate types
+                            family_key = cast(str, family_key)
+                            family_keys = cast(Any, family_keys)
+                            if isinstance(family_keys, list):
+                                for key_item in family_keys:
+                                    if isinstance(key_item, dict):
+                                        key_dict = cast(dict[str, Any], key_item)
+                                        if not key_dict.get("family"):
+                                            key_dict["family"] = family_key
+                                        keys_to_import.append(key_dict)
             else:  # CSV format
                 with open(input_file, newline='') as f:
                     reader = csv.DictReader(f)
@@ -239,15 +252,15 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
             # Convert dicts to TACTKey objects
             from cascette_tools.database.tact_keys import TACTKey
 
-            tact_keys = []
+            tact_keys: list[TACTKey] = []
             for key_dict in keys_to_import:
                 # Map field names from import format to TACTKey model
                 tact_key = TACTKey(
-                    key_name=key_dict.get("key_id", key_dict.get("key_name", "")),
-                    key_value=key_dict.get("key", key_dict.get("key_value", "")),
-                    description=key_dict.get("description"),
-                    product_family=key_dict.get("family", key_dict.get("product_family", "wow")),
-                    verified=key_dict.get("verified", False)
+                    key_name=str(key_dict.get("key_id", key_dict.get("key_name", ""))),
+                    key_value=str(key_dict.get("key", key_dict.get("key_value", ""))),
+                    description=str(key_dict.get("description")) if key_dict.get("description") else None,
+                    product_family=str(key_dict.get("family", key_dict.get("product_family", "wow"))),
+                    verified=bool(key_dict.get("verified", False))
                 )
                 tact_keys.append(tact_key)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import click
 import structlog
@@ -60,6 +60,89 @@ from cascette_tools.formats.config import (
 logger = structlog.get_logger()
 
 
+class CheckResult(TypedDict):
+    """Result of an integrity check."""
+    type: str
+    valid: bool
+    message: str
+    expected: str | None
+    computed: str | None
+    decompressed_size: int | None
+    decompressed_md5: str | None
+
+
+class IntegrityResults(TypedDict):
+    """Results of integrity checking."""
+    file: str
+    file_size: int
+    file_md5: str
+    checks: list[CheckResult]
+    overall_valid: bool
+
+
+class FileResult(TypedDict):
+    """Result of validating a single file."""
+    path: str
+    absolute_path: str
+    size: int
+    md5: str | None
+    format: str | None
+    valid: bool
+    structure_valid: bool
+    structure_message: str
+    checksum_valid: bool
+    checksum_message: str
+    error: str | None
+
+
+class FormatCounts(TypedDict):
+    """Count of valid/invalid files per format."""
+    valid: int
+    invalid: int
+
+
+class BatchSummary(TypedDict):
+    """Summary of batch validation results."""
+    valid: int
+    invalid: int
+    errors: int
+    by_format: dict[str, FormatCounts]
+
+
+class BatchResults(TypedDict):
+    """Results of batch validation."""
+    directory: str
+    pattern: str
+    recursive: bool
+    format_filter: str | None
+    total_files: int
+    files: list[FileResult]
+    summary: BatchSummary
+
+
+class RelationshipCheck(TypedDict):
+    """Result of a relationship check."""
+    type: str
+    total_checked: int | None
+    found: int | None
+    missing: int | None
+    install_entries: int | None
+    download_entries: int | None
+    found_in_root: int | None
+    missing_in_root: int | None
+    valid: bool
+
+
+class RelationshipResults(TypedDict):
+    """Results of relationship validation."""
+    root_file: str
+    encoding_file: str
+    root_content_keys: int
+    encoding_available: int
+    checks: list[RelationshipCheck]
+    overall_valid: bool
+
+
 def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, bool]:
     """Extract common context objects."""
     config: AppConfig = ctx.obj["config"]
@@ -69,7 +152,7 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
-def _output_json(data: dict[str, Any], console: Console) -> None:
+def _output_json(data: dict[str, Any] | IntegrityResults | RelationshipResults | BatchResults, console: Console) -> None:
     """Output data as JSON."""
     print(json.dumps(data, indent=2, default=str))
 
@@ -147,7 +230,7 @@ def _detect_format_type(data: bytes) -> str | None:
 
 def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str, dict[str, Any]]:
     """Validate format structure and return validation info."""
-    info = {}
+    info: dict[str, Any] = {}
 
     try:
         if format_type == "blte":
@@ -251,7 +334,7 @@ def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str
 
 def _validate_checksums(data: bytes, format_type: str) -> tuple[bool, str, dict[str, Any]]:
     """Validate checksums within the format."""
-    info = {}
+    info: dict[str, Any] = {}
 
     try:
         if format_type == "blte":
@@ -333,7 +416,7 @@ def format(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -355,7 +438,7 @@ def format(
         overall_valid = structure_valid and checksum_valid
 
         if config.output_format == "json":
-            result = {
+            result: dict[str, Any] = {
                 "file": input_path,
                 "format_type": format_type,
                 "file_size": len(data),
@@ -440,7 +523,7 @@ def integrity(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -449,11 +532,12 @@ def integrity(
         # Compute file MD5
         file_md5 = compute_md5(data)
 
-        results = {
+        results: IntegrityResults = {
             "file": input_path,
             "file_size": len(data),
             "file_md5": file_md5.hex(),
-            "checks": []
+            "checks": [],
+            "overall_valid": True
         }
 
         if check_md5:
@@ -464,13 +548,16 @@ def integrity(
                 computed_hash = file_md5.hex().lower()
                 md5_match = expected_hash == computed_hash
 
-                results["checks"].append({
+                check_result: CheckResult = {
                     "type": "md5_verification",
                     "valid": md5_match,
+                    "message": "MD5 matches" if md5_match else "MD5 mismatch",
                     "expected": expected_hash,
                     "computed": computed_hash,
-                    "message": "MD5 matches" if md5_match else "MD5 mismatch"
-                })
+                    "decompressed_size": None,
+                    "decompressed_md5": None
+                }
+                results["checks"].append(check_result)
 
         if check_blte and is_blte(data):
             try:
@@ -478,23 +565,31 @@ def integrity(
                 decompressed = decompress_blte(data)
                 decompressed_md5 = compute_md5(decompressed)
 
-                results["checks"].append({
+                check_result_blte: CheckResult = {
                     "type": "blte_decompression",
                     "valid": True,
+                    "message": "BLTE decompression successful",
+                    "expected": None,
+                    "computed": None,
                     "decompressed_size": len(decompressed),
-                    "decompressed_md5": decompressed_md5.hex(),
-                    "message": "BLTE decompression successful"
-                })
+                    "decompressed_md5": decompressed_md5.hex()
+                }
+                results["checks"].append(check_result_blte)
 
             except Exception as e:
-                results["checks"].append({
+                check_result_error: CheckResult = {
                     "type": "blte_decompression",
                     "valid": False,
-                    "message": f"BLTE decompression failed: {e}"
-                })
+                    "message": f"BLTE decompression failed: {e}",
+                    "expected": None,
+                    "computed": None,
+                    "decompressed_size": None,
+                    "decompressed_md5": None
+                }
+                results["checks"].append(check_result_error)
 
         # Overall integrity status
-        overall_valid = all(check.get("valid", True) for check in results["checks"])
+        overall_valid = all(check["valid"] for check in results["checks"])
         results["overall_valid"] = overall_valid
 
         if config.output_format == "json":
@@ -555,7 +650,7 @@ def roundtrip(
     INPUT can be either a file path or CDN hash.
     If hash is provided, file will be fetched from CDN.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Fetch data
@@ -639,11 +734,11 @@ def roundtrip(
             roundtrip_valid = False
             rebuilt_data = b""
             size_diff = 0
-            error_msg = str(e)
+            error_msg: str | None = str(e)
         else:
             error_msg = None
 
-        result = {
+        result: dict[str, Any] = {
             "file": input_path,
             "format_type": format_type,
             "original_size": len(data),
@@ -724,7 +819,7 @@ def relationships(
     Check that root entries have corresponding encoding keys,
     and that install/download manifests reference valid content.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, _verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Fetch and parse root file
@@ -738,18 +833,19 @@ def relationships(
         encoding_obj = encoding_parser.parse(encoding_data)
 
         # Collect all content keys from root
-        root_content_keys = set()
+        root_content_keys: set[bytes] = set()
         for block in root_obj.blocks:
             for record in block.records[:limit]:  # Limit to avoid memory issues
                 root_content_keys.add(record.content_key)
 
         # Check relationships
-        results = {
+        results: RelationshipResults = {
             "root_file": root_file,
             "encoding_file": encoding_file,
             "root_content_keys": len(root_content_keys),
             "encoding_available": len(encoding_obj.ckey_index),
-            "checks": []
+            "checks": [],
+            "overall_valid": True
         }
 
         # Root -> Encoding validation
@@ -772,13 +868,18 @@ def relationships(
                 found_in_encoding += 1  # Placeholder
                 progress.advance(task)
 
-        results["checks"].append({
+        root_check: RelationshipCheck = {
             "type": "root_to_encoding",
             "total_checked": len(root_content_keys),
             "found": found_in_encoding,
             "missing": missing_in_encoding,
-            "valid": missing_in_encoding == 0
-        })
+            "valid": missing_in_encoding == 0,
+            "install_entries": None,
+            "download_entries": None,
+            "found_in_root": None,
+            "missing_in_root": None
+        }
+        results["checks"].append(root_check)
 
         # Install file validation if provided
         if install_file:
@@ -790,13 +891,18 @@ def relationships(
             install_in_root = len(install_content_keys.intersection(root_content_keys))
             install_missing = len(install_content_keys) - install_in_root
 
-            results["checks"].append({
+            install_check: RelationshipCheck = {
                 "type": "install_to_root",
                 "install_entries": len(install_obj.entries),
                 "found_in_root": install_in_root,
                 "missing_in_root": install_missing,
-                "valid": install_missing == 0
-            })
+                "valid": install_missing == 0,
+                "total_checked": None,
+                "found": None,
+                "missing": None,
+                "download_entries": None
+            }
+            results["checks"].append(install_check)
 
         # Download file validation if provided
         if download_file:
@@ -808,13 +914,18 @@ def relationships(
             download_in_root = len(download_content_keys.intersection(root_content_keys))
             download_missing = len(download_content_keys) - download_in_root
 
-            results["checks"].append({
+            download_check: RelationshipCheck = {
                 "type": "download_to_root",
                 "download_entries": len(download_obj.entries),
                 "found_in_root": download_in_root,
                 "missing_in_root": download_missing,
-                "valid": download_missing == 0
-            })
+                "valid": download_missing == 0,
+                "total_checked": None,
+                "found": None,
+                "missing": None,
+                "install_entries": None
+            }
+            results["checks"].append(download_check)
 
         # Overall validation
         overall_valid = all(check["valid"] for check in results["checks"])
@@ -845,9 +956,15 @@ def relationships(
                 for check in results["checks"]:
                     status = "[green]✓[/green]" if check["valid"] else "[red]✗[/red]"
                     if check["type"] == "root_to_encoding":
-                        details = f"{check['found']}/{check['total_checked']} found"
+                        total_checked = check.get("total_checked", 0)
+                        found = check.get("found", 0)
+                        details = f"{found}/{total_checked} found"
                     elif check["type"] in ["install_to_root", "download_to_root"]:
-                        details = f"{check['found_in_root']}/{check.get('install_entries', check.get('download_entries', 0))} found in root"
+                        found_in_root = check.get("found_in_root", 0)
+                        install_entries = check.get("install_entries", 0)
+                        download_entries = check.get("download_entries", 0)
+                        total_entries = install_entries if install_entries else download_entries
+                        details = f"{found_in_root}/{total_entries} found in root"
                     else:
                         details = "N/A"
 
@@ -904,7 +1021,7 @@ def batch(
 
     Validates all matching files and generates a comprehensive report.
     """
-    config, console, verbose, debug = _get_context_objects(ctx)
+    config, console, verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Find files to validate
@@ -922,7 +1039,7 @@ def batch(
 
         console.print(f"Found {len(files)} files to validate")
 
-        results = {
+        results: BatchResults = {
             "directory": str(directory),
             "pattern": pattern,
             "recursive": recursive,
@@ -951,14 +1068,14 @@ def batch(
                     continue
 
                 # Validate structure
-                structure_valid, structure_msg, structure_info = _validate_format_structure(data, detected_format or "unknown")
+                structure_valid, structure_msg, _structure_info = _validate_format_structure(data, detected_format or "unknown")
 
                 # Validate checksums
-                checksum_valid, checksum_msg, checksum_info = _validate_checksums(data, detected_format or "unknown")
+                checksum_valid, checksum_msg, _checksum_info = _validate_checksums(data, detected_format or "unknown")
 
                 overall_valid = structure_valid and checksum_valid
 
-                file_result = {
+                file_result: FileResult = {
                     "path": str(file_path.relative_to(directory)),
                     "absolute_path": str(file_path),
                     "size": len(data),
@@ -991,7 +1108,7 @@ def batch(
                         results["summary"]["by_format"][detected_format]["invalid"] += 1
 
             except Exception as e:
-                file_result = {
+                file_result_error: FileResult = {
                     "path": str(file_path.relative_to(directory)),
                     "absolute_path": str(file_path),
                     "size": file_path.stat().st_size if file_path.exists() else 0,
@@ -1005,7 +1122,7 @@ def batch(
                     "error": str(e)
                 }
 
-                results["files"].append(file_result)
+                results["files"].append(file_result_error)
                 results["summary"]["errors"] += 1
 
         # Output results
@@ -1084,4 +1201,3 @@ def batch(
     except Exception as e:
         logger.error("Failed to perform batch validation", error=str(e))
         raise click.ClickException(f"Failed to perform batch validation: {e}") from e
-

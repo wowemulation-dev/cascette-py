@@ -40,7 +40,7 @@ class BPSVParser:
 
         # Parse header to get column names
         # Format: ColumnName!TYPE:SIZE|ColumnName2!TYPE:SIZE
-        columns = []
+        columns: list[str] = []
         for column_def in header_line.split('|'):
             if '!' in column_def:
                 column_name = column_def.split('!')[0]
@@ -49,13 +49,13 @@ class BPSVParser:
             columns.append(column_name)
 
         # Parse data lines
-        results = []
+        results: list[dict[str, str]] = []
         for line in lines[1:]:
             if not line:
                 continue
 
             values = line.split('|')
-            entry = {}
+            entry: dict[str, str] = {}
 
             # Map values to columns, handling mismatched counts
             for i, column in enumerate(columns):

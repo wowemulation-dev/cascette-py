@@ -227,9 +227,9 @@ class WagoClient:
             List of cached builds
         """
         with open(self.cache_file) as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)
 
-        builds = []
+        builds: list[WagoBuild] = []
         for item in data:
             # Handle datetime fields
             if item.get("build_time"):
@@ -246,12 +246,14 @@ class WagoClient:
             builds: List of builds to cache
         """
         # Prepare data for JSON serialization
-        data = []
+        data: list[dict[str, Any]] = []
         for build in builds:
             item = build.model_dump()
             # Convert datetime to ISO format
             if item.get("build_time"):
-                item["build_time"] = item["build_time"].isoformat()
+                build_time = item["build_time"]
+                if isinstance(build_time, datetime):
+                    item["build_time"] = build_time.isoformat()
             data.append(item)
 
         # Save builds
@@ -299,9 +301,9 @@ class WagoClient:
             response = self.client.get("/builds")
             response.raise_for_status()
 
-            data = response.json()
-            all_builds = []
-            products_found = set()
+            data: dict[str, list[dict[str, Any]]] = response.json()
+            all_builds: list[WagoBuild] = []
+            products_found: set[str] = set()
 
             # The API returns a dict with product codes as keys
             # e.g., {"wowt": [...], "wow": [...], "wow_classic": [...]}
@@ -317,7 +319,7 @@ class WagoClient:
                 for item in builds_list:
                     try:
                         # Make a copy to avoid modifying the original data
-                        build_data = item.copy()
+                        build_data: dict[str, Any] = item.copy()
 
                         # The product field should already be in the data,
                         # but ensure it matches the key we're processing
@@ -343,12 +345,12 @@ class WagoClient:
                         # Version format: "11.0.2.56196" -> build should be "56196"
                         if not build_data.get("build") and build_data.get("version"):
                             version = build_data["version"]
-                            if "." in version:
+                            if isinstance(version, str) and "." in version:
                                 # Extract the last component as the build number
                                 build_data["build"] = version.split(".")[-1]
                             else:
                                 # Fallback if no dots (shouldn't happen with WoW versions)
-                                build_data["build"] = version
+                                build_data["build"] = str(version)
 
                         # Generate an ID if missing (use hash of version+product)
                         if not build_data.get("id"):
@@ -478,7 +480,7 @@ class WagoClient:
         # Filter out builds without build_time first
         builds_with_time = [b for b in builds if b.build_time is not None]
         if builds_with_time:
-            latest = max(builds_with_time, key=lambda b: b.build_time)  # type: ignore[arg-type]
+            latest = max(builds_with_time, key=lambda b: b.build_time if b.build_time is not None else datetime.min.replace(tzinfo=UTC))
         else:
             # Fallback to ID if no builds have timestamps
             latest = max(builds, key=lambda b: b.id)
@@ -563,8 +565,8 @@ class WagoClient:
         """
         try:
             # Build update query dynamically based on provided EKEYs
-            updates = []
-            params = []
+            updates: list[str] = []
+            params: list[Any] = []
 
             if encoding_ekey is not None:
                 updates.append("encoding_ekey = ?")
@@ -633,7 +635,7 @@ class WagoClient:
         """Context manager entry."""
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args: Any) -> None:
         """Context manager exit."""
         self.close()
 
@@ -654,14 +656,14 @@ class WagoClient:
         if builds is None:
             builds = self.fetch_builds(force_refresh)
 
-        stats = {
+        stats: dict[str, int] = {
             "fetched": len(builds),
             "imported": 0,
             "updated": 0,
             "skipped": 0
         }
 
-        products_imported = set()
+        products_imported: set[str] = set()
 
         try:
             with self.conn:
@@ -760,7 +762,7 @@ class WagoClient:
             List of builds from database
         """
         query = "SELECT * FROM builds"
-        params = []
+        params: list[Any] = []
 
         if product:
             query += " WHERE product = ?"
@@ -778,12 +780,13 @@ class WagoClient:
             params.append(limit)
 
         cursor = self.conn.execute(query, params)
-        builds = []
+        builds: list[WagoBuild] = []
 
         for row in cursor:
             # Convert row to dict and create WagoBuild
             data = dict(row)
             # Remove database-specific fields
+            data.pop("row_id", None)
             data.pop("imported_at", None)
             data.pop("updated_at", None)
             builds.append(WagoBuild(**data))
@@ -796,7 +799,7 @@ class WagoClient:
         Returns:
             Dictionary with import statistics
         """
-        stats = {}
+        stats: dict[str, Any] = {}
 
         # Total builds by product
         cursor = self.conn.execute("""
@@ -805,7 +808,7 @@ class WagoClient:
             GROUP BY product
             ORDER BY product
         """)
-        stats["builds_by_product"] = dict(cursor.fetchall())
+        stats["builds_by_product"] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
 
         # Total builds
         total = sum(stats["builds_by_product"].values())
@@ -821,10 +824,10 @@ class WagoClient:
             ORDER BY product
         """)
         stats["latest_builds"] = {
-            row["product"]: {
+            str(row["product"]): {
                 "build_time": row["latest_build_time"],
-                "version": row["version"],
-                "build": row["build"]
+                "version": str(row["version"]),
+                "build": str(row["build"])
             }
             for row in cursor
         }
@@ -839,7 +842,7 @@ class WagoClient:
             WHERE success = 1
         """)
         import_info = cursor.fetchone()
-        stats["import_history"] = dict(import_info)
+        stats["import_history"] = dict(import_info) if import_info else {}
 
         # Recent imports
         cursor = self.conn.execute("""
@@ -853,9 +856,9 @@ class WagoClient:
         stats["recent_imports"] = [
             {
                 "import_time": row["import_time"],
-                "builds_fetched": row["builds_fetched"],
-                "builds_imported": row["builds_imported"],
-                "builds_updated": row["builds_updated"],
+                "builds_fetched": int(row["builds_fetched"]) if row["builds_fetched"] is not None else 0,
+                "builds_imported": int(row["builds_imported"]) if row["builds_imported"] is not None else 0,
+                "builds_updated": int(row["builds_updated"]) if row["builds_updated"] is not None else 0,
                 "products": json.loads(row["products"]) if row["products"] else []
             }
             for row in cursor
@@ -878,7 +881,7 @@ class WagoClient:
             Build if found, None otherwise
         """
         query = "SELECT * FROM builds WHERE version = ?"
-        params = [version]
+        params: list[Any] = [version]
 
         if product:
             query += " AND product = ?"
@@ -896,6 +899,7 @@ class WagoClient:
 
         if row:
             data = dict(row)
+            data.pop("row_id", None)
             data.pop("imported_at", None)
             data.pop("updated_at", None)
             return WagoBuild(**data)
@@ -925,11 +929,12 @@ class WagoClient:
             SELECT COUNT(*) FROM sqlite_master
             WHERE type='table' AND name='builds'
         """)
-        if cursor.fetchone()[0] == 0:
+        count_row = cursor.fetchone()
+        if count_row is None or count_row[0] == 0:
             return []  # Table doesn't exist yet
 
         query = "SELECT * FROM builds WHERE 1=1"
-        params = []
+        params: list[Any] = []
 
         if product:
             query += " AND product = ?"
@@ -950,10 +955,11 @@ class WagoClient:
 
         cursor.execute(query, params)
 
-        builds = []
+        builds: list[WagoBuild] = []
         for row in cursor.fetchall():
             data = dict(row)
             # Remove database-specific fields
+            data.pop("row_id", None)
             data.pop("imported_at", None)
             data.pop("updated_at", None)
             builds.append(WagoBuild(**data))
@@ -981,10 +987,11 @@ class WagoClient:
             SELECT COUNT(*) FROM sqlite_master
             WHERE type='table' AND name='builds'
         """)
-        if cursor.fetchone()[0] == 0:
+        count_row = cursor.fetchone()
+        if count_row is None or count_row[0] == 0:
             return []  # Table doesn't exist yet
 
-        params = []
+        params: list[Any] = []
 
         if field == "version":
             sql_query = "SELECT * FROM builds WHERE version LIKE ? ORDER BY id DESC"
@@ -1016,9 +1023,10 @@ class WagoClient:
 
         cursor.execute(sql_query, params)
 
-        builds = []
+        builds: list[WagoBuild] = []
         for row in cursor.fetchall():
             data = dict(row)
+            data.pop("row_id", None)
             data.pop("imported_at", None)
             data.pop("updated_at", None)
             builds.append(WagoBuild(**data))
@@ -1039,7 +1047,8 @@ class WagoClient:
             SELECT COUNT(*) FROM sqlite_master
             WHERE type='table' AND name='builds'
         """)
-        if cursor.fetchone()[0] == 0:
+        count_row = cursor.fetchone()
+        if count_row is None or count_row[0] == 0:
             # Table doesn't exist yet - return empty stats
             return {
                 "total_builds": 0,
@@ -1052,7 +1061,8 @@ class WagoClient:
 
         # Total builds
         cursor.execute("SELECT COUNT(*) FROM builds")
-        total_builds = cursor.fetchone()[0]
+        total_row = cursor.fetchone()
+        total_builds = int(total_row[0]) if total_row else 0
 
         if total_builds == 0:
             # Table exists but is empty
@@ -1067,11 +1077,13 @@ class WagoClient:
 
         # Product count
         cursor.execute("SELECT COUNT(DISTINCT product) FROM builds")
-        product_count = cursor.fetchone()[0]
+        product_row = cursor.fetchone()
+        product_count = int(product_row[0]) if product_row else 0
 
         # Version count
         cursor.execute("SELECT COUNT(DISTINCT version) FROM builds WHERE version IS NOT NULL")
-        version_count = cursor.fetchone()[0]
+        version_row = cursor.fetchone()
+        version_count = int(version_row[0]) if version_row else 0
 
         # Date range
         cursor.execute("""
@@ -1083,7 +1095,9 @@ class WagoClient:
         """)
         row = cursor.fetchone()
         if row and row[0] and row[1]:
-            date_range = f"{row[0][:10]} to {row[1][:10]}"
+            earliest = str(row[0])
+            latest = str(row[1])
+            date_range = f"{earliest[:10]} to {latest[:10]}"
         else:
             date_range = "N/A"
 
@@ -1094,7 +1108,7 @@ class WagoClient:
             GROUP BY product
             ORDER BY count DESC
         """)
-        by_product = {row[0]: row[1] for row in cursor.fetchall()}
+        by_product: dict[str, int] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
 
         # Builds by major version
         cursor.execute("""
@@ -1106,7 +1120,7 @@ class WagoClient:
             GROUP BY major_version
             ORDER BY CAST(major_version AS INTEGER) DESC
         """)
-        by_major_version = {row[0]: row[1] for row in cursor.fetchall()}
+        by_major_version: dict[str, int] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
 
         return {
             "total_builds": total_builds,

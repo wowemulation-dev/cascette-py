@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import structlog
 from pydantic import BaseModel, Field
@@ -84,7 +84,7 @@ class BuildConfigParser(FormatParser[BuildConfig]):
 
     def _parse_config_content(self, content: str) -> dict[str, str]:
         """Parse configuration file content into dictionary."""
-        config = {}
+        config: dict[str, str] = {}
 
         for line in content.strip().split('\n'):
             line = line.strip()
@@ -100,14 +100,14 @@ class BuildConfigParser(FormatParser[BuildConfig]):
     def _dict_to_build_config(self, config_dict: dict[str, str]) -> BuildConfig:
         """Convert dictionary to BuildConfig model."""
         # Known fields
-        known_fields = {
+        known_fields: set[str] = {
             'root', 'encoding', 'install', 'download', 'size', 'patch',
             'partial-priority', 'partial-priority-size', 'build-name',
             'build-playbuild-installer', 'build-product', 'build-uid', 'patch-config'
         }
 
         # Map dashed keys to underscore for Python field names
-        field_mapping = {
+        field_mapping: dict[str, str] = {
             'partial-priority': 'partial_priority',
             'partial-priority-size': 'partial_priority_size',
             'build-name': 'build_name',
@@ -117,8 +117,8 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             'patch-config': 'patch_config'
         }
 
-        build_config_data = {}
-        extra_fields = {}
+        build_config_data: dict[str, Any] = {}
+        extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
             if key in known_fields:
@@ -139,10 +139,10 @@ class BuildConfigParser(FormatParser[BuildConfig]):
         Returns:
             Binary configuration data
         """
-        lines = []
+        lines: list[str] = []
 
         # Add known fields in order
-        field_order = [
+        field_order: list[tuple[str, str]] = [
             ('root', 'root'),
             ('encoding', 'encoding'),
             ('install', 'install'),
@@ -193,7 +193,7 @@ class CDNConfigParser(FormatParser[CDNConfig]):
 
     def _parse_config_content(self, content: str) -> dict[str, str]:
         """Parse configuration file content into dictionary."""
-        config = {}
+        config: dict[str, str] = {}
 
         for line in content.strip().split('\n'):
             line = line.strip()
@@ -209,13 +209,13 @@ class CDNConfigParser(FormatParser[CDNConfig]):
     def _dict_to_cdn_config(self, config_dict: dict[str, str]) -> CDNConfig:
         """Convert dictionary to CDNConfig model."""
         # Known fields
-        known_fields = {
+        known_fields: set[str] = {
             'archives', 'archive-group', 'patch-archives', 'patch-archive-group',
             'builds', 'file-index', 'patch-file-index'
         }
 
-        cdn_config_data = {}
-        extra_fields = {}
+        cdn_config_data: dict[str, Any] = {}
+        extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
             if key == 'archives':
@@ -251,7 +251,7 @@ class CDNConfigParser(FormatParser[CDNConfig]):
         Returns:
             Binary configuration data
         """
-        lines = []
+        lines: list[str] = []
 
         # Add known fields in order
         if obj.archives:
@@ -305,7 +305,7 @@ class PatchConfigParser(FormatParser[PatchConfig]):
 
     def _parse_config_content(self, content: str) -> dict[str, str]:
         """Parse configuration file content into dictionary."""
-        config = {}
+        config: dict[str, str] = {}
 
         for line in content.strip().split('\n'):
             line = line.strip()
@@ -320,8 +320,8 @@ class PatchConfigParser(FormatParser[PatchConfig]):
 
     def _dict_to_patch_config(self, config_dict: dict[str, str]) -> PatchConfig:
         """Convert dictionary to PatchConfig model."""
-        patch_config_data = {}
-        extra_fields = {}
+        patch_config_data: dict[str, Any] = {}
+        extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
             if key == 'patch-archives':
@@ -345,7 +345,7 @@ class PatchConfigParser(FormatParser[PatchConfig]):
         Returns:
             Binary configuration data
         """
-        lines = []
+        lines: list[str] = []
 
         if obj.patch_archives:
             lines.append(f"patch-archives = {' '.join(obj.patch_archives)}")
@@ -386,7 +386,7 @@ class ProductConfigParser(FormatParser[ProductConfig]):
 
     def _parse_config_content(self, content: str) -> dict[str, str]:
         """Parse configuration file content into dictionary."""
-        config = {}
+        config: dict[str, str] = {}
 
         for line in content.strip().split('\n'):
             line = line.strip()
@@ -401,8 +401,8 @@ class ProductConfigParser(FormatParser[ProductConfig]):
 
     def _dict_to_product_config(self, config_dict: dict[str, str]) -> ProductConfig:
         """Convert dictionary to ProductConfig model."""
-        product_config_data = {}
-        extra_fields = {}
+        product_config_data: dict[str, Any] = {}
+        extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
             if key in ['product', 'uid', 'name']:
@@ -422,7 +422,7 @@ class ProductConfigParser(FormatParser[ProductConfig]):
         Returns:
             Binary configuration data
         """
-        lines = []
+        lines: list[str] = []
 
         if obj.product:
             lines.append(f"product = {obj.product}")
@@ -444,7 +444,7 @@ class ProductConfigParser(FormatParser[ProductConfig]):
 class BuildConfigBuilder:
     """Builder for build configuration files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize build config builder."""
         pass
 
@@ -482,7 +482,7 @@ class BuildConfigBuilder:
 class CDNConfigBuilder:
     """Builder for CDN configuration files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize CDN config builder."""
         pass
 
@@ -518,7 +518,7 @@ class CDNConfigBuilder:
 class PatchConfigBuilder:
     """Builder for patch configuration files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize patch config builder."""
         pass
 
@@ -554,7 +554,7 @@ class PatchConfigBuilder:
 class ProductConfigBuilder:
     """Builder for product configuration files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize product config builder."""
         pass
 
@@ -621,10 +621,10 @@ def detect_config_type(data: bytes) -> str | None:
     """
     try:
         content = data.decode('utf-8', errors='replace')
-        lines = [line.strip() for line in content.strip().split('\n') if line.strip() and not line.strip().startswith('#')]
+        lines: list[str] = [line.strip() for line in content.strip().split('\n') if line.strip() and not line.strip().startswith('#')]
 
         # Check for characteristic fields
-        keys = set()
+        keys: set[str] = set()
         for line in lines:
             if ' = ' in line:
                 key = line.split(' = ', 1)[0].strip()

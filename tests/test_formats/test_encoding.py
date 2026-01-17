@@ -263,12 +263,14 @@ class TestEncodingParser:
             pages_start_offset=22 + 0 + 0  # header(22) + espec(0) + ckey_index(0 pages)
         )
 
-        # Create page data with test entry
+        # Create page data with test entry (matching Rust format)
         page_data = BytesIO()
-        page_data.write(b'\x03' * 16)  # encoding_key
-        page_data.write(struct.pack('<I', 1))  # espec_index
-        page_data.write(struct.pack('<I', 2048))  # file_size
-        page_data.write(b'\x04' * 16)  # content_key
+        page_data.write(b'\x03' * 16)  # encoding_key (16 bytes)
+        page_data.write(struct.pack('>I', 1))  # espec_index (4 bytes, big-endian)
+        # file_size (40-bit: 1 byte high + 4 bytes low, big-endian)
+        page_data.write(struct.pack('B', 0))  # file_size_high (for 2048, this is 0)
+        page_data.write(struct.pack('>I', 2048))  # file_size_low
+        page_data.write(b'\x04' * 16)  # content_key (16 bytes)
         page_data.write(b'\x00' * (1024 - page_data.tell()))  # pad to page size
 
         # Create complete encoding data

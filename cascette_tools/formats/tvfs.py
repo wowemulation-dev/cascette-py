@@ -193,7 +193,7 @@ class TVFSParser(FormatParser[TVFSFile]):
         Raises:
             ValueError: If entries are invalid
         """
-        entries = []
+        entries: list[TVFSEntry] = []
 
         for i in range(entry_count):
             # Read entry data (28 bytes: 16 + 8 + 4)

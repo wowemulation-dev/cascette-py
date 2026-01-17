@@ -22,26 +22,26 @@ _base_logger = structlog.get_logger()
 class SafeLogger:
     """Logger wrapper that gracefully handles configuration issues."""
 
-    def __init__(self, base_logger):
+    def __init__(self, base_logger: Any) -> None:
         self._logger = base_logger
 
-    def _safe_log(self, method_name, msg, **kwargs):
+    def _safe_log(self, method_name: str, msg: str, **kwargs: Any) -> None:
         try:
             getattr(self._logger, method_name)(msg, **kwargs)
         except Exception:
             # Silently ignore logging errors during testing
             pass
 
-    def info(self, msg, **kwargs):
+    def info(self, msg: str, **kwargs: Any) -> None:
         self._safe_log('info', msg, **kwargs)
 
-    def debug(self, msg, **kwargs):
+    def debug(self, msg: str, **kwargs: Any) -> None:
         self._safe_log('debug', msg, **kwargs)
 
-    def warning(self, msg, **kwargs):
+    def warning(self, msg: str, **kwargs: Any) -> None:
         self._safe_log('warning', msg, **kwargs)
 
-    def error(self, msg, **kwargs):
+    def error(self, msg: str, **kwargs: Any) -> None:
         self._safe_log('error', msg, **kwargs)
 
 logger = SafeLogger(_base_logger)
@@ -253,7 +253,7 @@ class ListfileManager:
         Returns:
             List of file entries
         """
-        entries = []
+        entries: list[FileDataEntry] = []
 
         with gzip.open(cache_file, "rt", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -280,7 +280,7 @@ class ListfileManager:
         Returns:
             List of parsed file entries
         """
-        entries = []
+        entries: list[FileDataEntry] = []
         reader = csv.DictReader(io.StringIO(csv_text))
 
         for row in reader:
@@ -294,7 +294,7 @@ class ListfileManager:
                     else:
                         continue
                 else:
-                    fdid = int(row.get("fdid", row.get("id", 0)))
+                    fdid = int(row.get("fdid", row.get("id", "0")))
                     path = row.get("path", row.get("filename", ""))
 
                 if fdid and path:
@@ -396,7 +396,7 @@ class ListfileManager:
             (fdid,)
         ).fetchone()
 
-        return row["path"] if row else None
+        return str(row["path"]) if row else None
 
     def get_fdid(self, path: str) -> int | None:
         """Get FileDataID for a path.
@@ -413,7 +413,7 @@ class ListfileManager:
             (path, path.lower())
         ).fetchone()
 
-        return row["fdid"] if row else None
+        return int(row["fdid"]) if row else None
 
     def search_paths(self, pattern: str, limit: int = 100) -> list[FileDataEntry]:
         """Search for file paths matching pattern.
@@ -435,13 +435,13 @@ class ListfileManager:
             LIMIT ?
         """, (pattern, limit)).fetchall()
 
-        entries = []
+        entries: list[FileDataEntry] = []
         for row in rows:
             entries.append(FileDataEntry(
-                fdid=row["fdid"],
-                path=row["path"],
+                fdid=int(row["fdid"]),
+                path=str(row["path"]),
                 verified=bool(row["verified"]),
-                product=row["product"]
+                product=str(row["product"]) if row["product"] is not None else None
             ))
 
         return entries
@@ -452,17 +452,19 @@ class ListfileManager:
         Returns:
             Statistics dictionary
         """
-        stats = {}
+        stats: dict[str, Any] = {}
 
         # Total entries
-        stats["total_entries"] = self.conn.execute(
-            "SELECT COUNT(*) FROM file_entries"
-        ).fetchone()[0]
+        total_row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM file_entries"
+        ).fetchone()
+        stats["total_entries"] = int(total_row["cnt"]) if total_row else 0
 
         # Verified vs unverified
-        stats["verified"] = self.conn.execute(
-            "SELECT COUNT(*) FROM file_entries WHERE verified = 1"
-        ).fetchone()[0]
+        verified_row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM file_entries WHERE verified = 1"
+        ).fetchone()
+        stats["verified"] = int(verified_row["cnt"]) if verified_row else 0
 
         stats["unverified"] = stats["total_entries"] - stats["verified"]
 
@@ -475,7 +477,10 @@ class ListfileManager:
         """).fetchall()
 
         if product_families:
-            stats["by_product_family"] = {row["product_family"]: row["count"] for row in product_families}
+            stats["by_product_family"] = {
+                str(row["product_family"]): int(row["count"])
+                for row in product_families
+            }
 
         # By legacy product
         products = self.conn.execute("""
@@ -486,7 +491,10 @@ class ListfileManager:
         """).fetchall()
 
         if products:
-            stats["by_product"] = {row["product"]: row["count"] for row in products}
+            stats["by_product"] = {
+                str(row["product"]): int(row["count"])
+                for row in products
+            }
 
         # File extensions
         extensions = self.conn.execute("""
@@ -500,7 +508,10 @@ class ListfileManager:
             LIMIT 10
         """).fetchall()
 
-        stats["top_extensions"] = {row["ext"]: row["count"] for row in extensions}
+        stats["top_extensions"] = {
+            str(row["ext"]): int(row["count"])
+            for row in extensions
+        }
 
         # Last update
         last_source = self.conn.execute("""
@@ -511,9 +522,9 @@ class ListfileManager:
 
         if last_source:
             stats["last_update"] = {
-                "time": last_source["fetch_time"],
-                "count": last_source["entry_count"],
-                "source": last_source["source"]
+                "time": str(last_source["fetch_time"]),
+                "count": int(last_source["entry_count"]) if last_source["entry_count"] is not None else 0,
+                "source": str(last_source["source"])
             }
 
         return stats
@@ -548,13 +559,13 @@ class ListfileManager:
                     writer.writerow([row["fdid"], row["path"],
                                      row["verified"], row["product"]])
         else:  # json
-            entries = []
+            entries: list[dict[str, Any]] = []
             for row in rows:
                 entries.append({
-                    "fdid": row["fdid"],
-                    "path": row["path"],
+                    "fdid": int(row["fdid"]),
+                    "path": str(row["path"]),
                     "verified": bool(row["verified"]),
-                    "product": row["product"]
+                    "product": str(row["product"]) if row["product"] is not None else None
                 })
 
             with open(output_file, "w") as f:
@@ -569,10 +580,10 @@ class ListfileManager:
         if self._client:
             self._client.close()
 
-    def __enter__(self):
+    def __enter__(self) -> ListfileManager:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()

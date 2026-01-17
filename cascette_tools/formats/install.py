@@ -100,7 +100,7 @@ class InstallParser(FormatParser[InstallFile]):
         mask_size = (entry_count + 7) // 8
 
         # Parse tags
-        tags = []
+        tags: list[InstallTag] = []
         for _ in range(tag_count):
             # Read tag name (null-terminated)
             name_bytes = bytearray()
@@ -130,7 +130,7 @@ class InstallParser(FormatParser[InstallFile]):
             ))
 
         # Parse file entries
-        entries = []
+        entries: list[InstallEntry] = []
         for i in range(entry_count):
             # Read filename (null-terminated)
             filename_bytes = bytearray()
@@ -154,7 +154,7 @@ class InstallParser(FormatParser[InstallFile]):
             file_size = struct.unpack('>I', size_data)[0]
 
             # Determine tags for this file
-            file_tags = []
+            file_tags: list[str] = []
             for tag in tags:
                 if tag.has_file(i):
                     file_tags.append(tag.name)
@@ -195,7 +195,7 @@ class InstallParser(FormatParser[InstallFile]):
         mask_size = (len(obj.entries) + 7) // 8
 
         # Rebuild tag bitmasks from entry tags
-        tag_masks = {}
+        tag_masks: dict[str, bytes] = {}
         for tag in obj.tags:
             mask = bytearray(mask_size)
             for i, entry in enumerate(obj.entries):

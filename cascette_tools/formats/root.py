@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import struct
 from io import BytesIO
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import structlog
 from pydantic import BaseModel, Field
@@ -166,7 +166,7 @@ class RootParser(FormatParser[RootFile]):
 
     def _parse_blocks(self, stream: BinaryIO) -> list[RootBlock]:
         """Parse all blocks in the root file."""
-        blocks = []
+        blocks: list[RootBlock] = []
 
         while True:
             block = self._parse_block(stream)
@@ -197,7 +197,7 @@ class RootParser(FormatParser[RootFile]):
         locale_flags = struct.unpack('<I', locale_flags_bytes)[0]
 
         # Read FileDataID deltas
-        deltas = []
+        deltas: list[int] = []
         for _ in range(num_records):
             delta_bytes = stream.read(4)
             if len(delta_bytes) != 4:
@@ -206,7 +206,7 @@ class RootParser(FormatParser[RootFile]):
             deltas.append(delta)
 
         # Decode FileDataIDs from deltas
-        file_ids = []
+        file_ids: list[int] = []
         current_id = 0
         for i, delta in enumerate(deltas):
             if i == 0:
@@ -217,7 +217,7 @@ class RootParser(FormatParser[RootFile]):
             current_id += 1  # Increment for next iteration
 
         # Read records (content keys and name hashes)
-        records = []
+        records: list[RootRecord] = []
         for i in range(num_records):
             content_key_bytes = stream.read(16)
             name_hash_bytes = stream.read(8)
@@ -266,14 +266,14 @@ class RootParser(FormatParser[RootFile]):
         Returns:
             List of matching records
         """
-        matches = []
+        matches: list[RootRecord] = []
         for block in root_file.blocks:
             for record in block.records:
                 if record.content_key == content_key:
                     matches.append(record)
         return matches
 
-    def get_statistics(self, root_file: RootFile) -> dict:
+    def get_statistics(self, root_file: RootFile) -> dict[str, Any]:
         """Get statistics about the root file.
 
         Args:
@@ -283,8 +283,8 @@ class RootParser(FormatParser[RootFile]):
             Statistics dictionary
         """
         total_files = sum(block.num_records for block in root_file.blocks)
-        unique_flags = set()
-        locale_counts = {}
+        unique_flags: set[tuple[int, int]] = set()
+        locale_counts: dict[int, int] = {}
 
         for block in root_file.blocks:
             flag_combo = (block.content_flags, block.locale_flags)

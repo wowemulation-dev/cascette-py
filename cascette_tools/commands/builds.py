@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -505,7 +506,7 @@ def import_builds(
                 reader = csv.DictReader(f)
                 for row in reader:
                     # Create clean data dict with only expected fields
-                    build_data = {}
+                    build_data: dict[str, Any] = {}
 
                     # Required fields
                     if "id" in row and row["id"]:

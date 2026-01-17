@@ -185,7 +185,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             raise ValueError(f"Incomplete CKey index: expected {index_size}, got {len(index_data)}")
 
         # Parse index entries
-        index = []
+        index: list[tuple[bytes, bytes]] = []
         offset = 0
 
         for _ in range(header.ckey_page_count):
@@ -211,7 +211,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             raise ValueError(f"Incomplete EKey index: expected {index_size}, got {len(index_data)}")
 
         # Parse index entries
-        index = []
+        index: list[tuple[bytes, bytes]] = []
         offset = 0
 
         for _ in range(header.ekey_page_count):
@@ -226,7 +226,7 @@ class EncodingParser(FormatParser[EncodingFile]):
 
     def _parse_ckey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
         """Parse CKey page index sequentially like Rust."""
-        index = []
+        index: list[tuple[bytes, bytes]] = []
 
         for _ in range(header.ckey_page_count):
             # Read each index entry sequentially (16 + 16 bytes)
@@ -242,7 +242,7 @@ class EncodingParser(FormatParser[EncodingFile]):
 
     def _parse_ekey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
         """Parse EKey page index sequentially like Rust."""
-        index = []
+        index: list[tuple[bytes, bytes]] = []
 
         for _ in range(header.ekey_page_count):
             # Read each index entry sequentially (16 + 16 bytes)
@@ -291,7 +291,7 @@ class EncodingParser(FormatParser[EncodingFile]):
         page_data = encoding_data[sequential_offset:sequential_offset + page_size]
 
         # Parse page entries exactly like Rust entry_v2
-        entries = []
+        entries: list[CKeyPageEntry] = []
         offset = 0
         entry_count = 0
 
@@ -324,7 +324,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             offset += 16
 
             # Read encoding keys - match Rust behavior for corrupted entries
-            encoding_keys = []
+            encoding_keys: list[bytes] = []
 
             # Check if we have enough space for ALL encoding keys
             remaining_bytes = len(page_data) - offset
@@ -435,7 +435,7 @@ class EncodingParser(FormatParser[EncodingFile]):
         page_data = encoding_data[page_offset:page_offset + page_size]
 
         # Parse page entries
-        entries = []
+        entries: list[CKeyPageEntry] = []
         offset = 0
         entry_count = 0
 
@@ -469,7 +469,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             offset += 16
 
             # Read encoding keys - match Rust behavior for corrupted entries
-            encoding_keys = []
+            encoding_keys: list[bytes] = []
 
             # Check if we have enough space for ALL encoding keys
             remaining_bytes = len(page_data) - offset
@@ -580,34 +580,37 @@ class EncodingParser(FormatParser[EncodingFile]):
         page_data = encoding_data[page_offset:page_offset + page_size]
 
         # Parse page entries
-        entries = []
+        entries: list[EKeyPageEntry] = []
         offset = 0
         entry_count = 0
 
-        while offset + header.ekey_size + 4 <= len(page_data) and entry_count < max_entries:
-            # Read encoding key
+        while offset + header.ekey_size + 9 <= len(page_data) and entry_count < max_entries:
+            # Read encoding key (16 bytes)
             encoding_key = page_data[offset:offset + header.ekey_size]
             offset += header.ekey_size
 
-            # Check for zero key (end of entries)
+            # Check for padding - all zero bytes indicate padding
             if encoding_key == b'\x00' * header.ekey_size:
                 break
 
-            # Read ESpec index (4 bytes, little-endian)
+            # Read ESpec index (4 bytes, big-endian matching Rust)
             if offset + 4 > len(page_data):
                 break
-            espec_index = struct.unpack('<I', page_data[offset:offset + 4])[0]
+            espec_index = struct.unpack('>I', page_data[offset:offset + 4])[0]
             offset += 4
 
-            # Read file size (4 bytes, little-endian)
-            if offset + 4 > len(page_data):
+            # Read file size (40-bit: 1 byte high + 4 bytes low, big-endian)
+            if offset + 5 > len(page_data):
                 break
-            file_size = struct.unpack('<I', page_data[offset:offset + 4])[0]
+            file_size_high = page_data[offset]
+            offset += 1
+            file_size_low = struct.unpack('>I', page_data[offset:offset + 4])[0]
             offset += 4
+            file_size = (file_size_high << 32) | file_size_low
 
             # For simplicity, assume 1 content key per encoding key
             # Real implementation would parse the actual structure
-            content_keys = []
+            content_keys: list[bytes] = []
             if offset + header.ckey_size <= len(page_data):
                 ckey = page_data[offset:offset + header.ckey_size]
                 if ckey != b'\x00' * header.ckey_size:

@@ -6,6 +6,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import structlog
@@ -97,21 +98,21 @@ class TACTKeyManager:
         """
         # Convert bytes to hex string if needed
         if isinstance(key_name, bytes):
-            key_name = key_name.hex().upper()
+            key_name_str = key_name.hex().upper()
         else:
-            key_name = key_name.upper()
+            key_name_str = key_name.upper()
 
         row = self.conn.execute(
             "SELECT * FROM tact_keys WHERE key_name = ?",
-            (key_name,)
+            (key_name_str,)
         ).fetchone()
 
         if row:
             return TACTKey(
-                key_name=row["key_name"],
-                key_value=row["key_value"],
-                description=row["description"],
-                product_family=row["product_family"],
+                key_name=str(row["key_name"]),
+                key_value=str(row["key_value"]),
+                description=str(row["description"]) if row["description"] is not None else None,
+                product_family=str(row["product_family"]),
                 verified=bool(row["verified"])
             )
 
@@ -137,7 +138,7 @@ class TACTKeyManager:
                     key.key_value.upper(),
                     key.description,
                     key.product_family,
-                    key.verified
+                    int(key.verified)
                 ))
             return True
         except sqlite3.Error as e:
@@ -152,13 +153,13 @@ class TACTKeyManager:
         """
         rows = self.conn.execute("SELECT * FROM tact_keys").fetchall()
 
-        keys = []
+        keys: list[TACTKey] = []
         for row in rows:
             keys.append(TACTKey(
-                key_name=row["key_name"],
-                key_value=row["key_value"],
-                description=row["description"],
-                product_family=row["product_family"],
+                key_name=str(row["key_name"]),
+                key_value=str(row["key_value"]),
+                description=str(row["description"]) if row["description"] is not None else None,
+                product_family=str(row["product_family"]),
                 verified=bool(row["verified"])
             ))
 
@@ -178,13 +179,13 @@ class TACTKeyManager:
             (family,)
         ).fetchall()
 
-        keys = []
+        keys: list[TACTKey] = []
         for row in rows:
             keys.append(TACTKey(
-                key_name=row["key_name"],
-                key_value=row["key_value"],
-                description=row["description"],
-                product_family=row["product_family"],
+                key_name=str(row["key_name"]),
+                key_value=str(row["key_value"]),
+                description=str(row["description"]) if row["description"] is not None else None,
+                product_family=str(row["product_family"]),
                 verified=bool(row["verified"])
             ))
 
@@ -206,13 +207,13 @@ class TACTKeyManager:
         if not force_refresh and cache_file.exists() and metadata_file.exists():
             try:
                 with open(metadata_file) as f:
-                    metadata = json.load(f)
+                    metadata: dict[str, Any] = json.load(f)
 
-                fetch_time = datetime.fromisoformat(metadata["fetch_time"])
+                fetch_time = datetime.fromisoformat(str(metadata["fetch_time"]))
                 if datetime.now(UTC) - fetch_time < self.CACHE_LIFETIME:
                     # Cache is valid, load from cache
                     with open(cache_file) as f:
-                        data = json.load(f)
+                        data: list[dict[str, Any]] = json.load(f)
 
                     keys = [TACTKey(**k) for k in data]
                     logger.info("tact_keys_from_cache", count=len(keys))
@@ -228,7 +229,7 @@ class TACTKeyManager:
             response = self.client.get(f"{self.GITHUB_RAW_URL}/WoW.txt")
             response.raise_for_status()
 
-            keys = []
+            keys: list[TACTKey] = []
             for line in response.text.strip().split('\n'):
                 # Skip comments and empty lines
                 if not line or line.startswith('#'):
@@ -272,10 +273,10 @@ class TACTKeyManager:
             # Try to return cached data if available
             if cache_file.exists():
                 with open(cache_file) as f:
-                    data = json.load(f)
-                keys = [TACTKey(**k) for k in data]
-                logger.warning("using_stale_tact_cache", count=len(keys))
-                return keys
+                    data_list: list[dict[str, Any]] = json.load(f)
+                keys_fallback = [TACTKey(**k) for k in data_list]
+                logger.warning("using_stale_tact_cache", count=len(keys_fallback))
+                return keys_fallback
             return []
 
     def import_keys(self, keys: list[TACTKey]) -> int:
@@ -305,13 +306,13 @@ class TACTKeyManager:
         keys = self.fetch_wowdev_keys(force_refresh=True)
         return self.import_keys(keys)
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """Get database statistics.
 
         Returns:
             Dictionary with statistics
         """
-        stats = {
+        stats: dict[str, Any] = {
             "total_keys": 0,
             "verified": 0,
             "unverified": 0,
@@ -320,11 +321,11 @@ class TACTKeyManager:
 
         # Total keys
         row = self.conn.execute("SELECT COUNT(*) as cnt FROM tact_keys").fetchone()
-        stats["total_keys"] = row["cnt"]
+        stats["total_keys"] = int(row["cnt"]) if row else 0
 
         # Verified/unverified
-        row = self.conn.execute("SELECT COUNT(*) as cnt FROM tact_keys WHERE verified = 1").fetchone()
-        stats["verified"] = row["cnt"]
+        verified_row = self.conn.execute("SELECT COUNT(*) as cnt FROM tact_keys WHERE verified = 1").fetchone()
+        stats["verified"] = int(verified_row["cnt"]) if verified_row else 0
         stats["unverified"] = stats["total_keys"] - stats["verified"]
 
         # By product family
@@ -335,7 +336,7 @@ class TACTKeyManager:
         """).fetchall()
 
         for row in rows:
-            stats["by_family"][row["product_family"]] = row["cnt"]
+            stats["by_family"][str(row["product_family"])] = int(row["cnt"])
 
         return stats
 
@@ -351,7 +352,7 @@ class TACTKeyManager:
         else:
             keys = self.get_all_keys()
 
-        export_data = {
+        export_data: dict[str, Any] = {
             "exported_at": datetime.now(UTC).isoformat(),
             "total_keys": len(keys),
             "product_family_filter": product_family,
@@ -372,11 +373,11 @@ class TACTKeyManager:
             self._client.close()
             self._client = None
 
-    def __enter__(self):
+    def __enter__(self) -> TACTKeyManager:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit."""
         self.close()
 
@@ -393,7 +394,7 @@ def create_blte_key_store(manager: TACTKeyManager, product_family: str = "wow") 
     """
     keys = manager.get_keys_by_family(product_family)
 
-    key_store = {}
+    key_store: dict[bytes, bytes] = {}
     for key in keys:
         try:
             # Convert hex strings to bytes

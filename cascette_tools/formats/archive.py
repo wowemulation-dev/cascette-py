@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from io import BytesIO
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import structlog
 from pydantic import BaseModel, Field
@@ -148,14 +148,14 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         toc_offset = data_size
         toc_data = data[toc_offset:toc_offset + toc_size]
 
-        toc = []
+        toc: list[bytes] = []
         for i in range(chunk_count):
             key_offset = i * self.TRUNCATED_KEY_SIZE
             key = toc_data[key_offset:key_offset + self.TRUNCATED_KEY_SIZE]
             toc.append(key)
 
         # Parse data chunks
-        chunks = []
+        chunks: list[ArchiveIndexChunk] = []
         for chunk_index in range(data_size // self.CHUNK_SIZE):
             chunk_offset = chunk_index * self.CHUNK_SIZE
             chunk_data = data[chunk_offset:chunk_offset + self.CHUNK_SIZE]
@@ -170,7 +170,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         if len(chunk_data) != self.CHUNK_SIZE:
             raise ValueError(f"Invalid chunk size: expected {self.CHUNK_SIZE}, got {len(chunk_data)}")
 
-        entries = []
+        entries: list[ArchiveIndexEntry] = []
         last_key = b''
 
         # Parse entries (24 bytes each)
@@ -194,11 +194,12 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             offset = struct.unpack('>I', offset_bytes)[0]  # Big-endian
             size = struct.unpack('>I', size_bytes)[0]      # Big-endian
 
-            entries.append(ArchiveIndexEntry(
+            entry = ArchiveIndexEntry(
                 ekey=ekey,
                 offset=offset,
                 size=size
-            ))
+            )
+            entries.append(entry)
 
             last_key = ekey
 
@@ -241,7 +242,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         Returns:
             List of entries in range
         """
-        matches = []
+        matches: list[ArchiveIndexEntry] = []
 
         for chunk in obj.chunks:
             for entry in chunk.entries:
@@ -301,7 +302,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         calculated_hash = md5_hash[:8]
         return calculated_hash == footer.footer_hash
 
-    def get_statistics(self, obj: ArchiveIndex) -> dict:
+    def get_statistics(self, obj: ArchiveIndex) -> dict[str, Any]:
         """Get statistics about the archive index.
 
         Args:
@@ -315,7 +316,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         # Calculate size statistics
         if total_entries > 0:
-            sizes = [entry.size for chunk in obj.chunks for entry in chunk.entries]
+            sizes: list[int] = [entry.size for chunk in obj.chunks for entry in chunk.entries]
             min_size = min(sizes)
             max_size = max(sizes)
             avg_size = sum(sizes) / len(sizes)
@@ -386,7 +387,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 class ArchiveBuilder:
     """Builder for archive index files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize archive builder."""
         pass
 
@@ -439,7 +440,7 @@ class ArchiveBuilder:
             Archive index object
         """
         # Group entries into chunks
-        chunks = []
+        chunks: list[ArchiveIndexChunk] = []
         chunk_size = 4096 // 24  # 170 entries per chunk
 
         for i in range(0, len(entries), chunk_size):
@@ -454,7 +455,7 @@ class ArchiveBuilder:
             chunks.append(chunk)
 
         # Create TOC from last keys
-        toc = [chunk.last_key + b'\x00' * 7 for chunk in chunks]  # Pad to 16 bytes
+        toc: list[bytes] = [chunk.last_key + b'\x00' * 7 for chunk in chunks]  # Pad to 16 bytes
 
         # Calculate TOC hash
         toc_data = b''.join(toc)

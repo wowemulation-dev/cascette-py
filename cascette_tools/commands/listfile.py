@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -113,7 +114,7 @@ def lookup_file(ctx: click.Context, identifier: str) -> None:
 
     try:
         # Try as FDID first
-        result = None
+        result: dict[str, int | str] | None = None
         try:
             fdid = int(identifier)
             path = manager.get_path(fdid)
@@ -121,9 +122,9 @@ def lookup_file(ctx: click.Context, identifier: str) -> None:
                 result = {"fdid": fdid, "path": path}
         except ValueError:
             # Try as path
-            fdid = manager.get_fdid(identifier)
-            if fdid:
-                result = {"fdid": fdid, "path": identifier}
+            fdid_lookup = manager.get_fdid(identifier)
+            if fdid_lookup:
+                result = {"fdid": fdid_lookup, "path": identifier}
 
         if not result:
             console.print(f"[yellow]Not found:[/yellow] {identifier}")
@@ -138,8 +139,9 @@ def lookup_file(ctx: click.Context, identifier: str) -> None:
         table.add_row("Path", str(result["path"]))
 
         # Get file info
-        if "." in result["path"]:
-            ext = result["path"].rsplit(".", 1)[1]
+        result_path = result["path"]
+        if isinstance(result_path, str) and "." in result_path:
+            ext = result_path.rsplit(".", 1)[1]
             table.add_row("Extension", f".{ext}")
 
         console.print(table)
@@ -237,7 +239,7 @@ def import_listfile(ctx: click.Context, input_file: Path, format: str, overwrite
         try:
             import csv
 
-            entries_to_import = []
+            entries_to_import: list[dict[str, Any]] = []
 
             if format == "csv":
                 with open(input_file, newline='') as f:
@@ -268,12 +270,12 @@ def import_listfile(ctx: click.Context, input_file: Path, format: str, overwrite
             # Convert dicts to FileDataEntry objects
             from cascette_tools.database.listfile import FileDataEntry
 
-            file_entries = []
+            file_entries: list[FileDataEntry] = []
             for entry_dict in entries_to_import:
                 file_entry = FileDataEntry(
-                    fdid=entry_dict["fdid"],
-                    path=entry_dict["path"],
-                    verified=entry_dict.get("verified", False)
+                    fdid=int(entry_dict["fdid"]),
+                    path=str(entry_dict["path"]),
+                    verified=bool(entry_dict.get("verified", False))
                 )
                 file_entries.append(file_entry)
 

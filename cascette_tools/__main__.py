@@ -12,9 +12,12 @@ from rich.console import Console
 
 from cascette_tools.commands.analyze import analyze
 from cascette_tools.commands.archive import archive
+from cascette_tools.commands.archive_search import archive_search
 from cascette_tools.commands.builds import builds_group
 from cascette_tools.commands.examine import examine
 from cascette_tools.commands.fetch import fetch
+from cascette_tools.commands.install_analyzer import install_state
+from cascette_tools.commands.install_poc import install_poc
 from cascette_tools.commands.listfile import listfile_group
 from cascette_tools.commands.tact import tact_group
 from cascette_tools.commands.validate import validate
@@ -139,9 +142,12 @@ def version(ctx: click.Context) -> None:
 # Register commands
 main.add_command(analyze)
 main.add_command(archive)
+main.add_command(archive_search)
 main.add_command(builds_group)
 main.add_command(examine)
 main.add_command(fetch)
+main.add_command(install_state)
+main.add_command(install_poc)
 main.add_command(listfile_group)
 main.add_command(tact_group)
 main.add_command(validate)

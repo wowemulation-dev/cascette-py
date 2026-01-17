@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field, field_validator
@@ -49,14 +50,25 @@ class CacheConfig(BaseModel):
 
 
 class CDNConfig(BaseModel):
-    """CDN configuration with required mirrors."""
+    """CDN configuration with required mirrors.
 
-    # Fixed mirror order - do not change
+    Mirrors (in priority order):
+    1. Blizzard official - Authoritative source for current builds
+    2. cdn.arctium.tools - Full NGDP mirror, most complete historic data
+    3. casc.wago.tools - Full NGDP mirror
+    4. archive.wow.tools - Backup mirror
+
+    Note: Blizzard CDN is authoritative but may not have all historic builds.
+    Community mirrors preserve historic data that Blizzard may remove.
+    """
+
     mirrors: list[str] = Field(
         default=[
-            "https://cdn.arctium.tools",          # Primary: Complete historical data
-            "https://casc.wago.tools",            # Secondary: Community integration
-            "https://tact.mirror.reliquaryhq.com"  # Tertiary: Backup mirror
+            "http://us.cdn.blizzard.com",
+            "https://level3.ssl.blizzard.com",
+            "https://cdn.arctium.tools",
+            "https://casc.wago.tools",
+            "https://archive.wow.tools",
         ],
         description="CDN mirrors in priority order"
     )
@@ -182,7 +194,7 @@ class AppConfig(BaseModel):
         description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         """Ensure directories exist."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)

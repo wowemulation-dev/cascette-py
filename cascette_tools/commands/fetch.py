@@ -64,7 +64,11 @@ def _get_cdn_mirrors_for_product(product: str) -> list[str]:
     wow_products = ["wow", "wow_classic", "wow_classic_era"]
 
     if product in wow_products:
-        return ["https://cdn.arctium.tools"]
+        return [
+            "https://casc.wago.tools",
+            "https://cdn.arctium.tools",
+            "https://archive.wow.tools",
+        ]
     else:
         # Non-WoW products use official Blizzard CDNs
         # These are extracted from the TACT cdns endpoint
@@ -413,7 +417,6 @@ def build(
         product_enum = Product(product)
         # tact_client = TACTClient(region=region)  # Currently unused
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -917,7 +920,6 @@ def batch(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=["https://cdn.arctium.tools"],
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )

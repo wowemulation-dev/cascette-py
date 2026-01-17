@@ -5,7 +5,7 @@ from __future__ import annotations
 import struct
 import zlib
 from io import BytesIO
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 import structlog
 from pydantic import BaseModel, Field
@@ -19,12 +19,29 @@ try:
     import lz4.block
     has_lz4 = True
 except ImportError:
-    lz4 = None  # type: ignore
+    lz4 = None  # type: ignore[assignment]
     has_lz4 = False
 
 try:
     from Crypto.Cipher import ARC4, Salsa20  # type: ignore[import-untyped]
     has_crypto = True
+    if TYPE_CHECKING:
+        # Type stubs for crypto modules when type checking
+        from typing import Protocol
+
+        class CipherProtocol(Protocol):
+            """Protocol for cipher objects."""
+            def decrypt(self, data: bytes) -> bytes: ...
+
+        class Salsa20Module(Protocol):
+            """Protocol for Salsa20 module."""
+            @staticmethod
+            def new(key: bytes, nonce: bytes) -> CipherProtocol: ...
+
+        class ARC4Module(Protocol):
+            """Protocol for ARC4 module."""
+            @staticmethod
+            def new(key: bytes) -> CipherProtocol: ...
 except ImportError:
     ARC4 = None  # type: ignore[assignment]
     Salsa20 = None  # type: ignore[assignment]
@@ -36,7 +53,8 @@ class BLTEChunk(BaseModel):
 
     compressed_size: int = Field(description="Compressed size")
     decompressed_size: int = Field(description="Decompressed size")
-    checksum: bytes = Field(description="MD5 checksum")
+    checksum: bytes = Field(description="MD5 checksum of compressed data")
+    decompressed_checksum: bytes | None = Field(default=None, description="MD5 checksum of decompressed data (extended format only)")
     compression_mode: CompressionMode = Field(description="Compression mode")
     data: bytes = Field(description="Chunk data")
     encryption_type: EncryptionType | None = Field(default=None, description="Encryption type")
@@ -145,7 +163,7 @@ class BLTEParser(FormatParser[BLTEFile]):
 
     def _parse_chunks(self, stream: BinaryIO, header: BLTEHeader) -> list[BLTEChunk]:
         """Parse chunks from BLTE data."""
-        chunks = []
+        chunks: list[BLTEChunk] = []
 
         if header.is_single_chunk():
             # Single chunk - read rest of stream
@@ -154,10 +172,13 @@ class BLTEParser(FormatParser[BLTEFile]):
             chunks.append(chunk)
         else:
             # Multi-chunk file - read chunk info table first
-            if header.chunk_count is None:
-                raise ValueError("Chunk count not available")
+            if header.chunk_count is None or header.flags is None:
+                raise ValueError("Chunk count or flags not available")
 
-            chunk_infos = []
+            # Check if this is extended format (0x10) or standard format (0x0F)
+            is_extended = header.flags == 0x10
+
+            chunk_infos: list[tuple[int, int, bytes, bytes | None]] = []
             for _ in range(header.chunk_count):
                 comp_size_bytes = stream.read(4)
                 decomp_size_bytes = stream.read(4)
@@ -170,16 +191,25 @@ class BLTEParser(FormatParser[BLTEFile]):
                 decomp_size = struct.unpack('>I', decomp_size_bytes)[0]
                 checksum = checksum_bytes
 
-                chunk_infos.append((comp_size, decomp_size, checksum))
+                # Read decompressed checksum if extended format
+                decomp_checksum = None
+                if is_extended:
+                    decomp_checksum_bytes = stream.read(16)
+                    if len(decomp_checksum_bytes) != 16:
+                        raise ValueError("Incomplete decompressed checksum in extended format")
+                    decomp_checksum = decomp_checksum_bytes
+
+                chunk_infos.append((comp_size, decomp_size, checksum, decomp_checksum))
 
             # Read and parse chunks
-            for comp_size, decomp_size, checksum in chunk_infos:
+            for comp_size, decomp_size, checksum, decomp_checksum in chunk_infos:
                 chunk_data = stream.read(comp_size)
                 if len(chunk_data) != comp_size:
                     raise ValueError(f"Incomplete chunk data: expected {comp_size}, got {len(chunk_data)}")
 
                 chunk = self._parse_chunk(chunk_data, comp_size, decomp_size)
                 chunk.checksum = checksum
+                chunk.decompressed_checksum = decomp_checksum
                 chunks.append(chunk)
 
         return chunks
@@ -342,15 +372,17 @@ class BLTEParser(FormatParser[BLTEFile]):
         # Expand key to 32 bytes
         full_key = key * 2
 
-        cipher = Salsa20.new(key=full_key, nonce=nonce)
-        return cipher.decrypt(encrypted_data)
+        # Type ignore for optional crypto dependency - cipher type is dynamic
+        cipher = Salsa20.new(key=full_key, nonce=nonce)  # type: ignore[attr-defined]
+        return cipher.decrypt(encrypted_data)  # type: ignore[no-any-return]
 
     def _decrypt_arc4(self, data: bytes, key: bytes) -> bytes:
         """Decrypt using ARC4 stream cipher."""
         if not has_crypto or ARC4 is None:
             raise ValueError("Crypto support not available - install pycryptodome")
-        cipher = ARC4.new(key)
-        return cipher.decrypt(data)
+        # Type ignore for optional crypto dependency - cipher type is dynamic
+        cipher = ARC4.new(key)  # type: ignore[attr-defined]
+        return cipher.decrypt(data)  # type: ignore[no-any-return]
 
     def _decompress_block_data(self, compression_mode: CompressionMode, data: bytes) -> bytes:
         """Decompress a single block based on compression type."""
@@ -365,7 +397,8 @@ class BLTEParser(FormatParser[BLTEFile]):
             if not has_lz4 or lz4 is None:
                 raise ValueError("LZ4 support not available - install lz4")
             try:
-                return lz4.block.decompress(data)
+                # Type ignore for optional lz4 dependency - decompress returns bytes
+                return lz4.block.decompress(data)  # type: ignore[attr-defined,no-any-return]
             except Exception as e:
                 raise ValueError(f"LZ4 decompression failed: {e}") from e
         elif compression_mode == CompressionMode.FRAME:
@@ -432,11 +465,22 @@ class BLTEParser(FormatParser[BLTEFile]):
             result.write(struct.pack('B', obj.header.flags))
             result.write(struct.pack('>I', obj.header.chunk_count)[1:])  # 24-bit
 
+            # Check if this is extended format
+            is_extended = obj.header.flags == 0x10
+
             # Write chunk info table
             for chunk in obj.chunks:
                 result.write(struct.pack('>I', chunk.compressed_size))
                 result.write(struct.pack('>I', chunk.decompressed_size))
                 result.write(chunk.checksum)
+
+                # Write decompressed checksum if extended format
+                if is_extended:
+                    if chunk.decompressed_checksum is None:
+                        # If no decompressed checksum provided, write zeros
+                        result.write(b'\x00' * 16)
+                    else:
+                        result.write(chunk.decompressed_checksum)
 
         # Write chunk data
         for chunk in obj.chunks:
@@ -487,11 +531,12 @@ class BLTEBuilder:
         import hashlib
 
         # Compress data based on mode
-        compressed_data = data
+        compressed_data: bytes = data
         if compression == CompressionMode.ZLIB:
             compressed_data = zlib.compress(data)
         elif compression == CompressionMode.LZ4 and has_lz4:
-            compressed_data = lz4.block.compress(data)  # type: ignore[attr-defined]
+            # Type ignore for optional lz4 dependency
+            compressed_data = bytes(lz4.block.compress(data))  # type: ignore[attr-defined]
 
         # Create chunk
         chunk = BLTEChunk(
@@ -524,14 +569,15 @@ class BLTEBuilder:
         """
         import hashlib
 
-        blte_chunks = []
+        blte_chunks: list[BLTEChunk] = []
         for data, compression in chunks:
             # Compress data based on mode
-            compressed_data = data
+            compressed_data: bytes = data
             if compression == CompressionMode.ZLIB:
                 compressed_data = zlib.compress(data)
             elif compression == CompressionMode.LZ4 and has_lz4:
-                compressed_data = lz4.block.compress(data)  # type: ignore[attr-defined]
+                # Type ignore for optional lz4 dependency
+                compressed_data = bytes(lz4.block.compress(data))  # type: ignore[attr-defined]
 
             # Create chunk
             chunk = BLTEChunk(
@@ -543,14 +589,63 @@ class BLTEBuilder:
             )
             blte_chunks.append(chunk)
 
-        # Calculate header size: 4 bytes flags + chunk_count + (16 bytes per chunk)
-        header_size = 4 + len(chunks) * 16
+        # Calculate header size: 4 bytes (flags + chunk_count) + (24 bytes per chunk)
+        header_size = 4 + len(chunks) * 24
 
         # Create header for multi-chunk
         header = BLTEHeader(
             magic=b'BLTE',
             header_size=header_size,
             flags=0x0F,  # Standard flags for multi-chunk
+            chunk_count=len(chunks)
+        )
+
+        return BLTEFile(header=header, chunks=blte_chunks)
+
+    @classmethod
+    def create_multi_chunk_extended(cls, chunks: list[tuple[bytes, CompressionMode]]) -> BLTEFile:
+        """Create a multi-chunk BLTE file with extended format (0x10).
+
+        Extended format includes MD5 checksums for both compressed and decompressed data.
+
+        Args:
+            chunks: List of (data, compression_mode) tuples
+
+        Returns:
+            BLTE file object with extended format
+        """
+        import hashlib
+
+        blte_chunks: list[BLTEChunk] = []
+        for data, compression in chunks:
+            # Compress data based on mode
+            compressed_data: bytes = data
+            if compression == CompressionMode.ZLIB:
+                compressed_data = zlib.compress(data)
+            elif compression == CompressionMode.LZ4 and has_lz4:
+                # Type ignore for optional lz4 dependency
+                compressed_data = bytes(lz4.block.compress(data))  # type: ignore[attr-defined]
+
+            # Create chunk with both checksums
+            chunk = BLTEChunk(
+                compressed_size=len(compressed_data),
+                decompressed_size=len(data),
+                checksum=hashlib.md5(compressed_data).digest(),
+                decompressed_checksum=hashlib.md5(data).digest(),
+                compression_mode=compression,
+                data=compressed_data
+            )
+            blte_chunks.append(chunk)
+
+        # Calculate header size: 4 bytes (flags + chunk_count) + (40 bytes per chunk)
+        # Extended format: 4 + 4 + 16 + 16 = 40 bytes per chunk
+        header_size = 4 + len(chunks) * 40
+
+        # Create header for multi-chunk extended format
+        header = BLTEHeader(
+            magic=b'BLTE',
+            header_size=header_size,
+            flags=0x10,  # Extended flags for multi-chunk
             chunk_count=len(chunks)
         )
 

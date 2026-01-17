@@ -108,7 +108,7 @@ def read_cstring(stream: BinaryIO, encoding: str = "utf-8") -> str:
         >>> read_cstring(stream)
         'hello'
     """
-    chars = []
+    chars: list[bytes] = []
     while True:
         char = stream.read(1)
         if not char or char == b'\x00':

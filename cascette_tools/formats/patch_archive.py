@@ -93,7 +93,7 @@ class CompressionSpec:
         Returns:
             Dictionary containing parsed compression information
         """
-        spec = {
+        spec: dict[str, Any] = {
             'original': spec_string,
             'compression': 'none',
             'options': {}
@@ -128,7 +128,7 @@ class CompressionSpec:
             Compression specification string
         """
         if 'original' in spec_dict:
-            return spec_dict['original']
+            return str(spec_dict['original'])
 
         compression = spec_dict.get('compression', 'none')
         if compression == 'zlib':
@@ -141,7 +141,7 @@ class CompressionSpec:
         # Build complex spec from options
         options = spec_dict.get('options', {})
         if options:
-            option_parts = []
+            option_parts: list[str] = []
             for key, value in options.items():
                 option_parts.append(f"{key}={value}")
             return '{' + ','.join(option_parts) + '}'
@@ -242,7 +242,7 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         Raises:
             ValueError: If entry data is invalid
         """
-        entries = []
+        entries: list[PatchEntry] = []
         offset = PA_HEADER_SIZE
         entry_index = 0
 

@@ -69,7 +69,7 @@ class TestCDNConfig:
         expected_mirrors = [
             "https://cdn.arctium.tools",
             "https://casc.wago.tools",
-            "https://tact.mirror.reliquaryhq.com"
+            "https://archive.wow.tools",
         ]
         assert config.mirrors == expected_mirrors
         assert config.timeout == 30.0
