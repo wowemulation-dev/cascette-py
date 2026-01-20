@@ -15,9 +15,7 @@ Archive-groups are generated LOCALLY by Battle.net client.
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 
 import click
@@ -28,12 +26,19 @@ from rich.panel import Panel
 from rich.table import Table
 
 from cascette_tools.core.cache import DiskCache
-from cascette_tools.core.cdn_archive_fetcher import CdnArchiveFetcher, parse_cdn_config_archives
+from cascette_tools.core.cdn_archive_fetcher import (
+    CdnArchiveFetcher,
+    parse_cdn_config_archives,
+)
 from cascette_tools.core.config import AppConfig
 from cascette_tools.core.local_storage import LocalStorage
-from cascette_tools.formats.blte import BLTEParser, decompress_blte, is_blte
-from cascette_tools.formats.encoding import EncodingParser, is_encoding
+from cascette_tools.core.product_state import (
+    ProductInfo,
+    generate_all_state_files,
+)
+from cascette_tools.formats.blte import decompress_blte, is_blte
 from cascette_tools.formats.download import DownloadParser
+from cascette_tools.formats.encoding import EncodingParser, is_encoding
 from cascette_tools.formats.install import InstallParser
 
 logger = structlog.get_logger()
@@ -582,7 +587,13 @@ def extract_from_archives(
     ENCODING_KEY is the encoding key (32 hex chars) to extract.
     OUTPUT_PATH is where to save the extracted file.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
 
     config, console, verbose, debug = _get_context_objects(ctx)
 
@@ -630,18 +641,18 @@ def extract_from_archives(
             console.print(f"  Total entries in index map: {fetcher.index_map.total_entries:,}")
 
             # Step 3: Find and extract the file
-            console.print(f"\n[cyan]Step 3:[/cyan] Extracting file...")
+            console.print("\n[cyan]Step 3:[/cyan] Extracting file...")
             console.print(f"  Looking for encoding key: {encoding_key}")
 
             location = fetcher.index_map.find(ekey)
             if not location:
-                raise click.ClickException(f"Encoding key not found in any downloaded archive index")
+                raise click.ClickException("Encoding key not found in any downloaded archive index")
 
             console.print(f"  Found in archive: {location.archive_hash}")
             console.print(f"  Offset: {location.offset}, Size: {location.size:,} bytes")
 
             # Fetch the file
-            console.print(f"\n[cyan]Step 4:[/cyan] Fetching file from archive...")
+            console.print("\n[cyan]Step 4:[/cyan] Fetching file from archive...")
             data = fetcher.fetch_file(client, ekey, decompress=not no_decompress)
 
             if data is None:
@@ -726,7 +737,13 @@ def extract_priority_files(
     CDN_CONFIG_HASH is the CDN config hash.
     OUTPUT_DIR is where to save extracted files.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
 
     config, console, verbose, debug = _get_context_objects(ctx)
 
@@ -1002,7 +1019,13 @@ def install_to_casc(
     CDN_CONFIG_HASH is the CDN config hash from versions endpoint.
     INSTALL_PATH is the installation directory (e.g., /path/to/wow).
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
 
     config, console, verbose, debug = _get_context_objects(ctx)
 
@@ -1012,9 +1035,9 @@ def install_to_casc(
         storage = LocalStorage(install_path)
         storage.initialize()
 
-        console.print(f"  Created: Data/data/")
-        console.print(f"  Created: Data/indices/")
-        console.print(f"  Created: Data/config/")
+        console.print("  Created: Data/data/")
+        console.print("  Created: Data/indices/")
+        console.print("  Created: Data/config/")
 
         # Initialize XDG-compliant disk cache
         cache = DiskCache()
@@ -1065,11 +1088,11 @@ def install_to_casc(
                 encoding_data_raw = fetch_data(client, cdn_base, cdn_path, build_config.encoding_encoding_key)
                 console.print(f"  Downloaded: {len(encoding_data_raw):,} bytes")
                 cache.put_cdn(build_config.encoding_encoding_key, encoding_data_raw, "data", cdn_path)
-                console.print(f"  Cached to XDG")
+                console.print("  Cached to XDG")
 
             # Write raw encoding file to local CASC storage
             storage.write_content(encoding_ekey, encoding_data_raw)
-            console.print(f"  Written to local storage")
+            console.print("  Written to local storage")
 
             # Decompress for parsing
             encoding_data = encoding_data_raw
@@ -1103,10 +1126,10 @@ def install_to_casc(
                 download_data_raw = fetch_data(client, cdn_base, cdn_path, download_ekey_hex)
                 console.print(f"  Downloaded: {len(download_data_raw):,} bytes")
                 cache.put_cdn(download_ekey_hex, download_data_raw, "data", cdn_path)
-                console.print(f"  Cached to XDG")
+                console.print("  Cached to XDG")
             # Write to local CASC storage
             storage.write_content(download_ekey, download_data_raw)
-            console.print(f"  Written download manifest to local storage")
+            console.print("  Written download manifest to local storage")
 
             download_data = download_data_raw
             if is_blte(download_data):
@@ -1410,6 +1433,25 @@ def install_to_casc(
 
             console.print(bucket_table)
 
+            # Step 10: Generate product state files
+            console.print("\n[cyan]Step 10:[/cyan] Generating product state files...")
+
+            # Determine product code from build config
+            product_code = build_config.build_product or "wow_classic_era"
+
+            product_info = ProductInfo(
+                product_code=product_code,
+                version=version_str or "1.0.0.00000",
+                build_config=build_config_hash,
+                region=region,
+                locale=locale,
+                install_path=install_path,
+            )
+
+            state_files = generate_all_state_files(product_info, install_path)
+            for file_name, file_path in state_files.items():
+                console.print(f"  Created: {file_name} ({file_path})")
+
             # Summary
             summary_table = Table(title="Installation Summary")
             summary_table.add_column("Metric", style="cyan")
@@ -1425,6 +1467,7 @@ def install_to_casc(
             summary_table.add_row("CASC files failed", str(failed))
             summary_table.add_row("Total data written", f"{total_bytes / (1024*1024):.2f} MB")
             summary_table.add_row("Archive indices", f"{len(archives)}")
+            summary_table.add_row("State files created", f"{len(state_files)}")
             console.print(summary_table)
 
             console.print(Panel.fit(
@@ -1432,7 +1475,10 @@ def install_to_casc(
                 f"The CASC storage structure has been created at:\n"
                 f"  {install_path}/Data/data/    - Local archives with .idx files\n"
                 f"  {install_path}/Data/indices/ - CDN archive indices\n"
-                f"  {install_path}/Data/config/  - Configuration files",
+                f"  {install_path}/Data/config/  - Configuration files\n"
+                f"  {install_path}/.product.db   - Product database\n"
+                f"  {install_path}/.build.info   - Build information\n"
+                f"  {install_path}/Launcher.db   - Launcher state",
                 title="Success"
             ))
 

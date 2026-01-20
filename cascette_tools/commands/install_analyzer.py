@@ -7,10 +7,10 @@ a full installation.
 
 from __future__ import annotations
 
-import struct
+import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, cast
 
 import click
 import structlog
@@ -21,33 +21,145 @@ from rich.table import Table
 
 from cascette_tools.core.cdn import CDNClient
 from cascette_tools.core.config import AppConfig, CDNConfig
+from cascette_tools.core.local_storage import (
+    LocalIndexEntry,
+    parse_local_idx_file,
+)
 from cascette_tools.core.types import Product
 from cascette_tools.core.utils import format_size
-from cascette_tools.formats.config import BuildConfigParser, CDNConfigParser
+from cascette_tools.formats.config import BuildConfigParser
 from cascette_tools.formats.download import DownloadParser
 
 logger = structlog.get_logger()
 
 
-class LocalIdxEntry(BaseModel):
-    """Entry from local .idx file."""
+class LocaleConfig(BaseModel):
+    """Configuration for a single installed locale."""
 
-    key: bytes = Field(description="Truncated encoding key (9 bytes)")
-    size: int = Field(description="File size")
-    offset: int = Field(description="Offset in data file")
-    data_file: int = Field(description="Data file number")
+    code: str = Field(description="Locale code (e.g., enUS)")
+    has_speech: bool = Field(default=False, description="Speech audio installed")
+    has_text: bool = Field(default=False, description="Text/UI installed")
+
+    def display(self) -> str:
+        """Format locale with content flags."""
+        flags: list[str] = []
+        if self.has_speech:
+            flags.append("speech")
+        if self.has_text:
+            flags.append("text")
+        if flags:
+            return f"{self.code} ({', '.join(flags)})"
+        return self.code
 
 
-class LocalIdxFooter(BaseModel):
-    """Footer from local .idx file."""
+class BuildInfoTags(BaseModel):
+    """Tags parsed from .build.info file."""
 
-    toc_hash: bytes = Field(description="Table of contents hash")
-    version: int = Field(description="Version")
-    bucket: int = Field(description="Bucket number (0x00-0x0f)")
-    extra_bytes: int = Field(description="Extra bytes per entry")
-    encoder_spec_size: int = Field(description="Encoder spec size")
-    segment_size: int = Field(description="Segment size in bytes")
-    entry_count: int = Field(description="Number of entries")
+    platform: str | None = Field(default=None, description="Target platform (e.g., Windows)")
+    architecture: str | None = Field(default=None, description="Target architecture (e.g., x86_64)")
+    locale_configs: list[LocaleConfig] = Field(default_factory=list, description="Installed locale configurations")  # pyright: ignore[reportUnknownVariableType]
+    region: str | None = Field(default=None, description="Target region (e.g., EU)")
+    raw_tags: str = Field(default="", description="Raw tag string from .build.info")
+
+    @property
+    def locales(self) -> list[str]:
+        """List of locale codes for backward compatibility."""
+        return [lc.code for lc in self.locale_configs]
+
+    @property
+    def locale(self) -> str | None:
+        """Primary locale (first in list) for backward compatibility."""
+        return self.locale_configs[0].code if self.locale_configs else None
+
+    @property
+    def locale_display(self) -> str:
+        """Format all locales with content flags for display."""
+        if not self.locale_configs:
+            return ""
+        return ", ".join(lc.display() for lc in self.locale_configs)
+
+
+def parse_build_info_tags(install_path: Path) -> BuildInfoTags:
+    """Parse tags from .build.info file.
+
+    The .build.info file contains a Tags field with format like:
+    "Windows x86_64 EU? acct-DEU? geoip-TH? enUS speech?:Windows x86_64 EU? ..."
+
+    Args:
+        install_path: Path to installation root
+
+    Returns:
+        BuildInfoTags with parsed platform, arch, locale, region
+    """
+    build_info_path = install_path / ".build.info"
+    if not build_info_path.exists():
+        return BuildInfoTags()
+
+    try:
+        content = build_info_path.read_text()
+        lines = content.strip().split('\n')
+        if len(lines) < 2:
+            return BuildInfoTags()
+
+        # Parse header to find Tags column
+        headers = lines[0].split('|')
+        tag_col_idx = None
+        for i, header in enumerate(headers):
+            if header.startswith('Tags'):
+                tag_col_idx = i
+                break
+
+        if tag_col_idx is None:
+            return BuildInfoTags()
+
+        # Parse data line
+        data = lines[1].split('|')
+        if tag_col_idx >= len(data):
+            return BuildInfoTags()
+
+        raw_tags = data[tag_col_idx]
+        tags = BuildInfoTags(raw_tags=raw_tags)
+
+        # Extract platform
+        platform_match = re.search(r'\b(Windows|OSX|Android|iOS|PS5|Web|XBSX)\b', raw_tags)
+        if platform_match:
+            tags.platform = platform_match.group(1)
+
+        # Extract architecture
+        arch_match = re.search(r'\b(x86_64|x86_32|arm64)\b', raw_tags)
+        if arch_match:
+            tags.architecture = arch_match.group(1)
+
+        # Parse locale configurations from colon-separated groups
+        # Each group format: "Windows x86_64 EU? ... locale speech?" or "... locale text?"
+        locale_order: list[str] = []
+        locale_map: dict[str, LocaleConfig] = {}
+        locale_pattern = re.compile(r'\b(enUS|deDE|esES|esMX|frFR|koKR|ptBR|ruRU|zhCN|zhTW)\b')
+        for group in raw_tags.split(':'):
+            locale_match = locale_pattern.search(group)
+            if locale_match:
+                code = locale_match.group(1)
+                if code not in locale_map:
+                    locale_map[code] = LocaleConfig(code=code)
+                    locale_order.append(code)
+                # Check for speech/text flags (with or without ?)
+                if re.search(r'\bspeech\b', group, re.IGNORECASE):
+                    locale_map[code].has_speech = True
+                if re.search(r'\btext\b', group, re.IGNORECASE):
+                    locale_map[code].has_text = True
+        # Build ordered list of locale configs
+        tags.locale_configs = [locale_map[code] for code in locale_order]
+
+        # Extract region
+        region_match = re.search(r'\b(US|EU|KR|TW|CN)\b', raw_tags)
+        if region_match:
+            tags.region = region_match.group(1)
+
+        return tags
+
+    except Exception as e:
+        logger.warning(f"Failed to parse .build.info tags: {e}")
+        return BuildInfoTags()
 
 
 class InstallationState(BaseModel):
@@ -57,9 +169,10 @@ class InstallationState(BaseModel):
     product_code: str = Field(description="Product code (e.g., wow_classic_era)")
     build_config_hash: str | None = Field(default=None, description="Build config hash")
     cdn_config_hash: str | None = Field(default=None, description="CDN config hash")
-    local_entries: dict[str, LocalIdxEntry] = Field(default_factory=dict, description="Local idx entries by hex key")
+    local_entries: dict[str, LocalIndexEntry] = Field(default_factory=dict, description="Local idx entries by hex key")
     local_data_size: int = Field(default=0, description="Total size of local .data files")
     local_entry_count: int = Field(default=0, description="Total number of local entries")
+    tags: BuildInfoTags = Field(default_factory=BuildInfoTags, description="Tags from .build.info")
 
 
 class InstallationProgress(BaseModel):
@@ -69,93 +182,9 @@ class InstallationProgress(BaseModel):
     downloaded_entries: int = Field(description="Entries already downloaded")
     total_size: int = Field(description="Total size needed in bytes")
     downloaded_size: int = Field(description="Size already downloaded")
-    priority_breakdown: dict[int, dict[str, int]] = Field(description="Breakdown by priority level")
+    priority_breakdown: dict[int, dict[str, int | float]] = Field(description="Breakdown by priority level")
     missing_entries: list[str] = Field(default_factory=list, description="Missing encoding keys (first 100)")
-
-
-def parse_local_idx(data: bytes, bucket: int) -> tuple[LocalIdxFooter, list[LocalIdxEntry]]:
-    """Parse a local .idx file.
-
-    Local .idx files have a different format from CDN indices:
-    - 9-byte truncated keys for space optimization
-    - 4-byte offsets
-    - Footer at end of file (similar structure but different fields)
-
-    Args:
-        data: Raw .idx file data
-        bucket: Bucket number (extracted from filename, e.g., 0x00 from 0000000001.idx)
-
-    Returns:
-        Tuple of (footer, entries)
-    """
-    if len(data) < 28:
-        raise ValueError("Data too short for local idx file")
-
-    # Footer is at the end (28 bytes for basic footer)
-    # But we need to detect the actual footer location
-    # Local idx files use a fixed 65536-byte block size
-
-    # Parse footer from end
-    footer_data = data[-28:]
-
-    # Parse footer structure
-    toc_hash = footer_data[0:8]
-    version = footer_data[8]
-    bucket_byte = footer_data[9]  # Should match bucket from filename
-    extra_bytes = footer_data[10]
-    encoder_spec_size = footer_data[11]
-    segment_size = struct.unpack('<I', footer_data[12:16])[0]  # Little-endian
-    entry_count = struct.unpack('<I', footer_data[16:20])[0]  # Little-endian
-
-    footer = LocalIdxFooter(
-        toc_hash=toc_hash,
-        version=version,
-        bucket=bucket_byte,
-        extra_bytes=extra_bytes,
-        encoder_spec_size=encoder_spec_size,
-        segment_size=segment_size,
-        entry_count=entry_count,
-    )
-
-    # Parse entries
-    # Entry size: 9 (key) + 4 (size) + 4 (offset) + extra_bytes
-    entry_size = 9 + 4 + 4 + extra_bytes
-    entries: list[LocalIdxEntry] = []
-
-    # Data is organized in pages, entries are at the start
-    pos = 0
-    for _ in range(entry_count):
-        if pos + entry_size > len(data) - 28:  # Don't read into footer
-            break
-
-        key = data[pos:pos + 9]
-        pos += 9
-
-        size = struct.unpack('<I', data[pos:pos + 4])[0]
-        pos += 4
-
-        offset = struct.unpack('<I', data[pos:pos + 4])[0]
-        pos += 4
-
-        # Skip extra bytes
-        pos += extra_bytes
-
-        # Skip empty entries
-        if key == b'\x00' * 9:
-            continue
-
-        # Extract data file number from offset
-        # High bits indicate which .data file
-        data_file = 0  # Default, would need to check actual data files
-
-        entries.append(LocalIdxEntry(
-            key=key,
-            size=size,
-            offset=offset,
-            data_file=data_file
-        ))
-
-    return footer, entries
+    tags_used: BuildInfoTags | None = Field(default=None, description="Tags used for filtering")
 
 
 def scan_local_installation(install_path: Path, product_code: str) -> InstallationState:
@@ -172,6 +201,11 @@ def scan_local_installation(install_path: Path, product_code: str) -> Installati
         install_path=install_path,
         product_code=product_code
     )
+
+    # Parse tags from .build.info
+    state.tags = parse_build_info_tags(install_path)
+    if state.tags.platform:
+        logger.info(f"Detected tags: {state.tags.platform} {state.tags.architecture} {state.tags.locale_display}")
 
     # Find the data directory
     # Structure: install_path/Data/{product_code}/
@@ -193,7 +227,7 @@ def scan_local_installation(install_path: Path, product_code: str) -> Installati
                 logger.debug(f"Found config: {config_file.name}")
                 break
 
-    # Scan local .idx files
+    # Scan local .idx files using the V7 format parser from local_storage
     # Local idx files are in Data/data/ or Data/{product}/
     idx_locations = [
         data_path,
@@ -213,16 +247,14 @@ def scan_local_installation(install_path: Path, product_code: str) -> Installati
                 # Extract bucket from filename (e.g., 0000000001.idx -> bucket 0x00)
                 name = idx_file.stem
                 if len(name) == 10 and name.isalnum():
-                    bucket = int(name[:2], 16)
-
                     idx_data = idx_file.read_bytes()
-                    footer, entries = parse_local_idx(idx_data, bucket)
+                    idx_info = parse_local_idx_file(idx_data)
 
-                    for entry in entries:
+                    for entry in idx_info.entries:
                         hex_key = entry.key.hex()
                         state.local_entries[hex_key] = entry
 
-                    logger.debug(f"Parsed {idx_file.name}: {len(entries)} entries")
+                    logger.debug(f"Parsed {idx_file.name}: {len(idx_info.entries)} entries (v{idx_info.version})")
 
             except Exception as e:
                 logger.warning(f"Failed to parse {idx_file}: {e}")
@@ -249,25 +281,103 @@ def scan_local_installation(install_path: Path, product_code: str) -> Installati
     return state
 
 
+def filter_entries_by_build_info_tags(
+    entries: list[Any],
+    manifest_tags: list[Any],
+    build_info_tags: BuildInfoTags,
+) -> list[Any]:
+    """Filter download manifest entries by tags from .build.info.
+
+    Uses the platform, architecture, and locale from the installation's
+    .build.info file to filter entries, matching Battle.net's behavior.
+
+    Args:
+        entries: Download manifest entries
+        manifest_tags: Tag definitions from the download manifest
+        build_info_tags: Tags parsed from .build.info
+
+    Returns:
+        Filtered list of entries matching the installation's configuration
+    """
+    # Define tag categories
+    platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
+    arch_tags = {"x86_32", "x86_64", "arm64"}
+    locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
+
+    # Build tag filter from .build.info
+    required_tags: list[str] = []
+    if build_info_tags.platform:
+        required_tags.append(build_info_tags.platform)
+    if build_info_tags.architecture:
+        required_tags.append(build_info_tags.architecture)
+    if build_info_tags.locale:
+        required_tags.append(build_info_tags.locale)
+
+    if not required_tags:
+        # No tags to filter by, return all entries
+        return entries
+
+    filtered: list[Any] = []
+    for entry in entries:
+        entry_tags = set(entry.tags)
+
+        # Check platform: if entry has platform tags, it must match
+        entry_platform_tags = entry_tags & platform_tags
+        if entry_platform_tags and build_info_tags.platform:
+            if build_info_tags.platform not in entry_platform_tags:
+                continue
+
+        # Check architecture: if entry has arch tags, it must match
+        entry_arch_tags = entry_tags & arch_tags
+        if entry_arch_tags and build_info_tags.architecture:
+            if build_info_tags.architecture not in entry_arch_tags:
+                continue
+
+        # Check locale: if entry has locale tags, it must match
+        entry_locale_tags = entry_tags & locale_tags
+        if entry_locale_tags and build_info_tags.locale:
+            if build_info_tags.locale not in entry_locale_tags:
+                continue
+
+        filtered.append(entry)
+
+    return filtered
+
+
 def calculate_progress(
     state: InstallationState,
     download_manifest: Any,  # DownloadFile
-    tags: list[str] | None = None
+    tags: list[str] | None = None,
+    use_build_info_tags: bool = True,
 ) -> InstallationProgress:
     """Calculate installation progress by comparing local state to download manifest.
 
+    By default, uses tags from .build.info to filter entries, matching how
+    Battle.net calculates progress for the installed configuration.
+
     Args:
-        state: Current local installation state
+        state: Current local installation state (includes .build.info tags)
         download_manifest: Parsed download manifest
-        tags: Optional list of tags to filter by (e.g., ['Windows', 'enUS'])
+        tags: Optional explicit list of tags to filter by
+        use_build_info_tags: If True and no explicit tags, use tags from .build.info
 
     Returns:
         InstallationProgress with detailed breakdown
     """
-    # Filter entries by tags if provided
+    # Determine which tags to use for filtering
     entries = download_manifest.entries
+    tags_used = None
+
     if tags:
+        # Explicit tags provided
         entries = [e for e in entries if any(t in e.tags for t in tags)]
+        tags_used = BuildInfoTags(raw_tags=", ".join(tags))
+    elif use_build_info_tags and state.tags.platform:
+        # Use tags from .build.info
+        entries = filter_entries_by_build_info_tags(
+            entries, download_manifest.tags, state.tags
+        )
+        tags_used = state.tags
 
     # Group by priority
     priority_groups: dict[int, list[Any]] = defaultdict(list)
@@ -282,7 +392,7 @@ def calculate_progress(
     downloaded_size = 0
     missing: list[str] = []
 
-    priority_breakdown: dict[int, dict[str, int]] = {}
+    priority_breakdown: dict[int, dict[str, int | float]] = {}
 
     for priority in sorted(priority_groups.keys()):
         group = priority_groups[priority]
@@ -318,7 +428,8 @@ def calculate_progress(
         total_size=total_size,
         downloaded_size=downloaded_size,
         priority_breakdown=priority_breakdown,
-        missing_entries=missing
+        missing_entries=missing,
+        tags_used=tags_used,
     )
 
 
@@ -351,7 +462,7 @@ def scan(ctx: click.Context, install_path: Path, product: str) -> None:
 
     INSTALL_PATH is the root of the game installation (e.g., /path/to/World of Warcraft).
     """
-    config, console, verbose, _ = _get_context_objects(ctx)
+    _config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
         with Progress(
@@ -374,16 +485,24 @@ def scan(ctx: click.Context, install_path: Path, product: str) -> None:
         table.add_row("Local Entries", f"{state.local_entry_count:,}")
         table.add_row("Local Data Size", format_size(state.local_data_size))
 
+        # Display tags from .build.info
+        if state.tags.platform:
+            tags_str = f"{state.tags.platform} {state.tags.architecture or ''} {state.tags.locale_display}"
+            table.add_row("Installed Config", tags_str.strip())
+        else:
+            table.add_row("Installed Config", "Not detected (no .build.info)")
+
         console.print(table)
 
         if verbose and state.local_entries:
             # Show sample entries
             sample_table = Table(title="Sample Local Entries (first 10)")
             sample_table.add_column("Key (truncated)", style="yellow")
+            sample_table.add_column("Archive", style="blue")
             sample_table.add_column("Size", style="green")
 
-            for i, (key, entry) in enumerate(list(state.local_entries.items())[:10]):
-                sample_table.add_row(key, format_size(entry.size))
+            for key, entry in list(state.local_entries.items())[:10]:
+                sample_table.add_row(key, f"data.{entry.archive_id:03d}", format_size(entry.size))
 
             console.print(sample_table)
 
@@ -484,14 +603,14 @@ def progress(
             priority_table.add_row(
                 str(priority),
                 f"{breakdown['downloaded_entries']:,}/{breakdown['total_entries']:,}",
-                f"{format_size(breakdown['downloaded_size'])}/{format_size(breakdown['total_size'])}",
+                f"{format_size(int(breakdown['downloaded_size']))}/{format_size(int(breakdown['total_size']))}",
                 f"{breakdown['percent']:.1f}%"
             )
 
         console.print(priority_table)
 
         if verbose and prog_result.missing_entries:
-            console.print(f"\n[yellow]First 10 missing entries:[/yellow]")
+            console.print("\n[yellow]First 10 missing entries:[/yellow]")
             for key in prog_result.missing_entries[:10]:
                 console.print(f"  {key}")
 
@@ -508,7 +627,7 @@ def show_config(ctx: click.Context, build_config_path: Path) -> None:
 
     BUILD_CONFIG_PATH is the path to a build config file.
     """
-    config, console, verbose, _ = _get_context_objects(ctx)
+    _config, console, _verbose, _ = _get_context_objects(ctx)
 
     try:
         data = build_config_path.read_bytes()
@@ -524,7 +643,7 @@ def show_config(ctx: click.Context, build_config_path: Path) -> None:
             for key, value in build_config.model_dump().items():
                 if value is not None:
                     if isinstance(value, list):
-                        value = " ".join(str(v) for v in value)
+                        value = " ".join(str(v) for v in cast(list[object], value))
                     table.add_row(key, str(value))
         else:
             for key, value in vars(build_config).items():

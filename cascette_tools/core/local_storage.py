@@ -17,7 +17,6 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
 
 import structlog
 
@@ -163,6 +162,108 @@ def format_data_filename(archive_id: int) -> str:
     return f"data.{archive_id:03d}"
 
 
+@dataclass
+class LocalIndexFileInfo:
+    """Parsed information from a local index file."""
+
+    version: int
+    bucket: int
+    ekey_length: int
+    storage_offset_length: int
+    encoded_size_length: int
+    file_offset_bits: int
+    segment_size: int
+    entries: list[LocalIndexEntry] = field(default_factory=list)
+
+
+def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
+    """Parse a local .idx file (V7 format with guarded blocks).
+
+    The V7 format structure:
+    - Guarded block header (8 bytes): block_size + Jenkins hash
+    - Index header (16 bytes): version, bucket, field sizes, segment_size
+    - Padding (8 bytes)
+    - Entry block guarded header (8 bytes): block_size + Jenkins hash
+    - Entry data: 18-byte entries (9-byte key + 5-byte location + 4-byte size)
+
+    Args:
+        data: Raw .idx file bytes
+
+    Returns:
+        LocalIndexFileInfo with parsed header and entries
+
+    Raises:
+        ValueError: If data is too short or format is invalid
+    """
+    if len(data) < 40:
+        raise ValueError(f"Data too short for local idx file: {len(data)} < 40")
+
+    # Parse header guarded block (8 bytes)
+    # Note: We only validate format, actual hash verification could be added
+    _ = struct.unpack('<I', data[0:4])[0]  # header_block_size
+    # _ = struct.unpack('<I', data[4:8])[0]  # header_block_hash
+
+    # Parse IndexHeaderV2 (16 bytes starting at offset 8)
+    version = struct.unpack('<H', data[8:10])[0]
+    bucket = data[10]
+    # extra_bytes = data[11]  # unused
+    encoded_size_length = data[12]
+    storage_offset_length = data[13]
+    ekey_length = data[14]
+    file_offset_bits = data[15]
+    segment_size = struct.unpack('<Q', data[16:24])[0]
+
+    if version not in (7, 8):
+        logger.warning(f"Unexpected index version: {version} (expected 7 or 8)")
+
+    if ekey_length not in (9, 16):
+        raise ValueError(f"Invalid key size: {ekey_length}")
+
+    # Entry size: key + location + size
+    entry_size = ekey_length + storage_offset_length + encoded_size_length
+
+    # Skip 8 bytes padding after header
+    # Entry block starts at offset 32 (0x20)
+
+    # Parse entry block guarded header (8 bytes)
+    entry_block_size = struct.unpack('<I', data[32:36])[0]
+    # entry_block_hash = struct.unpack('<I', data[36:40])[0]
+
+    # Entry data starts at offset 40 (0x28)
+    entry_data = data[40:40 + entry_block_size]
+
+    entries: list[LocalIndexEntry] = []
+    offset = 0
+
+    while offset + entry_size <= len(entry_data):
+        entry_bytes = entry_data[offset:offset + entry_size]
+
+        # Skip empty entries (all zeros in key)
+        if entry_bytes[:9] == b'\x00' * 9:
+            offset += entry_size
+            continue
+
+        try:
+            entry = LocalIndexEntry.from_bytes(entry_bytes)
+            entries.append(entry)
+        except ValueError:
+            # Skip malformed entries
+            pass
+
+        offset += entry_size
+
+    return LocalIndexFileInfo(
+        version=version,
+        bucket=bucket,
+        ekey_length=ekey_length,
+        storage_offset_length=storage_offset_length,
+        encoded_size_length=encoded_size_length,
+        file_offset_bits=file_offset_bits,
+        segment_size=segment_size,
+        entries=entries,
+    )
+
+
 class LocalStorage:
     """Manages local CASC storage structure."""
 
@@ -184,7 +285,7 @@ class LocalStorage:
         self.bucket_entries: dict[int, list[LocalIndexEntry]] = {i: [] for i in range(16)}
 
         # Track generation numbers for each bucket (starts at 1)
-        self.bucket_generations: dict[int, int] = {i: 1 for i in range(16)}
+        self.bucket_generations: dict[int, int] = dict.fromkeys(range(16), 1)
 
     def initialize(self) -> None:
         """Create directory structure matching Battle.net."""

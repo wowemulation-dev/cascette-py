@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bob Jenkins' lookup3 hash functions (`hashlittle`, `hashlittle2`) for CASC index file checksum validation
 - New `crypto` module providing cryptographic hash utilities
+- Product state file generation (`product_state.py`) for Battle.net compatible installations
+  - `.product.db` protobuf generation
+  - `Launcher.db` locale file
+  - `.patch.result` status file
+  - `.flavor.info` for WoW products
+- Local .idx file parser (V7/V8 format) for scanning existing installations
+- Multi-locale tag parsing from `.build.info` with speech/text content flags
+
+### Changed
+
+- Installation scanner now displays all installed locales with content type flags
+- Improved type annotations in `install_analyzer.py` for pyright strict mode
+
+### Fixed
+
+- Tag parsing now correctly extracts all locales from colon-separated groups
+- Pyright type errors in `install_analyzer.py` resolved
 
 ## [0.2.0] - 2025-09-24
 
