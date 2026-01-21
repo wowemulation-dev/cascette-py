@@ -50,27 +50,26 @@ class CacheConfig(BaseModel):
 
 
 class CDNConfig(BaseModel):
-    """CDN configuration with required mirrors.
+    """CDN configuration with fallback mirrors.
 
-    Mirrors (in priority order):
-    1. Blizzard official - Authoritative source for current builds
-    2. cdn.arctium.tools - Full NGDP mirror, most complete historic data
-    3. casc.wago.tools - Full NGDP mirror
-    4. archive.wow.tools - Backup mirror
+    Primary CDN servers are obtained dynamically from Blizzard's Ribbit endpoint.
+    These fallback mirrors are used when Ribbit servers are unavailable or fail:
+
+    1. cdn.arctium.tools - Full NGDP mirror, most complete historic data
+    2. casc.wago.tools - Full NGDP mirror
+    3. archive.wow.tools - Backup mirror
 
     Note: Blizzard CDN is authoritative but may not have all historic builds.
     Community mirrors preserve historic data that Blizzard may remove.
     """
 
-    mirrors: list[str] = Field(
+    fallback_mirrors: list[str] = Field(
         default=[
-            "http://us.cdn.blizzard.com",
-            "https://level3.ssl.blizzard.com",
             "https://cdn.arctium.tools",
             "https://casc.wago.tools",
             "https://archive.wow.tools",
         ],
-        description="CDN mirrors in priority order"
+        description="Fallback CDN mirrors when Ribbit servers fail"
     )
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts per mirror")
@@ -78,15 +77,15 @@ class CDNConfig(BaseModel):
 
     @property
     def base_url(self) -> str:
-        """Get primary mirror URL for backward compatibility."""
-        return f"{self.mirrors[0]}/tpr/wow/"
+        """Get primary fallback mirror URL for backward compatibility."""
+        return f"{self.fallback_mirrors[0]}/tpr/wow/"
 
-    @field_validator("mirrors")
+    @field_validator("fallback_mirrors")
     @classmethod
-    def validate_mirrors(cls, v: list[str]) -> list[str]:
-        """Validate mirrors list."""
+    def validate_fallback_mirrors(cls, v: list[str]) -> list[str]:
+        """Validate fallback mirrors list."""
         if not v:
-            raise ValueError("Mirrors list cannot be empty")
+            raise ValueError("Fallback mirrors list cannot be empty")
         return v
 
     @field_validator("timeout")

@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CDN client now fetches servers from Ribbit endpoint dynamically instead of using hardcoded list
+- Community mirrors (arctium, wago, archive.wow.tools) are now fallback-only after Ribbit servers
 - Installation scanner now displays all installed locales with content type flags
 - Improved type annotations in `install_analyzer.py` for pyright strict mode
 

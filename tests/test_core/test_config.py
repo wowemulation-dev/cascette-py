@@ -62,8 +62,8 @@ class TestCacheConfig:
 class TestCDNConfig:
     """Test CDNConfig class."""
 
-    def test_default_mirrors(self):
-        """Test default mirror configuration."""
+    def test_default_fallback_mirrors(self):
+        """Test default fallback mirror configuration."""
         config = CDNConfig()
 
         expected_mirrors = [
@@ -71,34 +71,34 @@ class TestCDNConfig:
             "https://casc.wago.tools",
             "https://archive.wow.tools",
         ]
-        assert config.mirrors == expected_mirrors
+        assert config.fallback_mirrors == expected_mirrors
         assert config.timeout == 30.0
         assert config.max_retries == 3
         assert config.verify_ssl is True
 
-    def test_custom_mirrors(self):
-        """Test custom mirror configuration."""
+    def test_custom_fallback_mirrors(self):
+        """Test custom fallback mirror configuration."""
         custom_mirrors = ["https://custom.mirror.com", "https://backup.mirror.com"]
         config = CDNConfig(
-            mirrors=custom_mirrors,
+            fallback_mirrors=custom_mirrors,
             timeout=60.0,
             max_retries=5,
             verify_ssl=False
         )
 
-        assert config.mirrors == custom_mirrors
+        assert config.fallback_mirrors == custom_mirrors
         assert config.timeout == 60.0
         assert config.max_retries == 5
         assert config.verify_ssl is False
 
     def test_base_url_property(self):
-        """Test base_url property returns primary mirror."""
+        """Test base_url property returns primary fallback mirror."""
         config = CDNConfig()
         assert config.base_url == "https://cdn.arctium.tools/tpr/wow/"
 
-        # Test with custom mirrors
+        # Test with custom fallback mirrors
         custom_mirrors = ["https://custom.mirror.com"]
-        config = CDNConfig(mirrors=custom_mirrors)
+        config = CDNConfig(fallback_mirrors=custom_mirrors)
         assert config.base_url == "https://custom.mirror.com/tpr/wow/"
 
     def test_timeout_validation(self):
@@ -125,10 +125,10 @@ class TestCDNConfig:
         with pytest.raises(ValueError):
             CDNConfig(max_retries=-1)
 
-    def test_empty_mirrors_validation(self):
-        """Test that empty mirrors list is invalid."""
+    def test_empty_fallback_mirrors_validation(self):
+        """Test that empty fallback mirrors list is invalid."""
         with pytest.raises(ValueError):
-            CDNConfig(mirrors=[])
+            CDNConfig(fallback_mirrors=[])
 
 
 class TestTACTConfig:

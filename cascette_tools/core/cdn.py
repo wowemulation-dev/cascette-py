@@ -138,6 +138,8 @@ class CDNClient:
     def _fetch_from_cdn(self, hash_str: str, file_type: str) -> bytes:
         """Fetch file from CDN servers with mirror fallback.
 
+        Uses Ribbit-provided CDN servers first, then falls back to community mirrors.
+
         Args:
             hash_str: File hash
             file_type: Type of file (config, data, index, patch, patch_index)
@@ -150,15 +152,11 @@ class CDNClient:
         """
         last_error = None
 
-        # Determine which mirrors to use
-        # For non-WoW products, prefer TACT servers if available
-        wow_products = ["wow", "wow_classic", "wow_classic_era"]
-        if self.product.value not in wow_products and self.cdn_servers:
-            # Use TACT servers for non-WoW products
-            mirrors = self.cdn_servers
-        else:
-            # Use configured mirrors for WoW products
-            mirrors = self.config.mirrors
+        # Build mirror list: Ribbit servers first, then community fallback mirrors
+        mirrors = self.cdn_servers + self.config.fallback_mirrors
+
+        if not mirrors:
+            raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")
 
         # Try each mirror in order
         for mirror_idx, mirror in enumerate(mirrors):
