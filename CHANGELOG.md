@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `.build.info` parser (`BuildInfoParser`) with parse/build methods for round-trip support
+- `LocalBuildInfo` model representing complete `.build.info` file structure
+- `LocaleConfig` type in `core/types.py` for locale configuration with speech/text flags
+- Resume detection in `install-to-casc` command via `--resume/--no-resume` flags
+- `--force` flag to override existing `.build.info` during installation
+- Early `.build.info` creation before downloads to lock configuration
+- Tag configuration display table showing platform, architecture, locale, and region
+- Test suite for `BuildInfoParser` with 24 tests
+
+### Changed
+
+- Installation workflow now creates `.build.info` at start (Step 1.5) rather than end
+- `install_analyzer.py` uses `BuildInfoParser` instead of inline parsing
+- `LocaleConfig` moved from `install_analyzer.py` to `core/types.py` for reuse
+
 - Bob Jenkins' lookup3 hash functions (`hashlittle`, `hashlittle2`) for CASC index file checksum validation
 - New `crypto` module providing cryptographic hash utilities
 - Product state file generation (`product_state.py`) for Battle.net compatible installations

@@ -7,7 +7,6 @@ a full installation.
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
@@ -25,31 +24,13 @@ from cascette_tools.core.local_storage import (
     LocalIndexEntry,
     parse_local_idx_file,
 )
-from cascette_tools.core.types import Product
+from cascette_tools.core.types import LocaleConfig, Product
 from cascette_tools.core.utils import format_size
+from cascette_tools.formats.build_info import BuildInfoParser
 from cascette_tools.formats.config import BuildConfigParser
 from cascette_tools.formats.download import DownloadParser
 
 logger = structlog.get_logger()
-
-
-class LocaleConfig(BaseModel):
-    """Configuration for a single installed locale."""
-
-    code: str = Field(description="Locale code (e.g., enUS)")
-    has_speech: bool = Field(default=False, description="Speech audio installed")
-    has_text: bool = Field(default=False, description="Text/UI installed")
-
-    def display(self) -> str:
-        """Format locale with content flags."""
-        flags: list[str] = []
-        if self.has_speech:
-            flags.append("speech")
-        if self.has_text:
-            flags.append("text")
-        if flags:
-            return f"{self.code} ({', '.join(flags)})"
-        return self.code
 
 
 class BuildInfoTags(BaseModel):
@@ -82,8 +63,8 @@ class BuildInfoTags(BaseModel):
 def parse_build_info_tags(install_path: Path) -> BuildInfoTags:
     """Parse tags from .build.info file.
 
-    The .build.info file contains a Tags field with format like:
-    "Windows x86_64 EU? acct-DEU? geoip-TH? enUS speech?:Windows x86_64 EU? ..."
+    Uses BuildInfoParser to parse the file and extracts tag information
+    into a BuildInfoTags object.
 
     Args:
         install_path: Path to installation root
@@ -96,66 +77,16 @@ def parse_build_info_tags(install_path: Path) -> BuildInfoTags:
         return BuildInfoTags()
 
     try:
-        content = build_info_path.read_text()
-        lines = content.strip().split('\n')
-        if len(lines) < 2:
-            return BuildInfoTags()
+        parser = BuildInfoParser()
+        info = parser.parse_file(str(build_info_path))
 
-        # Parse header to find Tags column
-        headers = lines[0].split('|')
-        tag_col_idx = None
-        for i, header in enumerate(headers):
-            if header.startswith('Tags'):
-                tag_col_idx = i
-                break
-
-        if tag_col_idx is None:
-            return BuildInfoTags()
-
-        # Parse data line
-        data = lines[1].split('|')
-        if tag_col_idx >= len(data):
-            return BuildInfoTags()
-
-        raw_tags = data[tag_col_idx]
-        tags = BuildInfoTags(raw_tags=raw_tags)
-
-        # Extract platform
-        platform_match = re.search(r'\b(Windows|OSX|Android|iOS|PS5|Web|XBSX)\b', raw_tags)
-        if platform_match:
-            tags.platform = platform_match.group(1)
-
-        # Extract architecture
-        arch_match = re.search(r'\b(x86_64|x86_32|arm64)\b', raw_tags)
-        if arch_match:
-            tags.architecture = arch_match.group(1)
-
-        # Parse locale configurations from colon-separated groups
-        # Each group format: "Windows x86_64 EU? ... locale speech?" or "... locale text?"
-        locale_order: list[str] = []
-        locale_map: dict[str, LocaleConfig] = {}
-        locale_pattern = re.compile(r'\b(enUS|deDE|esES|esMX|frFR|koKR|ptBR|ruRU|zhCN|zhTW)\b')
-        for group in raw_tags.split(':'):
-            locale_match = locale_pattern.search(group)
-            if locale_match:
-                code = locale_match.group(1)
-                if code not in locale_map:
-                    locale_map[code] = LocaleConfig(code=code)
-                    locale_order.append(code)
-                # Check for speech/text flags (with or without ?)
-                if re.search(r'\bspeech\b', group, re.IGNORECASE):
-                    locale_map[code].has_speech = True
-                if re.search(r'\btext\b', group, re.IGNORECASE):
-                    locale_map[code].has_text = True
-        # Build ordered list of locale configs
-        tags.locale_configs = [locale_map[code] for code in locale_order]
-
-        # Extract region
-        region_match = re.search(r'\b(US|EU|KR|TW|CN)\b', raw_tags)
-        if region_match:
-            tags.region = region_match.group(1)
-
-        return tags
+        return BuildInfoTags(
+            platform=info.platform,
+            architecture=info.architecture,
+            locale_configs=info.locale_configs,
+            region=info.region,
+            raw_tags=info.tags,
+        )
 
     except Exception as e:
         logger.warning(f"Failed to parse .build.info tags: {e}")

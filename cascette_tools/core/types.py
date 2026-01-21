@@ -79,3 +79,22 @@ class TACTKey(BaseModel):
     lookup: str = Field(..., description="Lookup value")
 
     model_config = ConfigDict(extra="allow")
+
+
+class LocaleConfig(BaseModel):
+    """Configuration for a single installed locale."""
+
+    code: str = Field(..., description="Locale code (e.g., enUS)")
+    has_speech: bool = Field(default=False, description="Speech audio installed")
+    has_text: bool = Field(default=False, description="Text/UI installed")
+
+    def display(self) -> str:
+        """Format locale with content flags."""
+        flags: list[str] = []
+        if self.has_speech:
+            flags.append("speech")
+        if self.has_text:
+            flags.append("text")
+        if flags:
+            return f"{self.code} ({', '.join(flags)})"
+        return self.code
