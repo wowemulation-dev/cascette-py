@@ -30,7 +30,7 @@ class TACTKey(BaseModel):
 class TACTKeyManager:
     """Manages TACT encryption keys from wowdev/TACTKeys."""
 
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/wowdev/TACTKeys/master"
+    GITHUB_RAW_URL = "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
     CACHE_LIFETIME = timedelta(hours=24)
 
     def __init__(self, config: AppConfig | None = None) -> None:
@@ -62,6 +62,7 @@ class TACTKeyManager:
         if self._client is None:
             self._client = httpx.Client(
                 timeout=30.0,
+                follow_redirects=True,
                 headers={"User-Agent": "cascette-tools/0.1.0"}
             )
         return self._client
@@ -235,20 +236,18 @@ class TACTKeyManager:
                 if not line or line.startswith('#'):
                     continue
 
-                # Parse semicolon-separated format: keyname;keyvalue;description
-                parts = line.split(';')
+                # Format: "keyname keyvalue" (space-separated hex strings)
+                parts = line.split()
                 if len(parts) < 2:
                     continue
 
-                # Extract key components
                 key_name = parts[0].strip().upper()
                 key_value = parts[1].strip().upper()
-                description = parts[2].strip() if len(parts) > 2 and parts[2].strip() else None
 
                 key = TACTKey(
                     key_name=key_name,
                     key_value=key_value,
-                    description=description,
+                    description=None,
                     product_family="wow",
                     verified=True  # wowdev keys are community verified
                 )

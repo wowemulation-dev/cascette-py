@@ -208,7 +208,8 @@ class TestDownloadParser:
 
         assert len(result.entries) == 1
         assert result.entries[0].size == large_size
-        assert result.entries[0].priority == 255
+        # 255 as unsigned byte is -1 as signed byte (priority is signed per Rust spec)
+        assert result.entries[0].priority == -1
 
     def test_build_empty_download(self):
         """Test building empty download manifest."""
@@ -487,12 +488,12 @@ class TestDownloadParser:
         with pytest.raises(ValueError, match="File size too large"):
             parser.build(download_file)
 
-        # Priority too large
+        # Priority out of range (signed byte range is -128 to 127)
         header = DownloadHeader(version=1, ekey_size=9, has_checksum=False, entry_count=1, tag_count=0)
-        entry = DownloadEntry(ekey=b'\x01' * 9, size=1000, priority=256)  # Too large
+        entry = DownloadEntry(ekey=b'\x01' * 9, size=1000, priority=256)  # Out of range
         download_file = DownloadFile(header=header, tags=[], entries=[entry])
 
-        with pytest.raises(ValueError, match="Priority too large"):
+        with pytest.raises(ValueError, match="Priority out of range"):
             parser.build(download_file)
 
         # Missing checksum when required

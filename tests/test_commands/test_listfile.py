@@ -82,7 +82,8 @@ class TestListfileCommands:
         """Test listfile group shows help when invoked without subcommand."""
         result = runner.invoke(listfile_group, [])
 
-        assert result.exit_code == 0
+        # Click returns exit code 2 when group is invoked without subcommand
+        assert result.exit_code in (0, 2)
         assert "Manage FileDataID to path mappings" in result.output
         assert "sync" in result.output
         assert "search" in result.output

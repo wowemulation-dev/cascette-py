@@ -48,8 +48,9 @@ class DownloadEntry(BaseModel):
 
     ekey: bytes = Field(description="Encoding key")
     size: int = Field(description="File size in bytes")
-    priority: int = Field(description="Download priority (0-255, lower = higher priority)")
+    priority: int = Field(description="Download priority (signed, lower = higher priority)")
     checksum: bytes | None = Field(default=None, description="MD5 checksum (if available)")
+    flags: bytes | None = Field(default=None, description="Entry flags (V2+, if flag_size > 0)")
     tags: list[str] = Field(default_factory=list, description="List of tag names")
 
 
@@ -61,6 +62,8 @@ class DownloadHeader(BaseModel):
     has_checksum: bool = Field(description="Whether entries have checksums")
     entry_count: int = Field(description="Number of file entries")
     tag_count: int = Field(description="Number of tags")
+    flag_size: int = Field(default=0, description="Size of flag field per entry (V2+)")
+    base_priority: int = Field(default=0, description="Base priority adjustment (V3+)")
 
 
 class DownloadFile(BaseModel):
@@ -118,8 +121,9 @@ class DownloadParser(FormatParser[DownloadFile]):
         else:
             stream = data
 
-        # Parse header
-        header_data = stream.read(11)  # DL(2) + version(1) + ekey_size(1) + has_checksum(1) + entry_count(4) + tag_count(2)
+        # Parse base header (common to all versions)
+        # V1: magic(2) + version(1) + ekey_size(1) + has_checksum(1) + entry_count(4) + tag_count(2) = 11 bytes
+        header_data = stream.read(11)
         if len(header_data) < 11:
             raise ValueError("Insufficient data for header")
 
@@ -133,61 +137,46 @@ class DownloadParser(FormatParser[DownloadFile]):
         entry_count = struct.unpack('>I', header_data[5:9])[0]  # big-endian
         tag_count = struct.unpack('>H', header_data[9:11])[0]  # big-endian
 
-        # Skip reserved byte (1 byte) - only present in version 2+
-        # Version 1 (used by Agent) doesn't have this reserved byte
+        # Version-specific header fields
+        flag_size = 0
+        base_priority = 0
+
         if version >= 2:
-            reserved = stream.read(1)
-            if len(reserved) < 1:
-                raise ValueError("Insufficient data for reserved byte")
+            # V2+: Read flag_size (1 byte)
+            flag_size_data = stream.read(1)
+            if len(flag_size_data) < 1:
+                raise ValueError("Insufficient data for flag_size")
+            flag_size = flag_size_data[0]
+
+        if version >= 3:
+            # V3+: Read base_priority (1 byte signed) + reserved (3 bytes)
+            v3_extra = stream.read(4)
+            if len(v3_extra) < 4:
+                raise ValueError("Insufficient data for V3 header fields")
+            # base_priority is signed
+            base_priority = struct.unpack('b', v3_extra[0:1])[0]
+            # reserved bytes are v3_extra[1:4], ignored
 
         logger.debug("Parsed download header",
                     version=version, ekey_size=ekey_size, has_checksum=has_checksum,
-                    entry_count=entry_count, tag_count=tag_count)
+                    entry_count=entry_count, tag_count=tag_count,
+                    flag_size=flag_size, base_priority=base_priority)
 
         header = DownloadHeader(
             version=version,
             ekey_size=ekey_size,
             has_checksum=has_checksum,
             entry_count=entry_count,
-            tag_count=tag_count
+            tag_count=tag_count,
+            flag_size=flag_size,
+            base_priority=base_priority
         )
 
-        # Calculate priority mask size
-        priority_mask_size = (entry_count + 7) // 8
+        # Calculate bit mask size for tags
+        bit_mask_size = (entry_count + 7) // 8
 
-        # Version 1 has tags AFTER entries, version 2+ has tags BEFORE entries
-        tags: list[DownloadTag] = []
-        if version >= 2:
-            # Parse tags first (version 2+)
-            for _ in range(tag_count):
-                # Read tag name (null-terminated)
-                name_bytes = bytearray()
-                while True:
-                    byte = stream.read(1)
-                    if not byte or byte == b'\x00':
-                        break
-                    name_bytes.extend(byte)
-
-                tag_name = name_bytes.decode('utf-8', errors='replace')
-
-                # Read tag type (2 bytes big-endian)
-                tag_type_data = stream.read(2)
-                if len(tag_type_data) < 2:
-                    raise ValueError(f"Insufficient data for tag type: {tag_name}")
-                tag_type = struct.unpack('>H', tag_type_data)[0]
-
-                # Read priority bitmask
-                priority_mask_data = stream.read(priority_mask_size)
-                if len(priority_mask_data) < priority_mask_size:
-                    raise ValueError(f"Insufficient data for priority bitmask: {tag_name}")
-
-                tags.append(DownloadTag(
-                    name=tag_name,
-                    tag_type=tag_type,
-                    file_mask=priority_mask_data
-                ))
-
-        # Parse file entries
+        # Parse file entries FIRST (all versions have entries before tags)
+        # Structure: Header -> Entries[entry_count] -> Tags[tag_count]
         entries: list[DownloadEntry] = []
         for i in range(entry_count):
             # Read encoding key
@@ -201,13 +190,13 @@ class DownloadParser(FormatParser[DownloadFile]):
                 raise ValueError(f"Insufficient data for file size at entry {i}")
             file_size = struct.unpack('>Q', b'\x00\x00\x00' + size_data)[0]  # Pad to 8 bytes
 
-            # Read download priority (1 byte)
+            # Read download priority (1 byte, signed for effective priority calculation)
             priority_data = stream.read(1)
             if len(priority_data) < 1:
                 raise ValueError(f"Insufficient data for priority at entry {i}")
-            priority = priority_data[0]
+            priority = struct.unpack('b', priority_data)[0]  # signed byte
 
-            # Read checksum if present
+            # Read checksum if present (4 bytes)
             checksum = None
             if has_checksum:
                 checksum_data = stream.read(4)
@@ -215,57 +204,60 @@ class DownloadParser(FormatParser[DownloadFile]):
                     raise ValueError(f"Insufficient data for checksum at entry {i}")
                 checksum = checksum_data
 
-            # Determine tags for this file
-            file_tags: list[str] = []
-            for tag in tags:
-                if tag.has_file(i):
-                    file_tags.append(tag.name)
+            # Read flags if present (V2+ with flag_size > 0)
+            flags = None
+            if flag_size > 0:
+                flags_data = stream.read(flag_size)
+                if len(flags_data) < flag_size:
+                    raise ValueError(f"Insufficient data for flags at entry {i}")
+                flags = flags_data
 
             entries.append(DownloadEntry(
                 ekey=ekey_data,
                 size=file_size,
                 priority=priority,
                 checksum=checksum,
-                tags=file_tags
+                flags=flags,
+                tags=[]  # Will be populated after parsing tags
             ))
 
-        # Version 1: Parse tags AFTER entries
-        if version == 1 and tag_count > 0:
-            for _ in range(tag_count):
-                # Read tag name (null-terminated)
-                name_bytes = bytearray()
-                while True:
-                    byte = stream.read(1)
-                    if not byte or byte == b'\x00':
-                        break
-                    name_bytes.extend(byte)
+        # Parse tags AFTER entries (all versions)
+        tags: list[DownloadTag] = []
+        for _ in range(tag_count):
+            # Read tag name (null-terminated)
+            name_bytes = bytearray()
+            while True:
+                byte = stream.read(1)
+                if not byte or byte == b'\x00':
+                    break
+                name_bytes.extend(byte)
 
-                tag_name = name_bytes.decode('utf-8', errors='replace')
+            tag_name = name_bytes.decode('utf-8', errors='replace')
 
-                # Read tag type (2 bytes big-endian)
-                tag_type_data = stream.read(2)
-                if len(tag_type_data) < 2:
-                    raise ValueError(f"Insufficient data for tag type: {tag_name}")
-                tag_type = struct.unpack('>H', tag_type_data)[0]
+            # Read tag type (2 bytes big-endian)
+            tag_type_data = stream.read(2)
+            if len(tag_type_data) < 2:
+                raise ValueError(f"Insufficient data for tag type: {tag_name}")
+            tag_type = struct.unpack('>H', tag_type_data)[0]
 
-                # Read priority bitmask
-                priority_mask_data = stream.read(priority_mask_size)
-                if len(priority_mask_data) < priority_mask_size:
-                    raise ValueError(f"Insufficient data for priority bitmask: {tag_name}")
+            # Read bit mask
+            bit_mask_data = stream.read(bit_mask_size)
+            if len(bit_mask_data) < bit_mask_size:
+                raise ValueError(f"Insufficient data for bit mask: {tag_name}")
 
-                tags.append(DownloadTag(
-                    name=tag_name,
-                    tag_type=tag_type,
-                    file_mask=priority_mask_data
-                ))
+            tags.append(DownloadTag(
+                name=tag_name,
+                tag_type=tag_type,
+                file_mask=bit_mask_data
+            ))
 
-            # Update entries with tags (retroactively)
-            for i, entry in enumerate(entries):
-                file_tags: list[str] = []
-                for tag in tags:
-                    if tag.has_file(i):
-                        file_tags.append(tag.name)
-                entry.tags = file_tags
+        # Now populate entry tags based on tag bit masks
+        for i, entry in enumerate(entries):
+            file_tags: list[str] = []
+            for tag in tags:
+                if tag.has_file(i):
+                    file_tags.append(tag.name)
+            entry.tags = file_tags
 
         return DownloadFile(
             header=header,
@@ -284,7 +276,7 @@ class DownloadParser(FormatParser[DownloadFile]):
         """
         result = BytesIO()
 
-        # Write header
+        # Write base header (common to all versions)
         result.write(b'DL')  # Magic
         result.write(struct.pack('B', obj.header.version))  # Version
         result.write(struct.pack('B', obj.header.ekey_size))  # EKey size
@@ -292,17 +284,21 @@ class DownloadParser(FormatParser[DownloadFile]):
         result.write(struct.pack('>I', len(obj.entries)))  # Entry count (big-endian)
         result.write(struct.pack('>H', len(obj.tags)))  # Tag count (big-endian)
 
-        # Reserved byte - only present in version 2+
+        # Version-specific header fields
         if obj.header.version >= 2:
-            result.write(b'\x00')  # Reserved byte
+            result.write(struct.pack('B', obj.header.flag_size))  # Flag size
 
-        # Calculate priority mask size
-        priority_mask_size = (len(obj.entries) + 7) // 8
+        if obj.header.version >= 3:
+            result.write(struct.pack('b', obj.header.base_priority))  # Base priority (signed)
+            result.write(b'\x00\x00\x00')  # Reserved bytes
 
-        # Rebuild tag priority masks from entry tags
+        # Calculate bit mask size
+        bit_mask_size = (len(obj.entries) + 7) // 8
+
+        # Rebuild tag bit masks from entry tags
         tag_masks: dict[str, bytes] = {}
         for tag in obj.tags:
-            mask = bytearray(priority_mask_size)
+            mask = bytearray(bit_mask_size)
             for i, entry in enumerate(obj.entries):
                 if tag.name in entry.tags:
                     byte_index = i // 8
@@ -310,20 +306,8 @@ class DownloadParser(FormatParser[DownloadFile]):
                     mask[byte_index] |= (1 << bit_offset)
             tag_masks[tag.name] = bytes(mask)
 
-        # Version 2+: Write tags before entries
-        if obj.header.version >= 2:
-            for tag in obj.tags:
-                # Write tag name (null-terminated)
-                result.write(tag.name.encode('utf-8'))
-                result.write(b'\x00')
-
-                # Write tag type (2 bytes big-endian)
-                result.write(struct.pack('>H', tag.tag_type))
-
-                # Write priority bitmask (use rebuilt mask to ensure consistency)
-                result.write(tag_masks[tag.name])
-
-        # Write file entries
+        # Write file entries FIRST (all versions have entries before tags)
+        # Structure: Header -> Entries[entry_count] -> Tags[tag_count]
         for entry in obj.entries:
             # Write encoding key
             if len(entry.ekey) != obj.header.ekey_size:
@@ -336,10 +320,10 @@ class DownloadParser(FormatParser[DownloadFile]):
             size_bytes = struct.pack('>Q', entry.size)[3:]  # Take last 5 bytes
             result.write(size_bytes)
 
-            # Write download priority (1 byte)
-            if entry.priority > 255:
-                raise ValueError(f"Priority too large: {entry.priority}")
-            result.write(struct.pack('B', entry.priority))
+            # Write download priority (1 byte, signed)
+            if entry.priority < -128 or entry.priority > 127:
+                raise ValueError(f"Priority out of range: {entry.priority}")
+            result.write(struct.pack('b', entry.priority))
 
             # Write checksum if enabled
             if obj.header.has_checksum:
@@ -351,18 +335,27 @@ class DownloadParser(FormatParser[DownloadFile]):
             elif entry.checksum is not None:
                 raise ValueError("Checksum provided but not expected")
 
-        # Version 1: Write tags after entries
-        if obj.header.version == 1:
-            for tag in obj.tags:
-                # Write tag name (null-terminated)
-                result.write(tag.name.encode('utf-8'))
-                result.write(b'\x00')
+            # Write flags if enabled
+            if obj.header.flag_size > 0:
+                if entry.flags is None:
+                    raise ValueError("Flags required but not provided for entry")
+                if len(entry.flags) != obj.header.flag_size:
+                    raise ValueError(f"Flags size mismatch: expected {obj.header.flag_size}, got {len(entry.flags)}")
+                result.write(entry.flags)
+            elif entry.flags is not None:
+                raise ValueError("Flags provided but not expected")
 
-                # Write tag type (2 bytes big-endian)
-                result.write(struct.pack('>H', tag.tag_type))
+        # Write tags AFTER entries (all versions)
+        for tag in obj.tags:
+            # Write tag name (null-terminated)
+            result.write(tag.name.encode('utf-8'))
+            result.write(b'\x00')
 
-                # Write priority bitmask (use rebuilt mask to ensure consistency)
-                result.write(tag_masks[tag.name])
+            # Write tag type (2 bytes big-endian)
+            result.write(struct.pack('>H', tag.tag_type))
+
+            # Write bit mask (use rebuilt mask to ensure consistency)
+            result.write(tag_masks[tag.name])
 
         return result.getvalue()
 
@@ -398,7 +391,9 @@ class DownloadBuilder:
             ekey_size=16,
             has_checksum=False,
             tag_count=0,
-            entry_count=0
+            entry_count=0,
+            flag_size=0,
+            base_priority=0
         )
 
         return DownloadFile(
@@ -420,12 +415,19 @@ class DownloadBuilder:
         """
         tags = tags or []
 
+        # Determine flag_size from entries (all entries must have same flag size)
+        flag_size = 0
+        if entries and entries[0].flags is not None:
+            flag_size = len(entries[0].flags)
+
         header = DownloadHeader(
             version=3,
             ekey_size=16,
             has_checksum=any(e.checksum is not None for e in entries),
             tag_count=len(tags),
-            entry_count=len(entries)
+            entry_count=len(entries),
+            flag_size=flag_size,
+            base_priority=0
         )
 
         return DownloadFile(

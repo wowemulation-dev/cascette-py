@@ -9,20 +9,39 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
+from typing import TypedDict
 
 import click
 import httpx
 import structlog
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 from rich.table import Table
 
 from cascette_tools.core.config import AppConfig
-from cascette_tools.formats.cdn_archive import CdnArchiveParser
 
 logger = structlog.get_logger()
+
+
+class ArchiveIndexFooter(TypedDict):
+    """Type definition for archive index footer fields."""
+    toc_hash: bytes
+    version: int
+    reserved: bytes
+    page_size_kb: int
+    offset_bytes: int
+    size_bytes: int
+    key_bytes: int
+    hash_bytes: int
+    entry_count: int
+    footer_hash: bytes
 
 
 def parse_cdn_config_archives(cdn_config_path: Path) -> list[str]:
@@ -35,13 +54,13 @@ def parse_cdn_config_archives(cdn_config_path: Path) -> list[str]:
         List of archive hashes
     """
     content = cdn_config_path.read_text()
-    archives = []
+    archives: list[str] = []
 
     for line in content.split('\n'):
         line = line.strip()
         if line.startswith('archives = '):
             # Format: archives = hash1 hash2 hash3 ...
-            hashes = line[len('archives = '):].split()
+            hashes: list[str] = line[len('archives = '):].split()
             archives.extend(hashes)
 
     return archives
@@ -55,7 +74,7 @@ class ArchiveIndexResult:
     archive_index: int | None = None  # Only set for archive-groups
 
 
-def parse_archive_index_footer(index_data: bytes) -> dict | None:
+def parse_archive_index_footer(index_data: bytes) -> ArchiveIndexFooter | None:
     """Parse the 28-byte footer of an archive index.
 
     Args:
@@ -97,20 +116,20 @@ def search_archive_index(index_data: bytes, target_key: bytes) -> ArchiveIndexRe
     if not footer:
         return None
 
-    version = footer['version']
-    offset_bytes = footer['offset_bytes']
-    size_bytes = footer['size_bytes']
-    key_bytes = footer['key_bytes']
-    entry_count = footer['entry_count']
+    version: int = footer['version']
+    offset_bytes: int = footer['offset_bytes']
+    size_bytes: int = footer['size_bytes']
+    key_bytes: int = footer['key_bytes']
+    entry_count: int = footer['entry_count']
 
     # Validate
     if version != 1 or key_bytes != 16 or offset_bytes not in [4, 6] or size_bytes != 4:
         return None
 
-    is_archive_group = offset_bytes == 6
+    is_archive_group: bool = offset_bytes == 6
 
     # Calculate entry size
-    entry_size = key_bytes + offset_bytes + size_bytes
+    entry_size: int = key_bytes + offset_bytes + size_bytes
 
     # Search entries
     truncated_target = target_key[:key_bytes]
@@ -192,7 +211,7 @@ def find_key(
     CDN_CONFIG_PATH is the path to a CDN config file.
     ENCODING_KEY is the encoding key hash to search for.
     """
-    config, console, verbose, _ = _get_context_objects(ctx)
+    _config, console, _verbose, _ = _get_context_objects(ctx)
 
     try:
         # Parse target key
@@ -209,9 +228,9 @@ def find_key(
             console.print(f"Limiting search to first {max_archives} archives")
 
         # Search each archive index
-        found_archive = None
-        found_offset = None
-        found_size = None
+        found_archive: str | None = None
+        found_offset: int | None = None
+        found_size: int | None = None
 
         with httpx.Client(timeout=30.0) as client:
             with Progress(
@@ -241,14 +260,15 @@ def find_key(
                         result = search_archive_index(index_data, target_key)
                         if result:
                             found_archive = archive_hash
-                            found_offset, found_size = result
+                            found_offset = result.offset
+                            found_size = result.size
                             break
 
                     except Exception as e:
                         logger.debug(f"Failed to fetch {archive_hash}: {e}")
                         continue
 
-        if found_archive:
+        if found_archive and found_offset is not None and found_size is not None:
             table = Table(title="Key Found!")
             table.add_column("Property", style="cyan")
             table.add_column("Value", style="green")
@@ -265,7 +285,7 @@ def find_key(
 
             console.print(table)
 
-            console.print(f"\n[yellow]To fetch this data:[/yellow]")
+            console.print("\n[yellow]To fetch this data:[/yellow]")
             console.print(f"curl -r {found_offset}-{found_offset + found_size - 1} '{archive_url}' -o output.bin")
         else:
             console.print(f"[red]Key {encoding_key} not found in any archive[/red]")
@@ -306,7 +326,7 @@ def extract_key(
     ENCODING_KEY is the encoding key hash to extract.
     OUTPUT_PATH is where to save the extracted data.
     """
-    config, console, verbose, _ = _get_context_objects(ctx)
+    _config, console, _verbose, _ = _get_context_objects(ctx)
 
     try:
         # Parse target key
@@ -319,9 +339,9 @@ def extract_key(
         console.print(f"Searching {len(archives)} archives...")
 
         # Search each archive index
-        found_archive = None
-        found_offset = None
-        found_size = None
+        found_archive: str | None = None
+        found_offset: int | None = None
+        found_size: int | None = None
 
         with httpx.Client(timeout=30.0) as client:
             with Progress(
@@ -347,13 +367,14 @@ def extract_key(
                         result = search_archive_index(response.content, target_key)
                         if result:
                             found_archive = archive_hash
-                            found_offset, found_size = result
+                            found_offset = result.offset
+                            found_size = result.size
                             break
 
                     except Exception:
                         continue
 
-            if not found_archive:
+            if not found_archive or found_offset is None or found_size is None:
                 raise click.ClickException(f"Key {encoding_key} not found in any archive")
 
             console.print(f"Found in archive {found_archive} at offset {found_offset}, size {found_size}")

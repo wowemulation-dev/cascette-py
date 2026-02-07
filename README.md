@@ -173,6 +173,10 @@ tests/                  # Test suite
 - Python 3.12 or higher
 - pip and setuptools
 
+Optionally, [mise](https://mise.jdx.dev/) can manage Python versions and
+development tools like `uv` per-project. With mise installed, run `mise install`
+in the repository root to set up the pinned toolchain automatically.
+
 ### Development Setup
 
 ```bash

@@ -151,7 +151,7 @@ def sync_builds(
 @click.option(
     "--product",
     "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
     help="Filter by product",
 )
 @click.option(
@@ -377,7 +377,7 @@ def builds_stats(ctx: click.Context) -> None:
 @click.option(
     "--product",
     "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
     help="Filter by product",
 )
 @click.pass_context

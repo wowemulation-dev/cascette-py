@@ -13,7 +13,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 console = Console()
@@ -91,7 +97,8 @@ def fetch_build_with_timeout(build_id: str, product: str, timeout_seconds: int =
 
     Args:
         build_id: Build ID to fetch
-        product: Product code (wow, wow_classic, wow_classic_era)
+        product: Product code (wow, wow_classic, wow_classic_era,
+            wow_classic_titan, wow_anniversary)
         timeout_seconds: Timeout in seconds (default 10 minutes)
 
     Returns:
@@ -269,7 +276,7 @@ def main():
     parser.add_argument(
         "--product",
         default="wow_classic_era",
-        choices=["wow", "wow_classic", "wow_classic_era", "agent", "bna"],
+        choices=["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary", "agent", "bna"],
         help="Product to fetch builds for (default: wow_classic_era)"
     )
     parser.add_argument(

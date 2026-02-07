@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Product codes `wow_classic_titan` and `wow_anniversary` across all modules
+- mise hint in README.md Prerequisites section
+- `.markdownlint-cli2.jsonc` and `.markdownlintignore` for markdown linting config
 - `.build.info` parser (`BuildInfoParser`) with parse/build methods for round-trip support
 - `LocalBuildInfo` model representing complete `.build.info` file structure
 - `LocaleConfig` type in `core/types.py` for locale configuration with speech/text flags
@@ -16,35 +19,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--force` flag to override existing `.build.info` during installation
 - Early `.build.info` creation before downloads to lock configuration
 - Tag configuration display table showing platform, architecture, locale, and region
+- Bob Jenkins' lookup3 hash functions (`hashlittle`, `hashlittle2`) for CASC index
+  file checksum validation
+- New `crypto` module providing cryptographic hash utilities
+- Product state file generation (`product_state.py`) for Battle.net compatible installations
+- Local .idx file parser (V7/V8 format) for scanning existing installations
+- Multi-locale tag parsing from `.build.info` with speech/text content flags
 - Test suite for `BuildInfoParser` with 24 tests
 
 ### Changed
 
+- Listfile sync now downloads from GitHub release asset instead of raw repo content
+- TACT key sync URL updated to explicit `refs/heads/master` path
+- TACT key parser fixed to use space-separated format (was incorrectly splitting on semicolons)
+- CDN client now fetches servers from Ribbit endpoint dynamically instead of using hardcoded list
+- Community mirrors (arctium, wago, archive.wow.tools) are now fallback-only after Ribbit servers
 - Installation workflow now creates `.build.info` at start (Step 1.5) rather than end
 - `install_analyzer.py` uses `BuildInfoParser` instead of inline parsing
 - `LocaleConfig` moved from `install_analyzer.py` to `core/types.py` for reuse
-
-- Bob Jenkins' lookup3 hash functions (`hashlittle`, `hashlittle2`) for CASC index file checksum validation
-- New `crypto` module providing cryptographic hash utilities
-- Product state file generation (`product_state.py`) for Battle.net compatible installations
-  - `.product.db` protobuf generation
-  - `Launcher.db` locale file
-  - `.patch.result` status file
-  - `.flavor.info` for WoW products
-- Local .idx file parser (V7/V8 format) for scanning existing installations
-- Multi-locale tag parsing from `.build.info` with speech/text content flags
-
-### Changed
-
-- CDN client now fetches servers from Ribbit endpoint dynamically instead of using hardcoded list
-- Community mirrors (arctium, wago, archive.wow.tools) are now fallback-only after Ribbit servers
 - Installation scanner now displays all installed locales with content type flags
-- Improved type annotations in `install_analyzer.py` for pyright strict mode
+- Dependencies updated to current versions; switched from `cryptography` to `pycryptodome`
+- Removed unused dev dependencies (`pytest-asyncio`, `pytest-mock`, `types-aiofiles`,
+  `mypy-extensions`, `pathspec`, `packaging`)
+- Added `beautifulsoup4` to dev dependencies for wiki scraping scripts
+- Renamed `mise.toml` to `.mise.toml` (hidden config convention)
+- Expanded `.markdownlint.jsonc` with stricter rules and allowed language list
+- Scripts now use `httpx` instead of `requests`
+- `import_missing_builds.py` uses generic product matching instead of hardcoded product list
 
 ### Fixed
 
+- TACT key sync returning 0 keys due to semicolon-split parser on space-separated data
 - Tag parsing now correctly extracts all locales from colon-separated groups
 - Pyright type errors in `install_analyzer.py` resolved
+- Bare `except` in `import_missing_builds.py` replaced with `except ValueError`
 
 ## [0.2.0] - 2025-09-24
 

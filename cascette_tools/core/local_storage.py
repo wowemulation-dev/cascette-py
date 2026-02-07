@@ -17,6 +17,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -162,6 +163,11 @@ def format_data_filename(archive_id: int) -> str:
     return f"data.{archive_id:03d}"
 
 
+def _local_index_entry_list() -> list[LocalIndexEntry]:
+    """Factory function for creating typed empty list of LocalIndexEntry."""
+    return []
+
+
 @dataclass
 class LocalIndexFileInfo:
     """Parsed information from a local index file."""
@@ -173,7 +179,7 @@ class LocalIndexFileInfo:
     encoded_size_length: int
     file_offset_bits: int
     segment_size: int
-    entries: list[LocalIndexEntry] = field(default_factory=list)
+    entries: list[LocalIndexEntry] = field(default_factory=_local_index_entry_list)
 
 
 def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
@@ -498,22 +504,31 @@ class LocalStorage:
         path.write_bytes(data)
         return path
 
-    def get_statistics(self) -> dict:
-        """Get storage statistics."""
-        stats = {
-            'base_path': str(self.base_path),
-            'total_entries': sum(len(entries) for entries in self.bucket_entries.values()),
-            'buckets': {},
-        }
+    def get_statistics(self) -> dict[str, Any]:
+        """Get storage statistics.
+
+        Returns:
+            Dictionary with storage statistics including:
+            - base_path: Base installation path as string
+            - total_entries: Total number of index entries across all buckets
+            - buckets: Per-bucket statistics with count and total_size
+        """
+        buckets_stats: dict[str, dict[str, int]] = {}
 
         for bucket in range(16):
             entries = self.bucket_entries[bucket]
             if entries:
                 total_size = sum(e.size for e in entries)
-                stats['buckets'][f'{bucket:02x}'] = {
+                buckets_stats[f'{bucket:02x}'] = {
                     'count': len(entries),
                     'total_size': total_size
                 }
+
+        stats: dict[str, Any] = {
+            'base_path': str(self.base_path),
+            'total_entries': sum(len(entries) for entries in self.bucket_entries.values()),
+            'buckets': buckets_stats,
+        }
 
         return stats
 

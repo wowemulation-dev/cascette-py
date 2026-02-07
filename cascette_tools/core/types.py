@@ -1,11 +1,11 @@
 """Core type definitions for cascette_tools."""
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class CompressionMode(str, Enum):
+class CompressionMode(StrEnum):
     """BLTE compression modes."""
     NONE = "N"
     ZLIB = "Z"
@@ -20,11 +20,13 @@ class EncryptionType(Enum):
     ARC4 = 0x41
 
 
-class Product(str, Enum):
+class Product(StrEnum):
     """Supported product codes."""
     WOW = "wow"
     WOW_CLASSIC = "wow_classic"
     WOW_CLASSIC_ERA = "wow_classic_era"
+    WOW_CLASSIC_TITAN = "wow_classic_titan"
+    WOW_ANNIVERSARY = "wow_anniversary"
     WOW_BETA = "wowt"
     WOW_PTR = "wowxptr"
     DIABLO_4 = "fenris"

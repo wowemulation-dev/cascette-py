@@ -6,13 +6,13 @@ import json
 import re
 import sys
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add parent directory to path to import cascette_tools
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import requests
+import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -34,7 +34,7 @@ def parse_wago_search(search_term: str) -> list[dict]:
     url = f"https://wago.tools/builds?search={search_term}"
 
     try:
-        response = requests.get(url, headers={"User-Agent": "cascette-tools/1.0"}, timeout=30)
+        response = httpx.get(url, headers={"User-Agent": "cascette-tools/1.0"}, timeout=30)
         response.raise_for_status()
 
         # Find the data-page attribute containing JSON data
@@ -118,12 +118,7 @@ def import_missing_builds(test_mode=False):
                                 build_product = build.get('product', '')
 
                                 # Only accept builds from the exact product we're searching for
-                                # We only support these three canonical products
-                                if product_code == 'wow' and build_product == 'wow':
-                                    matching_builds.append(build)
-                                elif product_code == 'wow_classic' and build_product == 'wow_classic':
-                                    matching_builds.append(build)
-                                elif product_code == 'wow_classic_era' and build_product == 'wow_classic_era':
+                                if build_product == product_code:
                                     matching_builds.append(build)
 
                     if matching_builds:
@@ -178,7 +173,7 @@ def import_missing_builds(test_mode=False):
                                     build_time = datetime.fromisoformat(
                                         build['created_at'].replace("Z", "+00:00")
                                     )
-                                except:
+                                except ValueError:
                                     pass
 
                         wago_build = WagoBuild(

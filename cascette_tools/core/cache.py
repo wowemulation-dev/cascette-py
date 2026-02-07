@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -93,18 +93,17 @@ class DiskCache:
         """
         self.metadata["last_updated"] = time.time()
 
-        stats: Any = self.metadata["statistics"]
-        if not isinstance(stats, dict):
+        stats = cast(dict[str, dict[str, int]], self.metadata.get("statistics", {}))
+        if not isinstance(self.metadata.get("statistics"), dict):
             stats = {}
             self.metadata["statistics"] = stats
 
         if file_type not in stats:
             stats[file_type] = {"count": 0, "total_size": 0}
 
-        type_stats: Any = stats[file_type]
-        if isinstance(type_stats, dict):
-            type_stats["count"] = type_stats.get("count", 0) + 1
-            type_stats["total_size"] = type_stats.get("total_size", 0) + size
+        type_stats = stats[file_type]
+        type_stats["count"] = type_stats.get("count", 0) + 1
+        type_stats["total_size"] = type_stats.get("total_size", 0) + size
 
         self._save_metadata()
 

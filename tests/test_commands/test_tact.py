@@ -70,7 +70,8 @@ class TestTactCommands:
         """Test tact group shows help when invoked without subcommand."""
         result = runner.invoke(tact_group, [])
 
-        assert result.exit_code == 0
+        # Click returns exit code 2 when group is invoked without subcommand
+        assert result.exit_code in (0, 2)
         assert "Manage TACT encryption keys" in result.output
         assert "sync" in result.output
         assert "list" in result.output

@@ -71,7 +71,7 @@ class ListfileCacheMetadata(BaseModel):
 class ListfileManager:
     """Manages FileDataID to path mappings from wowdev/wow-listfile."""
 
-    GITHUB_RAW_URL = "https://github.com/wowdev/wow-listfile/raw/master"
+    LISTFILE_URL = "https://github.com/wowdev/wow-listfile/releases/latest/download/community-listfile.csv"
     CACHE_LIFETIME = timedelta(hours=24)  # Same as other caches
 
     def __init__(self, config: AppConfig | None = None) -> None:
@@ -209,7 +209,7 @@ class ListfileManager:
 
         try:
             # Fetch CSV listfile (it's typically provided as CSV)
-            response = self.client.get(f"{self.GITHUB_RAW_URL}/community-listfile.csv")
+            response = self.client.get(self.LISTFILE_URL)
             response.raise_for_status()
 
             entries = self._parse_csv_listfile(response.text)

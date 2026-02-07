@@ -217,26 +217,19 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
                     data: Any = json.load(f)
                     # Handle both list and dict formats
                     if isinstance(data, list):
-                        # Ensure data is list of dicts
-                        for item in data:
-                            if isinstance(item, dict):
-                                # Annotate type for item as dict
-                                item_dict = cast(dict[str, Any], item)
-                                keys_to_import.append(item_dict)
+                        # Cast to typed list and append items
+                        data_list = cast(list[dict[str, Any]], data)
+                        keys_to_import.extend(data_list)
                     elif isinstance(data, dict):
                         # Flatten dict format {"family": [keys...]}
                         data_dict = cast(dict[str, Any], data)
                         for family_key, family_keys in data_dict.items():
-                            # Annotate types
-                            family_key = cast(str, family_key)
-                            family_keys = cast(Any, family_keys)
                             if isinstance(family_keys, list):
-                                for key_item in family_keys:
-                                    if isinstance(key_item, dict):
-                                        key_dict = cast(dict[str, Any], key_item)
-                                        if not key_dict.get("family"):
-                                            key_dict["family"] = family_key
-                                        keys_to_import.append(key_dict)
+                                family_keys_list = cast(list[dict[str, Any]], family_keys)
+                                for key_item in family_keys_list:
+                                    if not key_item.get("family"):
+                                        key_item["family"] = family_key
+                                    keys_to_import.append(key_item)
             else:  # CSV format
                 with open(input_file, newline='') as f:
                     reader = csv.DictReader(f)

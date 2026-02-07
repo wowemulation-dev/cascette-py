@@ -16,15 +16,19 @@ The typical workflow is:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import httpx
 import structlog
 
 from cascette_tools.formats.blte import decompress_blte, is_blte
-from cascette_tools.formats.cdn_archive import CdnArchiveParser, CdnArchiveEntry
+from cascette_tools.formats.cdn_archive import CdnArchiveEntry, CdnArchiveParser
+
+if TYPE_CHECKING:
+    from cascette_tools.core.cdn import CDNClient
 
 logger = structlog.get_logger()
 
@@ -50,10 +54,15 @@ class ArchiveLocation:
     size: int
 
 
+def _make_entries_dict() -> dict[bytes, ArchiveLocation]:
+    """Create an empty entries dictionary with proper typing."""
+    return {}
+
+
 @dataclass
 class IndexMap:
     """In-memory index map for fast encoding key lookups."""
-    entries: dict[bytes, ArchiveLocation] = field(default_factory=dict)
+    entries: dict[bytes, ArchiveLocation] = field(default_factory=_make_entries_dict)
     archive_count: int = 0
     total_entries: int = 0
 
@@ -99,21 +108,32 @@ class CdnArchiveFetcher:
 
     def __init__(
         self,
-        cdn_base: str = "http://us.cdn.blizzard.com",
-        cdn_path: str = "tpr/wow",
+        cdn_base: str | None = None,
+        cdn_path: str | None = None,
+        cdn_client: CDNClient | None = None,
         timeout: float = 30.0,
         max_concurrent: int = 10
     ):
         """Initialize fetcher.
 
         Args:
-            cdn_base: CDN base URL
-            cdn_path: CDN product path
+            cdn_base: CDN base URL (deprecated, use cdn_client instead)
+            cdn_path: CDN product path (deprecated, use cdn_client instead)
+            cdn_client: CDNClient instance for fetching with fallback support
             timeout: Request timeout in seconds
             max_concurrent: Maximum concurrent requests
         """
-        self.cdn_base = cdn_base
-        self.cdn_path = cdn_path
+        # Prefer cdn_client if provided
+        if cdn_client is not None:
+            self.cdn_client = cdn_client
+            self.cdn_base = None
+            self.cdn_path = None
+        else:
+            # Legacy mode - use provided base/path or defaults
+            self.cdn_client = None
+            self.cdn_base = cdn_base or "http://us.cdn.blizzard.com"
+            self.cdn_path = cdn_path or "tpr/wow"
+
         self.timeout = timeout
         self.max_concurrent = max_concurrent
         self.index_map = IndexMap()
@@ -427,6 +447,80 @@ class CdnArchiveFetcher:
         except Exception as e:
             logger.warning(f"Error fetching raw data: {e}")
             return None
+
+    def fetch_file_via_cdn(
+        self,
+        cdn_client: CDNClient,
+        encoding_key: bytes,
+        decompress: bool = True
+    ) -> bytes | None:
+        """Fetch a file from CDN archives using CDNClient with fallback support.
+
+        This method uses the CDNClient's mirror fallback logic for range requests,
+        trying Ribbit servers first and then community mirrors if needed.
+
+        Args:
+            cdn_client: CDNClient instance with initialized CDN servers
+            encoding_key: Encoding key (16 bytes)
+            decompress: Whether to decompress BLTE data
+
+        Returns:
+            File data or None if not found
+        """
+        # Find location in index map
+        location = self.index_map.find(encoding_key)
+        if not location:
+            logger.debug(f"Encoding key not found in index map: {encoding_key.hex()}")
+            return None
+
+        # Ensure CDNClient is initialized (has CDN servers)
+        cdn_client.ensure_initialized()
+
+        # Build mirror list: Ribbit servers first, then community fallback mirrors
+        mirrors = cdn_client.cdn_servers + cdn_client.config.fallback_mirrors
+
+        if not mirrors:
+            logger.error("No CDN mirrors available")
+            return None
+
+        # Build the URL path portion
+        h = location.archive_hash.lower()
+        url_path = f"/{cdn_client.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
+
+        headers = {
+            "Range": f"bytes={location.offset}-{location.offset + location.size - 1}"
+        }
+
+        # Try each mirror with fallback
+        last_error = None
+        for mirror in mirrors:
+            url = f"{mirror}{url_path}"
+            try:
+                response = cdn_client.client.get(url, headers=headers)
+                if response.status_code in [200, 206]:
+                    data = response.content
+
+                    # Decompress BLTE if requested
+                    if decompress and is_blte(data):
+                        try:
+                            data = decompress_blte(data)
+                        except Exception as e:
+                            logger.warning(f"BLTE decompression failed: {e}")
+                            return None
+
+                    return data
+                else:
+                    logger.debug(
+                        f"Mirror {mirror} returned {response.status_code} for range request"
+                    )
+            except Exception as e:
+                last_error = e
+                logger.debug(f"Mirror {mirror} failed: {e}")
+                continue
+
+        if last_error:
+            logger.warning(f"All mirrors failed for range request: {last_error}")
+        return None
 
 
 def parse_cdn_config_archives(content: str) -> list[str]:

@@ -278,7 +278,7 @@ invalid_fdid,"should/be/skipped.adt"
 
         # Verify API was called
         mock_client.get.assert_called_once_with(
-            f"{listfile_manager.GITHUB_RAW_URL}/community-listfile.csv"
+            listfile_manager.LISTFILE_URL
         )
 
         # Verify entries were parsed
@@ -689,10 +689,10 @@ invalid_fdid,"should/be/skipped.adt"
         # Close should not raise errors
         listfile_manager.close()
 
-    def test_github_raw_url_constant(self):
-        """Test that GitHub raw URL is correct."""
-        expected_url = "https://github.com/wowdev/wow-listfile/raw/master"
-        assert ListfileManager.GITHUB_RAW_URL == expected_url
+    def test_listfile_url_constant(self):
+        """Test that listfile download URL is correct."""
+        expected_url = "https://github.com/wowdev/wow-listfile/releases/latest/download/community-listfile.csv"
+        assert ListfileManager.LISTFILE_URL == expected_url
 
     def test_cache_lifetime_constant(self):
         """Test that cache lifetime is 24 hours."""

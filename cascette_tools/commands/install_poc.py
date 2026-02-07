@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import click
 import structlog
@@ -43,9 +44,9 @@ from cascette_tools.formats.build_info import (
     create_build_info,
     update_last_activated,
 )
-from cascette_tools.formats.download import DownloadParser
+from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
 from cascette_tools.formats.encoding import EncodingParser, is_encoding
-from cascette_tools.formats.install import InstallParser
+from cascette_tools.formats.install import InstallEntry, InstallParser
 
 logger = structlog.get_logger()
 
@@ -175,6 +176,8 @@ def get_product_enum(product_code: str) -> Product:
         "wow": Product.WOW,
         "wow_classic": Product.WOW_CLASSIC,
         "wow_classic_era": Product.WOW_CLASSIC_ERA,
+        "wow_classic_titan": Product.WOW_CLASSIC_TITAN,
+        "wow_anniversary": Product.WOW_ANNIVERSARY,
     }
     if product_code not in mapping:
         raise ValueError(f"Unknown product code: {product_code}")
@@ -191,7 +194,7 @@ def install_poc() -> None:
 @click.argument("build_config_hash", type=str)
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era"]),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -426,7 +429,7 @@ def resolve_manifests(
 @install_poc.command()
 @click.option(
     "--product", "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era"]),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
     default="wow_classic_era",
     help="Product code"
 )
@@ -501,7 +504,7 @@ def discover_latest(
 @click.argument("output_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era"]),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -645,7 +648,7 @@ def extract_from_archives(
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era"]),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -847,12 +850,12 @@ def extract_priority_files(
 
 
 def filter_entries_by_tags(
-    entries: list,
-    tags: list,
+    entries: list[DownloadEntry],
+    tags: list[DownloadTag],
     platform: str | None = None,
     arch: str | None = None,
     locale: str | None = None,
-) -> list:
+) -> list[DownloadEntry]:
     """Filter download entries by platform, architecture, and locale tags.
 
     Battle.net's tag filtering logic:
@@ -871,12 +874,15 @@ def filter_entries_by_tags(
     Returns:
         Filtered list of entries
     """
+    # Unused but kept for API compatibility and future reference
+    _ = tags
+
     # Define tag categories
     platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
     arch_tags = {"x86_32", "x86_64", "arm64"}
     locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
 
-    filtered = []
+    filtered: list[DownloadEntry] = []
     for entry in entries:
         entry_tags = set(entry.tags)
 
@@ -912,7 +918,7 @@ def filter_entries_by_tags(
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era"]),
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -1005,7 +1011,7 @@ def install_to_casc(
         TextColumn,
     )
 
-    config, console, verbose, debug = _get_context_objects(ctx)
+    _config, console, _verbose, _debug = _get_context_objects(ctx)
 
     try:
         # Step 0: Resume detection - check for existing .build.info
@@ -1107,12 +1113,14 @@ def install_to_casc(
             raise click.ClickException("No encoding key in BuildConfig")
 
         # Step 1.5: Create .build.info early (locks configuration before downloads)
+        # Initialize version_str with a default value
+        version_str: str = ""
+
         if existing_info is None:
             console.print("\n[cyan]Creating .build.info...[/cyan]")
 
             # Extract version from build name (e.g., "WOW-65300patch1.15.8" -> "1.15.8.65300")
             import re
-            version_str = ""
             if build_config.build_name:
                 match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
                 if match:
@@ -1209,21 +1217,23 @@ def install_to_casc(
         console.print(f"  Max priority: {priority}")
 
         # Filter by priority
-        entries = [e for e in download_manifest.entries if e.priority <= priority]
-        console.print(f"  After priority filter (<= {priority}): {len(entries):,} entries")
+        download_entries: list[DownloadEntry] = [
+            e for e in download_manifest.entries if e.priority <= priority
+        ]
+        console.print(f"  After priority filter (<= {priority}): {len(download_entries):,} entries")
 
         # Filter by tags (platform, arch, locale)
-        entries = filter_entries_by_tags(
-            entries,
+        download_entries = filter_entries_by_tags(
+            download_entries,
             download_manifest.tags,
             platform=platform,
             arch=arch,
             locale=locale
         )
-        console.print(f"  After tag filtering: {len(entries):,} entries")
+        console.print(f"  After tag filtering: {len(download_entries):,} entries")
 
         # Calculate total size
-        total_filtered_size = sum(e.size for e in entries)
+        total_filtered_size = sum(e.size for e in download_entries)
         console.print(f"  Total filtered size: {total_filtered_size / (1024**3):.2f} GB")
 
         # Step 5: Download archive indices FIRST (needed for both install and download files)
@@ -1292,13 +1302,18 @@ def install_to_casc(
                 console.print(f"  Total install entries: {len(install_manifest.entries):,}")
 
                 # Filter install entries by tags (same logic as download)
-                def filter_install_entries(install_entries, plat, ar, loc):
+                def filter_install_entries(
+                    install_entries: list[InstallEntry],
+                    plat: str | None,
+                    ar: str | None,
+                    loc: str | None
+                ) -> list[InstallEntry]:
                     """Filter install entries by platform, arch, locale."""
                     platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
                     arch_tags = {"x86_32", "x86_64", "arm64"}
                     locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
 
-                    filtered = []
+                    filtered: list[InstallEntry] = []
                     for entry in install_entries:
                         entry_tags = set(entry.tags)
                         if plat:
@@ -1324,7 +1339,7 @@ def install_to_casc(
                     console.print(f"  Extracting {len(install_filtered)} files to filesystem...")
 
                     for inst_entry in install_filtered:
-                        # Look up encoding key for this content key
+                        # Look up encoding keys for this content key
                         file_ekeys = encoding_parser.find_content_key(
                             encoding_data, encoding_file, inst_entry.md5_hash
                         )
@@ -1332,25 +1347,45 @@ def install_to_casc(
                             console.print(f"    [yellow]Skip:[/yellow] {inst_entry.filename} (not in encoding)")
                             continue
 
-                        file_ekey = file_ekeys[0]
+                        # Try each encoding key until one succeeds
+                        # (matches Rust behavior - content keys can have multiple
+                        # encoding keys for different compression strategies)
+                        file_data: bytes | None = None
+                        for file_ekey in file_ekeys:
+                            try:
+                                # Try archive fetch first (range request)
+                                file_data = fetcher.fetch_file_via_cdn(
+                                    cdn_client, file_ekey, decompress=True
+                                )
+
+                                if file_data is None:
+                                    # Fallback to loose file via CDNClient
+                                    # Use quiet=True since missing files are expected
+                                    # for old builds
+                                    try:
+                                        ekey_hex = file_ekey.hex()
+                                        file_data = cdn_client.fetch_data(
+                                            ekey_hex, quiet=True
+                                        )
+                                        if is_blte(file_data):
+                                            file_data = decompress_blte(file_data)
+                                    except Exception:
+                                        file_data = None
+
+                                if file_data is not None:
+                                    break  # Success with this encoding key
+
+                            except Exception:
+                                continue  # Try next encoding key
+
+                        if file_data is None:
+                            console.print(f"    [yellow]Not found:[/yellow] {inst_entry.filename}")
+                            continue
 
                         try:
-                            # Try archive fetch first (range request) via CDNClient
-                            file_data = fetcher.fetch_file_via_cdn(cdn_client, file_ekey, decompress=True)
-
-                            if file_data is None:
-                                # Fallback to loose file via CDNClient
-                                try:
-                                    file_data = cdn_client.fetch_data(file_ekey.hex())
-                                    if is_blte(file_data):
-                                        file_data = decompress_blte(file_data)
-                                except Exception:
-                                    console.print(f"    [yellow]Not found:[/yellow] {inst_entry.filename}")
-                                    continue
-
-                            # Write to filesystem (normalize Windows paths to Unix)
-                            normalized_filename = inst_entry.filename.replace('\\', '/')
-                            output_file = install_path / normalized_filename
+                            # Write to filesystem (normalize Windows paths)
+                            fname = inst_entry.filename.replace('\\', '/')
+                            output_file = install_path / fname
                             output_file.parent.mkdir(parents=True, exist_ok=True)
                             output_file.write_bytes(file_data)
                             install_entries_extracted += 1
@@ -1366,9 +1401,9 @@ def install_to_casc(
 
         # Step 7: Install CASC files from download manifest
         if max_files > 0:
-            entries = entries[:max_files]
+            download_entries = download_entries[:max_files]
 
-        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(entries)} files to local CASC...")
+        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(download_entries)} files to local CASC...")
 
         installed = 0
         failed = 0
@@ -1381,20 +1416,20 @@ def install_to_casc(
             TaskProgressColumn(),
             console=console
         ) as progress:
-            task = progress.add_task("Installing files...", total=len(entries))
+            task = progress.add_task("Installing files...", total=len(download_entries))
 
-            for entry in entries:
+            for dl_entry in download_entries:
                 progress.update(task, advance=1)
 
                 # Fetch file from CDN archive via CDNClient (keep BLTE compressed)
-                data = fetcher.fetch_file_via_cdn(cdn_client, entry.ekey, decompress=False)
+                data = fetcher.fetch_file_via_cdn(cdn_client, dl_entry.ekey, decompress=False)
 
                 if data is None:
                     failed += 1
                     continue
 
                 # Write to local CASC storage
-                storage.write_content(entry.ekey, data)
+                storage.write_content(dl_entry.ekey, data)
                 installed += 1
                 total_bytes += len(data)
 
@@ -1411,19 +1446,22 @@ def install_to_casc(
         storage.flush_indices()
 
         # Show bucket distribution
-        stats = storage.get_statistics()
-        console.print(f"  Total entries: {stats['total_entries']:,}")
+        # LocalStorage.get_statistics() returns dict without type args
+        stats: dict[str, Any] = cast(dict[str, Any], storage.get_statistics())  # type: ignore[reportUnknownMemberType]
+        total_entries_count: int = stats.get('total_entries', 0)
+        console.print(f"  Total entries: {total_entries_count:,}")
 
         bucket_table = Table(title="Bucket Distribution")
         bucket_table.add_column("Bucket", style="cyan")
         bucket_table.add_column("Entries", style="green", justify="right")
         bucket_table.add_column("Size", style="yellow", justify="right")
 
-        for bucket_id, bucket_stats in sorted(stats['buckets'].items()):
+        buckets: dict[str, Any] = stats.get('buckets', {})
+        for bucket_id, bucket_stats in sorted(buckets.items()):
             bucket_table.add_row(
-                bucket_id,
-                f"{bucket_stats['count']:,}",
-                f"{bucket_stats['total_size'] / 1024:.1f} KB"
+                str(bucket_id),
+                f"{bucket_stats.get('count', 0):,}",
+                f"{bucket_stats.get('total_size', 0) / 1024:.1f} KB"
             )
 
         console.print(bucket_table)

@@ -68,7 +68,7 @@ class CDNClient:
             )
         return self._async_client
 
-    def _ensure_initialized(self) -> None:
+    def ensure_initialized(self) -> None:
         """Ensure CDN client is initialized with TACT data."""
         if self._initialized:
             return
@@ -135,7 +135,9 @@ class CDNClient:
 
         return f"{mirror}/{self.cdn_path}/{content_type}/{subdir1}/{subdir2}/{file_name}"
 
-    def _fetch_from_cdn(self, hash_str: str, file_type: str) -> bytes:
+    def _fetch_from_cdn(
+        self, hash_str: str, file_type: str, quiet: bool = False
+    ) -> bytes:
         """Fetch file from CDN servers with mirror fallback.
 
         Uses Ribbit-provided CDN servers first, then falls back to community mirrors.
@@ -143,6 +145,7 @@ class CDNClient:
         Args:
             hash_str: File hash
             file_type: Type of file (config, data, index, patch, patch_index)
+            quiet: If True, log at debug level instead of error when all mirrors fail
 
         Returns:
             File data
@@ -190,7 +193,9 @@ class CDNClient:
                     continue  # Try next attempt
 
             # All attempts failed for this mirror, try next mirror
-            logger.warning(
+            # Log at debug level since mirror failures are expected for old builds
+            # (official CDNs don't serve all historic content)
+            logger.debug(
                 "cdn_mirror_failed",
                 hash=hash_str,
                 type=file_type,
@@ -199,7 +204,10 @@ class CDNClient:
             )
 
         # All mirrors failed
-        logger.error("cdn_all_mirrors_failed", hash=hash_str, type=file_type)
+        if quiet:
+            logger.debug("cdn_all_mirrors_failed", hash=hash_str, type=file_type)
+        else:
+            logger.error("cdn_all_mirrors_failed", hash=hash_str, type=file_type)
         if last_error:
             raise last_error
         raise httpx.HTTPError(f"Failed to fetch {hash_str} from all mirrors")
@@ -214,7 +222,7 @@ class CDNClient:
         Returns:
             Configuration data
         """
-        self._ensure_initialized()
+        self.ensure_initialized()
         assert self.cdn_path is not None, "CDN path should be set after initialization"
 
         # Check cache first
@@ -244,17 +252,20 @@ class CDNClient:
 
         return data
 
-    def fetch_data(self, hash_str: str, is_index: bool = False) -> bytes:
+    def fetch_data(
+        self, hash_str: str, is_index: bool = False, quiet: bool = False
+    ) -> bytes:
         """Fetch data file (archive, index, or standalone file).
 
         Args:
             hash_str: Data file hash
             is_index: True if fetching an archive index
+            quiet: If True, log at debug level when all mirrors fail
 
         Returns:
             File data
         """
-        self._ensure_initialized()
+        self.ensure_initialized()
         assert self.cdn_path is not None, "CDN path should be set after initialization"
 
         file_type = "index" if is_index else "data"
@@ -271,7 +282,7 @@ class CDNClient:
             return cached
 
         # Fetch from CDN with mirror fallback
-        data = self._fetch_from_cdn(hash_str, file_type)
+        data = self._fetch_from_cdn(hash_str, file_type, quiet=quiet)
 
         # Store in cache
         self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
@@ -294,7 +305,7 @@ class CDNClient:
         Returns:
             Patch data
         """
-        self._ensure_initialized()
+        self.ensure_initialized()
         assert self.cdn_path is not None, "CDN path should be set after initialization"
 
         file_type = "patch_index" if is_index else "patch"

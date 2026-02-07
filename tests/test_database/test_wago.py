@@ -639,7 +639,7 @@ class TestWagoClient:
 
     def test_supported_products_constant(self):
         """Test that supported products constant is correct."""
-        assert WagoClient.SUPPORTED_PRODUCTS == ["wow", "wow_classic", "wow_classic_era"]
+        assert WagoClient.SUPPORTED_PRODUCTS == ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
 
     def test_product_families_constant(self):
         """Test that product families mapping is correct."""
@@ -647,7 +647,7 @@ class TestWagoClient:
         assert "wow" in families
         assert "agent" in families
         assert "bna" in families
-        assert families["wow"] == ["wow", "wow_classic", "wow_classic_era"]
+        assert families["wow"] == ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
 
     def test_cache_lifetime_constant(self):
         """Test that cache lifetime is 24 hours."""

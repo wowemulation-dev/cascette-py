@@ -88,7 +88,7 @@ class TestCDNClient:
 
     @patch.object(TACTClient, "fetch_cdns")
     @patch.object(TACTClient, "parse_cdns")
-    def test_ensure_initialized_success(self, mock_parse, mock_fetch):
+    def testensure_initialized_success(self, mock_parse, mock_fetch):
         """Test successful initialization."""
         mock_fetch.return_value = "manifest"
         mock_parse.return_value = [
@@ -100,7 +100,7 @@ class TestCDNClient:
         ]
 
         client = CDNClient(Product.WOW, region="us")
-        client._ensure_initialized()
+        client.ensure_initialized()
 
         assert client._initialized is True
         assert client.cdn_path == "tpr/wow"
@@ -108,7 +108,7 @@ class TestCDNClient:
 
     @patch.object(TACTClient, "fetch_cdns")
     @patch.object(TACTClient, "parse_cdns")
-    def test_ensure_initialized_region_not_found(self, mock_parse, mock_fetch):
+    def testensure_initialized_region_not_found(self, mock_parse, mock_fetch):
         """Test initialization when region not found."""
         mock_fetch.return_value = "manifest"
         mock_parse.return_value = [
@@ -122,16 +122,16 @@ class TestCDNClient:
         client = CDNClient(Product.WOW, region="us")
 
         with pytest.raises(ValueError, match="CDN configuration not found for region"):
-            client._ensure_initialized()
+            client.ensure_initialized()
 
     @patch.object(TACTClient, "fetch_cdns")
     @patch.object(TACTClient, "parse_cdns")
-    def test_ensure_initialized_already_initialized(self, mock_parse, mock_fetch):
+    def testensure_initialized_already_initialized(self, mock_parse, mock_fetch):
         """Test that initialization is skipped if already done."""
         client = CDNClient(Product.WOW)
         client._initialized = True
 
-        client._ensure_initialized()
+        client.ensure_initialized()
 
         mock_fetch.assert_not_called()
         mock_parse.assert_not_called()
@@ -197,7 +197,7 @@ class TestCDNClient:
         # Should try all 3 mirrors with 3 retries each = 9 total calls
         assert mock_get.call_count == 9
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     def test_fetch_config_cache_hit(self, mock_init):
         """Test fetch_config with cache hit."""
         client = CDNClient(Product.WOW)
@@ -208,7 +208,7 @@ class TestCDNClient:
 
             assert result == b"cached data"
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
     def test_fetch_config_cache_miss(self, mock_fetch, mock_init):
         """Test fetch_config with cache miss."""
@@ -226,7 +226,7 @@ class TestCDNClient:
             mock_fetch.assert_called_once_with("abc123def456", "config")
             mock_put.assert_called_once_with("abc123def456", b"fresh data", "config", "tpr/wow")
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
     def test_fetch_data_cache_miss(self, mock_fetch, mock_init):
         """Test fetch_data with cache miss."""
@@ -241,10 +241,10 @@ class TestCDNClient:
             result = client.fetch_data("def456abc123")
 
             assert result == b"data content"
-            mock_fetch.assert_called_once_with("def456abc123", "data")
+            mock_fetch.assert_called_once_with("def456abc123", "data", quiet=False)
             mock_put.assert_called_once_with("def456abc123", b"data content", "data", "tpr/wow")
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
     def test_fetch_data_index_cache_miss(self, mock_fetch, mock_init):
         """Test fetch_data for index files with cache miss."""
@@ -259,10 +259,10 @@ class TestCDNClient:
             result = client.fetch_data("def456abc123", is_index=True)
 
             assert result == b"index content"
-            mock_fetch.assert_called_once_with("def456abc123", "index")
+            mock_fetch.assert_called_once_with("def456abc123", "index", quiet=False)
             mock_put.assert_called_once_with("def456abc123", b"index content", "index", "tpr/wow")
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
     def test_fetch_patch_cache_miss(self, mock_fetch, mock_init):
         """Test fetch_patch with cache miss."""
@@ -280,7 +280,7 @@ class TestCDNClient:
             mock_fetch.assert_called_once_with("789abc123def", "patch")
             mock_put.assert_called_once_with("789abc123def", b"patch content", "patch", "tpr/wow")
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
     def test_fetch_patch_index_cache_miss(self, mock_fetch, mock_init):
         """Test fetch_patch for index files with cache miss."""
@@ -371,7 +371,7 @@ class TestCDNClient:
         assert client_us.tact_client.region == "us"
         assert client_eu.tact_client.region == "eu"
 
-    @patch.object(CDNClient, "_ensure_initialized")
+    @patch.object(CDNClient, "ensure_initialized")
     def test_lazy_initialization(self, mock_init):
         """Test that initialization is lazy."""
         client = CDNClient(Product.WOW)

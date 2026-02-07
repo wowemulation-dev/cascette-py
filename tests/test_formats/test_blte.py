@@ -152,8 +152,8 @@ class TestBLTEParser:
         decompressed = parser.decompress(blte_file)
         assert decompressed == chunk1_data + chunk2_data
 
-    def test_encrypted_chunk_without_crypto(self):
-        """Test encrypted chunk handling without crypto library."""
+    def test_encrypted_chunk_without_key(self):
+        """Test encrypted chunk handling without matching TACT key."""
         # Create encrypted chunk data
         blte_data = b'BLTE' + struct.pack('>I', 0) + b'E' + struct.pack('B', EncryptionType.SALSA20.value) + b'\x01' * 8 + b'encrypted_data'
 
@@ -168,8 +168,8 @@ class TestBLTEParser:
         assert chunk.encryption_key_name == b'\x01' * 8
         assert chunk.data == b'encrypted_data'
 
-        # Test decompression should fail without crypto library
-        with pytest.raises(ValueError, match="Encryption support not available"):
+        # Decompression should fail when key is not in the key store
+        with pytest.raises(ValueError, match="Encryption key not found"):
             parser.decompress(blte_file)
 
     def test_round_trip_single_chunk(self):

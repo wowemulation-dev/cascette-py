@@ -95,9 +95,9 @@ class WagoClient:
     CACHE_LIFETIME = timedelta(hours=24)
 
     # Product families supported by Wago.tools
-    SUPPORTED_PRODUCTS = ["wow", "wow_classic", "wow_classic_era"]
+    SUPPORTED_PRODUCTS = ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
     PRODUCT_FAMILIES = {
-        "wow": ["wow", "wow_classic", "wow_classic_era"],
+        "wow": ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"],
         "agent": ["agent"],
         "bna": ["bna"]
     }

@@ -24,15 +24,13 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "click>=8.1.7",
-    "pydantic>=2.5.0",
-    "httpx>=0.25.2",
-    "rich>=13.7.0",
-    "structlog>=23.2.0",
-    "lz4>=4.3.2",
-    "cryptography>=41.0.7",
-    "aiofiles>=23.2.1",
-    "diskcache>=5.6.3",
+    "click>=8.3.0",
+    "pydantic>=2.12.0",
+    "httpx>=0.28.0",
+    "rich>=14.3.0",
+    "structlog>=25.5.0",
+    "lz4>=4.4.0",
+    "pycryptodome>=3.23.0",
 ]
 
 [project.urls]
@@ -43,17 +41,12 @@ Documentation = "https://github.com/wowemulation-dev/cascette-py#readme"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.3",
-    "pytest-cov>=4.1.0",
-    "pytest-asyncio>=0.21.1",
-    "pytest-mock>=3.12.0",
-    "pyright>=1.1.0",
-    "ruff>=0.1.7",
-    "black>=23.11.0",
-    "types-aiofiles>=23.2.0",
-    "mypy-extensions>=1.0.0",
-    "pathspec>=0.9.0",
-    "packaging>=20",
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "pyright>=1.1.400",
+    "ruff>=0.15.0",
+    "black>=26.1.0",
+    "beautifulsoup4>=4.14.0",
 ]
 
 [project.scripts]
@@ -139,9 +132,4 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
-]
-
-[dependency-groups]
-dev = [
-    "pyright>=1.1.407",
 ]

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import BinaryIO
 
 import structlog
@@ -29,7 +29,7 @@ from cascette_tools.formats.base import FormatParser
 logger = structlog.get_logger()
 
 
-class FieldType(str, Enum):
+class FieldType(StrEnum):
     """Types for .build.info fields."""
 
     STRING = "STRING"
@@ -118,7 +118,7 @@ def parse_header(header_line: str) -> list[FieldDefinition]:
     Returns:
         List of field definitions in order
     """
-    fields = []
+    fields: list[FieldDefinition] = []
     for field_spec in header_line.split("|"):
         if not field_spec:
             continue
@@ -213,7 +213,7 @@ def build_tags_string(
         Formatted tags string
     """
     region_upper = region.upper()
-    groups = []
+    groups: list[str] = []
     if has_speech:
         groups.append(f"{platform} {architecture} {region_upper}? {locale} speech?")
     if has_text:
@@ -249,8 +249,10 @@ class BuildInfoParser(FormatParser[LocalBuildInfo]):
         # Parse first data line (typically only one data line)
         values = lines[1].split("|")
 
-        # Build kwargs for LocalBuildInfo
-        kwargs: dict[str, str | int | None] = {}
+        # Build typed dictionaries for string and int fields
+        str_values: dict[str, str] = {}
+        int_values: dict[str, int | None] = {}
+
         for i, field in enumerate(fields):
             if i >= len(values):
                 break
@@ -264,16 +266,36 @@ class BuildInfoParser(FormatParser[LocalBuildInfo]):
             if field.field_type == FieldType.DEC:
                 if value:
                     try:
-                        kwargs[attr_name] = int(value)
+                        int_values[attr_name] = int(value)
                     except ValueError:
-                        kwargs[attr_name] = None
+                        int_values[attr_name] = None
                 else:
-                    kwargs[attr_name] = None
+                    int_values[attr_name] = None
             else:
-                kwargs[attr_name] = value
+                str_values[attr_name] = value
 
-        # Create base object
-        info = LocalBuildInfo(**kwargs)
+        # Extract active value with proper type narrowing
+        active_value = int_values.get("active")
+        active: int = active_value if active_value is not None else 1
+
+        # Create base object with properly typed arguments
+        info = LocalBuildInfo(
+            branch=str_values.get("branch", ""),
+            active=active,
+            build_key=str_values.get("build_key", ""),
+            cdn_key=str_values.get("cdn_key", ""),
+            install_key=str_values.get("install_key", ""),
+            im_size=int_values.get("im_size"),
+            cdn_path=str_values.get("cdn_path", ""),
+            cdn_hosts=str_values.get("cdn_hosts", ""),
+            cdn_servers=str_values.get("cdn_servers", ""),
+            tags=str_values.get("tags", ""),
+            armadillo=str_values.get("armadillo", ""),
+            last_activated=str_values.get("last_activated", ""),
+            version=str_values.get("version", ""),
+            keyring=str_values.get("keyring", ""),
+            product=str_values.get("product", ""),
+        )
 
         # Parse tags into structured data
         if info.tags:

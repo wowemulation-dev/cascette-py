@@ -61,7 +61,7 @@ def _get_cdn_mirrors_for_product(product: str) -> list[str]:
         List of CDN mirror URLs in priority order
     """
     # WoW products use community mirrors
-    wow_products = ["wow", "wow_classic", "wow_classic_era"]
+    wow_products = ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
 
     if product in wow_products:
         return [
@@ -201,7 +201,7 @@ def config(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=_get_cdn_mirrors_for_product(product),
+            fallback_mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -300,7 +300,7 @@ def data(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=_get_cdn_mirrors_for_product(product),
+            fallback_mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -769,7 +769,7 @@ def encoding(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=_get_cdn_mirrors_for_product(product),
+            fallback_mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )
@@ -1102,7 +1102,7 @@ def patch(
         # Create CDN client
         product_enum = Product(product)
         cdn_config = CDNConfig(
-            mirrors=_get_cdn_mirrors_for_product(product),
+            fallback_mirrors=_get_cdn_mirrors_for_product(product),
             timeout=config_obj.cdn_timeout,
             max_retries=config_obj.cdn_max_retries,
         )

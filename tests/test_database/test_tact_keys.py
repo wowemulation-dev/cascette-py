@@ -66,16 +66,16 @@ class TestTACTKeyManager:
     def sample_wowdev_response(self):
         """Mock response from wowdev/TACTKeys GitHub repository."""
         return """# World of Warcraft TACT Keys
-# Format: keyname;keyvalue;description
+# Format: keyname keyvalue
 # Comments start with #
 
-ABCD1234EFGH5678;1234567890ABCDEF1234567890ABCDEF;Test Key 1
-FEDC9876BA54321;FEDCBA0987654321FEDCBA0987654321;Test Key 2
-1111222233334444;AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA;Key with A's
+ABCD1234EFGH5678 1234567890ABCDEF1234567890ABCDEF
+FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
+1111222233334444 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 # This is a comment line and should be ignored
 
 # Empty lines above should also be ignored
-5555666677778888;BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB;Another test key
+5555666677778888 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 """
 
     def test_init_default_config(self, tmp_path):
@@ -272,7 +272,7 @@ FEDC9876BA54321;FEDCBA0987654321FEDCBA0987654321;Test Key 2
         # Verify first key
         assert keys[0].key_name == "ABCD1234EFGH5678"
         assert keys[0].key_value == "1234567890ABCDEF1234567890ABCDEF"
-        assert keys[0].description == "Test Key 1"
+        assert keys[0].description is None
         assert keys[0].product_family == "wow"
         assert keys[0].verified is True  # wowdev keys are verified
 
@@ -513,7 +513,7 @@ FEDC9876BA54321;FEDCBA0987654321FEDCBA0987654321;Test Key 2
 
     def test_github_raw_url_constant(self):
         """Test that GitHub raw URL is correct."""
-        expected_url = "https://raw.githubusercontent.com/wowdev/TACTKeys/master"
+        expected_url = "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
         assert TACTKeyManager.GITHUB_RAW_URL == expected_url
 
     def test_cache_lifetime_constant(self):
