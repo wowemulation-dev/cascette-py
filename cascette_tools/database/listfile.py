@@ -311,14 +311,18 @@ class ListfileManager:
         return entries
 
     def import_entries(self, entries: list[FileDataEntry], source: str = "wowdev") -> int:
-        """Import file entries into database.
+        """Import file entries into database, replacing all existing data.
+
+        Drops FTS triggers before bulk loading and rebuilds the FTS index
+        once at the end. This makes full-sync imports fast at the cost of
+        not supporting incremental partial imports.
 
         Args:
             entries: List of file entries to import
             source: Source of the entries
 
         Returns:
-            Number of entries imported/updated
+            Number of entries imported
         """
         if not entries:
             return 0
@@ -338,9 +342,17 @@ class ListfileManager:
 
         try:
             with self.conn:
+                # Suspend per-row FTS triggers for the bulk load
+                self.conn.execute("DROP TRIGGER IF EXISTS file_entries_ai")
+                self.conn.execute("DROP TRIGGER IF EXISTS file_entries_ad")
+                self.conn.execute("DROP TRIGGER IF EXISTS file_entries_au")
+
+                # Clear and re-insert (faster than INSERT OR REPLACE with
+                # index + trigger overhead on every conflicting row)
+                self.conn.execute("DELETE FROM file_entries")
                 self.conn.executemany(
                     """
-                    INSERT OR REPLACE INTO file_entries
+                    INSERT INTO file_entries
                     (fdid, path, path_lower, verified, lookup_hash,
                      added_date, product, product_family, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, 'wow', CURRENT_TIMESTAMP)
@@ -348,6 +360,31 @@ class ListfileManager:
                     rows,
                 )
                 imported = len(rows)
+
+                # Rebuild FTS index in one pass from the content table
+                self.conn.execute(
+                    "INSERT INTO file_search(file_search) VALUES('rebuild')"
+                )
+
+                # Restore FTS triggers for future single-row operations
+                self.conn.execute("""
+                    CREATE TRIGGER file_entries_ai AFTER INSERT ON file_entries
+                    BEGIN
+                        INSERT INTO file_search(fdid, path) VALUES (new.fdid, new.path);
+                    END
+                """)
+                self.conn.execute("""
+                    CREATE TRIGGER file_entries_ad AFTER DELETE ON file_entries
+                    BEGIN
+                        DELETE FROM file_search WHERE fdid = old.fdid;
+                    END
+                """)
+                self.conn.execute("""
+                    CREATE TRIGGER file_entries_au AFTER UPDATE ON file_entries
+                    BEGIN
+                        UPDATE file_search SET path = new.path WHERE fdid = new.fdid;
+                    END
+                """)
 
                 # Record import
                 self.conn.execute(

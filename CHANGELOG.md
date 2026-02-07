@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - TACT key sync uses batched `executemany` instead of per-key transactions
-- Listfile sync uses batched `executemany` instead of per-entry SELECT/INSERT loop
+- Listfile sync drops FTS triggers during bulk load, rebuilds index once at the end
 - Listfile sync now downloads from GitHub release asset instead of raw repo content
 - TACT key sync URL updated to explicit `refs/heads/master` path
 - TACT key parser fixed to use space-separated format (was incorrectly splitting on semicolons)
