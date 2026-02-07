@@ -320,64 +320,46 @@ class ListfileManager:
         Returns:
             Number of entries imported/updated
         """
-        imported = 0
+        if not entries:
+            return 0
 
-        # Use transaction for bulk insert
-        with self.conn:
-            # Prepare bulk insert
-            self.conn.execute("BEGIN TRANSACTION")
+        rows = [
+            (
+                entry.fdid,
+                entry.path,
+                entry.path.lower(),
+                int(entry.verified),
+                entry.lookup_hash,
+                entry.added_date,
+                entry.product,
+            )
+            for entry in entries
+        ]
 
-            for entry in entries:
-                try:
-                    # Check if entry exists
-                    existing = self.conn.execute(
-                        "SELECT fdid, path FROM file_entries WHERE fdid = ?",
-                        (entry.fdid,)
-                    ).fetchone()
+        try:
+            with self.conn:
+                self.conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO file_entries
+                    (fdid, path, path_lower, verified, lookup_hash,
+                     added_date, product, product_family, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'wow', CURRENT_TIMESTAMP)
+                    """,
+                    rows,
+                )
+                imported = len(rows)
 
-                    if existing:
-                        # Update if path changed
-                        if existing["path"] != entry.path:
-                            self.conn.execute("""
-                                INSERT INTO listfile_updates
-                                (fdid, old_path, new_path, source)
-                                VALUES (?, ?, ?, ?)
-                            """, (entry.fdid, existing["path"], entry.path, source))
-
-                            self.conn.execute("""
-                                UPDATE file_entries
-                                SET path = ?, path_lower = ?, verified = ?,
-                                    product_family = 'wow',
-                                    updated_at = CURRENT_TIMESTAMP
-                                WHERE fdid = ?
-                            """, (entry.path, entry.path.lower(),
-                                  int(entry.verified), entry.fdid))
-
-                            logger.debug("updated_file_entry", fdid=entry.fdid)
-                            imported += 1
-                    else:
-                        # Insert new entry with WoW family (FileDataIDs are shared)
-                        self.conn.execute("""
-                            INSERT INTO file_entries
-                            (fdid, path, path_lower, verified, lookup_hash,
-                             added_date, product, product_family)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, 'wow')
-                        """, (entry.fdid, entry.path, entry.path.lower(),
-                              int(entry.verified), entry.lookup_hash,
-                              entry.added_date, entry.product))
-
-                        imported += 1
-
-                except sqlite3.IntegrityError as e:
-                    logger.debug("duplicate_entry", fdid=entry.fdid, error=str(e))
-
-            self.conn.execute("COMMIT")
-
-            # Record import
-            self.conn.execute("""
-                INSERT INTO listfile_sources (source, entry_count, metadata)
-                VALUES (?, ?, ?)
-            """, (source, imported, json.dumps({"timestamp": datetime.now().isoformat()})))
+                # Record import
+                self.conn.execute(
+                    """
+                    INSERT INTO listfile_sources (source, entry_count, metadata)
+                    VALUES (?, ?, ?)
+                    """,
+                    (source, imported, json.dumps({"timestamp": datetime.now().isoformat()})),
+                )
+        except sqlite3.Error as e:
+            logger.error("listfile_import_failed", error=str(e))
+            return 0
 
         logger.info("listfile_imported", count=imported, source=source)
         return imported

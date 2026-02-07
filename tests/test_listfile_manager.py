@@ -331,12 +331,6 @@ class TestListfileManager:
             path = manager.get_path(123456)
             assert path == "Interface\\AddOns\\UpdatedPath.lua"
 
-            # Verify update was logged
-            cursor = manager.conn.cursor()
-            updates = cursor.execute("SELECT * FROM listfile_updates").fetchall()
-            assert len(updates) == 1
-            assert updates[0]["fdid"] == 123456
-
     def test_get_path(self, temp_config, sample_listfile_entries):
         """Test getting path by FDID."""
         with ListfileManager(temp_config) as manager:

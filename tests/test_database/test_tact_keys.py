@@ -415,31 +415,16 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         assert len(all_keys) == 3
 
     def test_import_keys_with_failures(self, key_manager):
-        """Test importing keys with some failures."""
-        # Add a key first to create potential conflict
-        existing_key = TACTKey(key_name="EXISTING", key_value="VALUE")
-        key_manager.add_key(existing_key)
+        """Test importing keys when the database write fails."""
+        keys = [
+            TACTKey(key_name="SUCCESS1", key_value="VALUE1"),
+            TACTKey(key_name="SUCCESS2", key_value="VALUE2"),
+        ]
 
-        # Mock add_key to fail for some keys
-        original_add_key = key_manager.add_key
-        call_count = 0
-
-        def mock_add_key(key):
-            nonlocal call_count
-            call_count += 1
-            if key.key_name == "FAIL":
-                return False  # Simulate failure
-            return original_add_key(key)
-
-        with patch.object(key_manager, 'add_key', side_effect=mock_add_key):
-            keys = [
-                TACTKey(key_name="SUCCESS1", key_value="VALUE1"),
-                TACTKey(key_name="FAIL", key_value="VALUE2"),
-                TACTKey(key_name="SUCCESS2", key_value="VALUE3")
-            ]
-
-            imported_count = key_manager.import_keys(keys)
-            assert imported_count == 2  # Only successful imports counted
+        # Drop the table to cause a real database error
+        key_manager.conn.execute("DROP TABLE tact_keys")
+        imported_count = key_manager.import_keys(keys)
+        assert imported_count == 0  # Entire batch fails on db error
 
     @patch.object(TACTKeyManager, 'fetch_wowdev_keys')
     @patch.object(TACTKeyManager, 'import_keys')

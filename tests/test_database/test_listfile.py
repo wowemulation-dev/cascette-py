@@ -480,25 +480,20 @@ invalid_fdid,"should/be/skipped.adt"
         assert row["path"] == "new/path.adt"
         assert row["verified"] == 1
 
-        # Verify update was logged
-        update_rows = listfile_manager.conn.execute(
-            "SELECT * FROM listfile_updates WHERE fdid = 100001"
-        ).fetchall()
-        assert len(update_rows) == 1
-        assert update_rows[0]["old_path"] == "old/path.adt"
-        assert update_rows[0]["new_path"] == "new/path.adt"
-
-    def test_import_entries_no_change(self, listfile_manager):
-        """Test importing entry with no path change."""
-        # Insert initial entry
+    def test_import_entries_reimport(self, listfile_manager):
+        """Test re-importing the same entry replaces it."""
         entry = FileDataEntry(fdid=100001, path="same/path.adt")
         listfile_manager.import_entries([entry], "initial")
 
-        # Import same entry again
+        # Import same entry again - bulk import always counts all rows
         imported_count = listfile_manager.import_entries([entry], "duplicate")
+        assert imported_count == 1
 
-        # Should report 0 imports since no change occurred
-        assert imported_count == 0
+        # Verify only one row exists
+        count = listfile_manager.conn.execute(
+            "SELECT COUNT(*) FROM file_entries WHERE fdid = 100001"
+        ).fetchone()[0]
+        assert count == 1
 
     def test_get_path_exists(self, listfile_manager):
         """Test getting path for existing FDID."""

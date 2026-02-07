@@ -287,11 +287,34 @@ class TACTKeyManager:
         Returns:
             Number of keys imported/updated
         """
-        imported = 0
+        if not keys:
+            return 0
 
-        for key in keys:
-            if self.add_key(key):
-                imported += 1
+        rows = [
+            (
+                key.key_name.upper(),
+                key.key_value.upper(),
+                key.description,
+                key.product_family,
+                int(key.verified),
+            )
+            for key in keys
+        ]
+
+        try:
+            with self.conn:
+                self.conn.executemany(
+                    """
+                    INSERT OR REPLACE INTO tact_keys
+                    (key_name, key_value, description, product_family, verified, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    rows,
+                )
+            imported = len(rows)
+        except sqlite3.Error as e:
+            logger.error("tact_keys_import_failed", error=str(e))
+            imported = 0
 
         logger.info("tact_keys_imported", count=imported)
         return imported
