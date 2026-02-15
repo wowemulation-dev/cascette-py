@@ -89,8 +89,9 @@ class TestBLTEParser:
         chunk_count = 2
         flags = 0x0F
 
-        # Calculate header size: 1 (flags) + 3 (chunk_count) + 2 * (4+4+16) (chunk_info)
-        header_size = 1 + 3 + 2 * (4 + 4 + 16)
+        # Calculate header size (on-disk includes preamble):
+        # 8 (magic + header_size) + 1 (flags) + 3 (chunk_count) + 2 * (4+4+16) (chunk_info)
+        header_size = 8 + 1 + 3 + 2 * (4 + 4 + 16)
 
         # Chunk info
         chunk1_compressed_size = 1 + len(chunk1_data)  # +1 for compression mode
@@ -209,7 +210,7 @@ class TestBLTEParser:
         # Create BLTE file structure
         header = BLTEHeader(
             magic=b'BLTE',
-            header_size=1 + 3 + 2 * (4 + 4 + 16),  # flags + chunk_count + 2 chunk_infos
+            header_size=8 + 1 + 3 + 2 * (4 + 4 + 16),  # preamble + flags + chunk_count + 2 chunk_infos
             flags=0x0F,
             chunk_count=2
         )
@@ -390,7 +391,7 @@ class TestBLTEModels:
         """Test BLTEHeader model for multi-chunk."""
         header = BLTEHeader(
             magic=b'BLTE',
-            header_size=28,
+            header_size=36,  # 8 (preamble) + 4 (flags+count) + 1 * 24 (chunk_info)
             flags=0x0F,
             chunk_count=2
         )

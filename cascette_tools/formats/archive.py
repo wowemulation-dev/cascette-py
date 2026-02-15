@@ -103,7 +103,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         # Parse footer structure (big-endian except element_count)
         toc_hash = footer_data[0:8]  # First 8 bytes of MD5 hash of TOC
-        version = footer_data[8]     # Index format version (always 1)
+        version = footer_data[8]     # Index format version (0 or 1)
         reserved = footer_data[9:11] # Reserved bytes (must be [0, 0])
         page_size_kb = footer_data[11]   # Page size in KB (always 4)
         offset_bytes = footer_data[12]   # Archive offset field size (4 for archives)
@@ -504,7 +504,7 @@ def is_obj(data: bytes) -> bool:
         footer_hash_bytes = footer_data[15]
 
         # Validate expected values
-        return (version == 1 and
+        return (version <= 1 and
                 page_size_kb == 4 and
                 offset_bytes == 4 and
                 size_bytes == 4 and

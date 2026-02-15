@@ -29,8 +29,13 @@ class TestArchiveIndexParser:
         footer_data[14] = 16  # ekey_length
         footer_data[15] = 8   # footer_hash_bytes
 
-        # Valid archive index
+        # Valid archive index (version 1)
         assert is_obj(bytes(footer_data))
+
+        # Valid archive index (version 0)
+        footer_v0 = footer_data.copy()
+        footer_v0[8] = 0
+        assert is_obj(bytes(footer_v0))
 
         # Invalid data
         assert not is_obj(b'invalid')
@@ -39,7 +44,7 @@ class TestArchiveIndexParser:
 
         # Invalid footer values
         invalid_footer = footer_data.copy()
-        invalid_footer[8] = 2  # Wrong version
+        invalid_footer[8] = 2  # Wrong version (> 1)
         assert not is_obj(bytes(invalid_footer))
 
     def test_parse_footer_basic(self):

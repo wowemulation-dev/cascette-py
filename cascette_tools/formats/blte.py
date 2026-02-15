@@ -589,8 +589,9 @@ class BLTEBuilder:
             )
             blte_chunks.append(chunk)
 
-        # Calculate header size: 4 bytes (flags + chunk_count) + (24 bytes per chunk)
-        header_size = 4 + len(chunks) * 24
+        # Calculate header size: 8 (magic + header_size) + 4 (flags + chunk_count) + (24 bytes per chunk)
+        # The on-disk header_size includes the 8-byte BLTE preamble
+        header_size = 12 + len(chunks) * 24
 
         # Create header for multi-chunk
         header = BLTEHeader(
@@ -637,9 +638,9 @@ class BLTEBuilder:
             )
             blte_chunks.append(chunk)
 
-        # Calculate header size: 4 bytes (flags + chunk_count) + (40 bytes per chunk)
-        # Extended format: 4 + 4 + 16 + 16 = 40 bytes per chunk
-        header_size = 4 + len(chunks) * 40
+        # Calculate header size: 8 (magic + header_size) + 4 (flags + chunk_count) + (40 bytes per chunk)
+        # The on-disk header_size includes the 8-byte BLTE preamble
+        header_size = 12 + len(chunks) * 40
 
         # Create header for multi-chunk extended format
         header = BLTEHeader(
