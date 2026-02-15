@@ -7,7 +7,7 @@ support in cascette-py and the findings from our proof-of-concept.
 
 The POC demonstrates the complete NGDP resolution chain:
 
-```
+```text
 BuildConfig → Encoding File → Install/Download Manifests
 ```
 

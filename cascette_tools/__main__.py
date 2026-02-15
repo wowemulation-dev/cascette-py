@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any
 
 import click
 import structlog
 from rich.console import Console
+
+__version__ = pkg_version("cascette-tools")
 
 from cascette_tools.commands.analyze import analyze
 from cascette_tools.commands.archive import archive
@@ -42,7 +45,7 @@ logger = structlog.get_logger()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="cascette-tools")
+@click.version_option(version=__version__, prog_name="cascette-tools")
 @click.option(
     "--config",
     "-c",
@@ -126,14 +129,14 @@ def version(ctx: click.Context) -> None:
 
         info = {
             "name": "cascette-tools",
-            "version": "0.1.0",
+            "version": __version__,
             "python_version": sys.version.replace("\n", " "),
             "platform": sys.platform,
         }
         # Use regular print for JSON to avoid Rich formatting
         print(json.dumps(info, indent=2))
     else:
-        console.print("cascette-tools 0.1.0")
+        console.print(f"cascette-tools {__version__}")
         if ctx.obj["verbose"]:
             console.print(f"Python {sys.version}")
             console.print(f"Platform: {sys.platform}")

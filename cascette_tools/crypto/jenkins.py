@@ -93,7 +93,7 @@ def hashlittle(data: bytes, initval: int = 0) -> int:
 
     Example:
         >>> hashlittle(b"hello", 0)
-        3372029979
+        885767278
     """
     length = len(data)
 
@@ -240,7 +240,7 @@ def hashlittle2(data: bytes, pc: int = 0, pb: int = 0) -> tuple[int, int]:
 
     Example:
         >>> hashlittle2(b"hello", 0, 0)
-        (3372029979, 1812962741)
+        (885767278, 1543812985)
     """
     length = len(data)
 

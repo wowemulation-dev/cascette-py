@@ -35,7 +35,7 @@ class TestMainCLI:
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "cascette-tools 0.1.0" in clean_output
+        assert "cascette-tools 0.2.0" in clean_output
 
     def test_version_command_verbose(self) -> None:
         """Test version command with verbose flag."""
@@ -44,7 +44,7 @@ class TestMainCLI:
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "cascette-tools 0.1.0" in clean_output
+        assert "cascette-tools 0.2.0" in clean_output
         assert "Python" in clean_output
         assert "Platform:" in clean_output
 
@@ -56,7 +56,7 @@ class TestMainCLI:
         # Parse JSON output - strip whitespace
         json_output = json.loads(result.output.strip())
         assert json_output["name"] == "cascette-tools"
-        assert json_output["version"] == "0.1.0"
+        assert json_output["version"] == "0.2.0"
         assert "python_version" in json_output
         assert "platform" in json_output
 
@@ -302,7 +302,7 @@ if __name__ == "__main__":
         sys.exit(1)
 """, {
                                 'main': mock_main,
-                                'handle_exception': lambda *args: None,
+                                'handle_exception': lambda *args: None,  # type: ignore[reportUnknownLambdaType]
                                 'sys': sys,
                                 'logger': mock_logger,
                                 '__name__': '__main__'

@@ -8,7 +8,7 @@ git clone https://github.com/wowemulation-dev/cascette-py.git
 cd cascette-py
 
 # Install development dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 ```
 
 ## Before Submitting
@@ -17,20 +17,20 @@ Run these checks:
 
 ```bash
 # Tests (must maintain 80% coverage)
-pytest --cov=cascette_tools --cov-fail-under=80
+uv run pytest
 
 # Linting
-ruff check cascette_tools tests
+uv run ruff check cascette_tools tests
 
 # Type checking
-pyright cascette_tools
+uv run pyright cascette_tools
 
 # Markdown linting
-markdownlint-cli2 "**/*.md"
+npx markdownlint-cli2 "**/*.md"
 
 # Auto-format code
-black cascette_tools tests
-ruff check --fix cascette_tools tests
+uv run black cascette_tools tests
+uv run ruff check --fix cascette_tools tests
 ```
 
 ## Commit Messages

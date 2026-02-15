@@ -23,14 +23,14 @@ class TestMainCLI:
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "cascette-tools 0.1.0" in clean_output
+        assert "cascette-tools 0.2.0" in clean_output
 
     def test_version_option(self) -> None:
         """Test --version option."""
         runner = CliRunner()
         result = runner.invoke(main, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output
+        assert "0.2.0" in result.output
 
     def test_verbose_flag(self) -> None:
         """Test verbose flag is accepted."""

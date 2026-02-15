@@ -11,7 +11,8 @@ sequence.
 ### Phase 1: Configuration Download (T+0.0s)
 
 First files written:
-```
+
+```text
 06:00:27.242 - Data/config/.../e2dc540a98cccb45d764025ab28b703a  (Build Config)
 06:00:27.653 - Data/config/.../de01e5d341c7381fbb93e12c514c81c3  (CDN Config)
 ```
@@ -24,7 +25,7 @@ First files written:
 
 ### Phase 2: Archive Index Download (T+1s - T+3min)
 
-```
+```text
 06:00:28.475 - Data/indices/0128ec2c42df9e7ac7b58a54ad902147.index
 06:00:28.612 - Data/indices/0017a402f556fbece46c38dc431a2c9b.index
 ... (600+ archive index files)
@@ -38,7 +39,7 @@ First files written:
 
 ### Phase 3: Local Storage Initialization (T+3min)
 
-```
+```text
 06:03:02+ - Data/data/0000000001.idx through 0f00000006.idx (empty, 65KB each)
 ```
 
@@ -50,7 +51,7 @@ First files written:
 
 ### Phase 4: Encoding Cache Setup (T+3min+33s)
 
-```
+```text
 06:03:33.713 - Data/ecache/0000000001.idx through 0f00000001.idx
 06:03:33.715 - Data/ecache/data.000
 ```
@@ -62,7 +63,7 @@ First files written:
 
 ### Phase 5: Agent Bootstrapper (T+3min+33s)
 
-```
+```text
 06:03:33.805 - .battle.net/config/0f/6c/0f6ccf1dd9b9c2db99de99535c5a51ae
 06:03:33.806 - .battle.net/data/shmem
 06:03:33.808 - .battle.net/data/*.idx (16 buckets)
@@ -70,14 +71,15 @@ First files written:
 06:03:34.642 - .battle.net/indices/*.index
 ```
 
-**Purpose**: Install the Battle.net Agent ("bts" product) for managing the main product.
+**Purpose**: Install the Battle.net Agent ("bts" product) for managing the
+main product.
 
 - The `.battle.net/` folder contains a mini CASC installation for the Agent
 - Agent handles ongoing updates, repairs, and background downloads
 
 ### Phase 6: Critical File Extraction (T+3min+34s)
 
-```
+```text
 06:03:34.683 - _classic_era_/UTILS/WowWindowsExceptionHandler.dll
 06:03:35.243 - _classic_era_/UTILS/WindowsExceptionHandler.dll
 06:03:35.427 - _classic_era_/UTILS/WowVoiceProxy.exe
@@ -94,7 +96,7 @@ First files written:
 
 ### Phase 7: Product State Finalization (T+3min+37s)
 
-```
+```text
 06:03:36.999 - .product.db
 06:03:37.000 - Launcher.db
 06:03:37.001 - .patch.result
@@ -127,7 +129,8 @@ First files written:
 ### Local Storage (.idx files in Data/data/)
 
 Format: Page-based with 16-byte header
-```
+
+```text
 0x00: Header size (4 bytes LE)
 0x04: TOC hash (4 bytes)
 0x08: Unknown (4 bytes)
@@ -138,7 +141,8 @@ Format: Page-based with 16-byte header
 ### CDN Archive Index (.index files)
 
 Format: Entries + 28-byte footer
-```
+
+```text
 Entries: [ekey (16 bytes)] [offset (4 bytes)] [size (4 bytes)]
 Footer: toc_hash(8) version(1) reserved(2) page_kb(1) offset_bytes(1)
         size_bytes(1) key_bytes(1) hash_bytes(1) entry_count(4LE) hash(8)
@@ -147,6 +151,7 @@ Footer: toc_hash(8) version(1) reserved(2) page_kb(1) offset_bytes(1)
 ### Product Database (.product.db)
 
 Format: Protobuf with fields:
+
 - Product code (e.g., "wow_classic_era")
 - Install path
 - Region/locale
@@ -156,11 +161,13 @@ Format: Protobuf with fields:
 ## Download Priority System
 
 The download manifest defines download order via priority (0-255):
+
 - **0-50**: Critical files (executables, shaders, UI)
 - **51-100**: Core game data
 - **100+**: Optional content (cinematics, high-res textures)
 
 Files with lower priority download first, enabling:
+
 1. Faster time to playable state
 2. Play-while-downloading functionality
 3. Selective quality installation
@@ -176,6 +183,7 @@ To replicate this behavior, cascette-agent should:
 5. **Phase 7**: Update product state databases
 
 The current cascette-agent implementation handles basic installation but needs:
+
 - Priority-based download ordering
 - Proper local storage initialization
 - Product database updates

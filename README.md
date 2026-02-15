@@ -26,7 +26,7 @@ and parsing game data files.
 - **Async Support**: Efficient concurrent operations for network requests
 - **Caching**: Multi-layer caching for improved performance
 - **CLI Interface**: Rich command-line interface with comprehensive subcommands
-- **Test Coverage**: Comprehensive test suite with 905 tests (74% coverage)
+- **Test Coverage**: 926 tests across 31 test files (80% minimum coverage enforced)
 
 ## Installation
 
@@ -37,21 +37,14 @@ and parsing game data files.
 git clone https://github.com/wowemulation-dev/cascette-py.git
 cd cascette-py
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or
-.venv\Scripts\activate  # Windows
-
-# Install in development mode with all dependencies
-pip install --upgrade pip setuptools wheel
-pip install -e ".[dev]"
+# Install dependencies (requires uv: https://docs.astral.sh/uv/)
+uv sync --all-extras
 ```
 
 ### Production Installation
 
 ```bash
-pip install cascette-tools
+uv pip install cascette-tools
 ```
 
 ## Quick Start
@@ -129,41 +122,60 @@ build_info = BuildInfo(
 
 ```text
 cascette_tools/
-├── core/                # Shared functionality
-│   ├── __init__.py     # Core module exports
-│   ├── types.py        # Type definitions and Pydantic models
-│   ├── config.py       # Configuration management
-│   ├── cdn.py          # CDN client implementations
-│   ├── cache.py        # Caching mechanisms
-│   └── utils.py        # Utility functions
-├── formats/            # Format parsers and builders
-│   ├── __init__.py     # Format module exports
-│   ├── base.py         # Base parser/builder classes
-│   ├── blte.py         # BLTE format handling
-│   ├── encoding.py     # Encoding format handling
-│   ├── root.py         # Root format handling
-│   └── ...             # Additional format modules
-├── commands/           # CLI command implementations
-│   ├── __init__.py     # Command module exports
-│   ├── examine.py      # File examination commands
-│   ├── analyze.py      # Analysis commands
-│   ├── fetch.py        # Download commands
-│   └── ...             # Additional command modules
-├── database/           # Data management
-│   ├── __init__.py     # Database module exports
-│   ├── tact_keys.py    # TACT key management
-│   ├── listfile.py     # Listfile management
-│   ├── wago.py         # Wago.tools integration
-│   └── storage.py      # Local storage management
-└── __main__.py         # Main CLI entry point
+├── __main__.py              # CLI entry point, registers 11 command groups
+├── core/                    # Shared functionality
+│   ├── types.py             # Pydantic models (BuildInfo, Product, CDNConfig, etc.)
+│   ├── config.py            # AppConfig with CDN URLs, timeouts, paths
+│   ├── cdn.py               # CDN client (Ribbit primary, community mirror fallback)
+│   ├── cdn_archive_fetcher.py  # Archive index downloading, HTTP range extraction
+│   ├── cache.py             # Multi-layer disk caching
+│   ├── local_storage.py     # Local CASC directory structure
+│   ├── product_state.py     # Battle.net agent state files
+│   ├── tact.py              # TACT encryption key handling
+│   └── utils.py             # Hex conversion, MD5, Jenkins96 hash
+├── formats/                 # Binary format parsers
+│   ├── base.py              # FormatParser[T: BaseModel] abstract base
+│   ├── blte.py              # BLTE compression (modes: N/Z/L/E/F)
+│   ├── blte_integration.py  # BLTE integration helpers
+│   ├── encoding.py          # Encoding file (CKey/EKey lookup)
+│   ├── root.py              # Root file (versions 1-4)
+│   ├── config.py            # Build/CDN/product/patch config parsers
+│   ├── build_info.py        # .build.info file parser
+│   ├── archive.py           # CDN archive index
+│   ├── cdn_archive.py       # CDN archive format
+│   ├── install.py           # Install manifest
+│   ├── download.py          # Download manifest
+│   ├── patch_archive.py     # Patch archive (PA) format
+│   ├── zbsdiff.py           # ZBSDIFF binary diff
+│   └── tvfs.py              # TVFS virtual file system
+├── commands/                # Click CLI command groups (11 groups)
+│   ├── examine.py           # examine: blte, encoding, config, archive
+│   ├── analyze.py           # analyze: stats, compression, dependencies, coverage
+│   ├── fetch.py             # fetch: config, data, build, encoding, batch, patch
+│   ├── validate.py          # validate: format, integrity, roundtrip, batch
+│   ├── builds.py            # builds: sync, list, search, stats, export, import
+│   ├── archive.py           # archive: examine, scan, find, validate-mapping
+│   ├── archive_search.py    # archive-search: find-key, extract-key
+│   ├── tact.py              # tact: sync, list, search, export, stats, import
+│   ├── listfile.py          # listfile: sync, search, lookup, export, stats, import
+│   ├── install_poc.py       # install-poc: resolve-manifests, discover-latest
+│   └── install_analyzer.py  # install-state: scan, progress, show-config
+├── database/                # External data integrations
+│   ├── wago.py              # Wago.tools API client
+│   ├── tact_keys.py         # TACT key database
+│   └── listfile.py          # FileDataID-to-path mapping
+└── crypto/                  # Cryptographic utilities
+    └── jenkins.py           # Bob Jenkins lookup3 hash
 
-tests/                  # Test suite
-├── conftest.py         # Pytest configuration and fixtures
-├── test_core/          # Core module tests
-├── test_formats/       # Format parser tests
-├── test_commands/      # CLI command tests
-├── test_database/      # Database tests
-└── fixtures/           # Test data files
+tests/                       # Test suite (31 test files, 926 tests)
+├── conftest.py              # Shared fixtures for CLI mocking and CDN responses
+├── test_cli.py              # Main CLI integration tests
+├── test_core/               # Core module tests (6 files)
+├── test_formats/            # Format parser tests (12 files)
+├── test_commands/           # CLI command tests (7 files)
+├── test_database/           # Database tests (3 files)
+├── test_wago_client.py      # Wago client tests
+└── test_listfile_manager.py # Listfile manager tests
 ```
 
 ## Development
@@ -171,7 +183,7 @@ tests/                  # Test suite
 ### Prerequisites
 
 - Python 3.12 or higher
-- pip and setuptools
+- [uv](https://docs.astral.sh/uv/) package manager
 
 Optionally, [mise](https://mise.jdx.dev/) can manage Python versions and
 development tools like `uv` per-project. With mise installed, run `mise install`
@@ -181,22 +193,22 @@ in the repository root to set up the pinned toolchain automatically.
 
 ```bash
 # Install development dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 
-# Run tests
-pytest
+# Run tests (80% coverage minimum enforced)
+uv run pytest
 
-# Run tests with coverage
-pytest --cov=cascette_tools --cov-report=html
+# Run tests with HTML coverage report
+uv run pytest --cov-report=html
 
 # Type checking
-pyright cascette_tools
+uv run pyright cascette_tools
 
 # Code formatting
-black cascette_tools tests
+uv run black cascette_tools tests
 
 # Linting
-ruff check cascette_tools tests
+uv run ruff check cascette_tools tests
 ```
 
 ## Code Quality and Validation
@@ -207,16 +219,16 @@ All Python code in the cascette-tools package must pass these validation steps:
 
 ```bash
 # Linting and code quality checks
-ruff check cascette_tools tests        # Fast, comprehensive linting
+uv run ruff check cascette_tools tests
 
 # Type checking and static analysis
-pyright cascette_tools                 # Strict type checking enabled
+uv run pyright cascette_tools
 
 # Code formatting (auto-fix)
-black cascette_tools tests              # Consistent formatting
+uv run black cascette_tools tests
 
-# Test coverage requirements
-pytest --cov=cascette_tools --cov-fail-under=80  # Minimum 80% coverage
+# Test coverage requirements (80% minimum enforced via pyproject.toml)
+uv run pytest
 ```
 
 ### Pre-commit Workflow
@@ -225,13 +237,13 @@ Before committing changes:
 
 ```bash
 # Run all quality checks
-ruff check cascette_tools tests && \
-pyright cascette_tools && \
-pytest --cov=cascette_tools --cov-fail-under=80
+uv run ruff check cascette_tools tests && \
+uv run pyright cascette_tools && \
+uv run pytest
 
 # Auto-fix formatting issues
-black cascette_tools tests
-ruff check --fix cascette_tools tests
+uv run black cascette_tools tests
+uv run ruff check --fix cascette_tools tests
 ```
 
 ### Type Safety
@@ -247,22 +259,22 @@ The package enforces strict typing:
 
 ```bash
 # Unit tests only
-pytest -m unit
+uv run pytest -m unit
 
 # Integration tests (may require network)
-pytest -m integration
+uv run pytest -m integration
 
 # Exclude slow tests for quick feedback
-pytest -m "not slow"
+uv run pytest -m "not slow"
 
 # Run specific test files
-pytest tests/test_formats/test_blte.py
+uv run pytest tests/test_formats/test_blte.py
 
 # Run with verbose output
-pytest -v
+uv run pytest -v
 
 # Generate HTML coverage report
-pytest --cov=cascette_tools --cov-report=html
+uv run pytest --cov-report=html
 # Open htmlcov/index.html in browser
 ```
 
@@ -283,7 +295,7 @@ cascette fetch manifests wow
 cascette fetch build wow 11.0.2.56461
 
 # This downloads build metadata and manifest files for analysis
-# Products include: wow, wow_classic, wow_classic_era, wowt, wow_beta
+# Products include: wow, wow_classic, wow_classic_era, wow_classic_titan, wow_anniversary, wowt, wow_beta
 ```
 
 Wago.tools data provides:
@@ -386,14 +398,15 @@ Commands for working with NGDP patches:
 All analysis results are saved to the `results/` directory:
 
 ```text
-tools/
-├── results/              # All generated output files
-│   ├── *.json           # Analysis results
-│   └── *.txt            # Evolution reports
-├── test_data/           # Downloaded CASC files (gitignored)
-│   ├── wago-builds-*.json
-│   └── wow_*_*.dat/txt  # Cached CASC files
-└── cache/               # Temporary download cache
+~/.local/share/cascette-tools/   # XDG data directory
+├── wago_builds.db               # SQLite build database
+├── wago_cache/                  # Wago API response cache (24-hour)
+├── tact_keys.db                 # TACT key database
+└── listfile.db                  # FileDataID mapping database
+
+test_data/                       # Downloaded CASC files (gitignored)
+├── wago-builds-*.json
+└── wow_*_*.dat/txt              # Cached CASC files
 ```
 
 ## Recommended Usage Workflow
@@ -407,10 +420,7 @@ verification process:
 # Step 1: Fetch build database (one-time setup)
 cascette builds sync
 
-# Step 2: Test all tools are working
-cascette validate tools
-
-# Step 3: Validate downloaded files
+# Step 2: Validate downloaded files
 cascette validate batch test_data/
 
 # Step 4: Analyze file statistics
@@ -425,8 +435,8 @@ cascette validate integrity <file>
 # Step 7: Check results
 ls -la results/
 
-# Step 8: Review cache usage
-cascette analyze cache --list --detailed
+# Step 8: Review data storage
+ls -lh ~/.local/share/cascette-tools/
 ```
 
 ### 0. Essential First Step - Get Build Database
@@ -556,7 +566,8 @@ ls -la ~/.local/share/cascette-tools/wago_cache/
 
 - **Coverage**: 1,900+ builds from WoD 6.0.x through current
 
-- **Products**: wow, wow_classic, wow_classic_era, wowt, wow_beta, and more
+- **Products**: wow, wow_classic, wow_classic_era, wow_classic_titan,
+  wow_anniversary, wowt, wow_beta, and more
 
 - **Freshness**: Updated regularly as new builds are released
 
@@ -578,13 +589,13 @@ ls -la ~/.local/share/cascette-tools/wago_cache/
 
 ### CDN Access for File Downloads
 
-Tools connect to `cdn.arctium.tools` by default for actual file retrieval:
+Tools fetch CDN server lists from Blizzard's Ribbit endpoint dynamically.
+Community mirrors (`cdn.arctium.tools`, Wago, `archive.wow.tools`) serve as
+fallback when Ribbit servers are unavailable:
 
-- Better availability than official Blizzard CDNs
+- Ribbit servers are the primary source for file retrieval
 
-- Comprehensive archive of builds back to 6.0.x
-
-- Cloudflare-backed for reliability
+- Community mirrors provide fallback availability
 
 - Uses hashes from Wago.tools data to fetch actual files
 
@@ -604,13 +615,17 @@ Fallback sources (no longer primary):
 
 | Format | Parser | Status | Notes |
 |--------|--------|---------|--------|
-| BLTE | `blte.py` | Complete | All compression types (N, Z, E, F) |
-| Encoding | `examine_encoding.py` | Complete | Content key lookup, ESpec support |
-| Root | `examine_root.py` | Complete | Versions 1-4, TSFM/MFST magic detection |
-| TVFS | `examine_tvfs.py` | Complete | Header parsing, table analysis, version 1 format |
-| Build Config | `examine_build.py` | Complete | All field types, space-separated values |
-| Install | `examine_build.py` | Basic | Magic detection, header parsing |
-| Download | `examine_build.py` | Basic | Magic detection, header parsing |
+| BLTE | `formats/blte.py` | Working | Compression modes N, Z, L, E, F |
+| Encoding | `formats/encoding.py` | Working | Content key lookup, ESpec support |
+| Root | `formats/root.py` | Working | Versions 1-4, TSFM/MFST magic detection |
+| TVFS | `formats/tvfs.py` | Working | Header parsing, table analysis, version 1 format |
+| Build Config | `formats/config.py` | Working | All field types, space-separated values |
+| Build Info | `formats/build_info.py` | Working | .build.info parse/build round-trip |
+| Install | `formats/install.py` | Basic | Magic detection, header parsing |
+| Download | `formats/download.py` | Basic | Magic detection, header parsing |
+| Archive | `formats/archive.py` | Working | CDN archive index, archive-groups |
+| Patch Archive | `formats/patch_archive.py` | Working | PA format parsing |
+| ZBSDIFF | `formats/zbsdiff.py` | Working | Binary diff format |
 
 ### Format Versions Detected
 
@@ -665,14 +680,13 @@ The package uses Python packaging with pyproject.toml:
 #### Standard Installation
 
 ```bash
-pip install cascette-tools
+uv pip install cascette-tools
 ```
 
 #### Development Installation
 
 ```bash
-# Install in editable mode with development dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 ```
 
 #### Core Dependencies
@@ -685,9 +699,7 @@ The package requires:
 - `rich` - Terminal formatting
 - `structlog` - Structured logging
 - `lz4` - LZ4 compression
-- `cryptography` - Encryption support
-- `aiofiles` - Async file I/O
-- `diskcache` - Persistent caching
+- `pycryptodome` - Encryption support (Salsa20, ARC4)
 
 ### System Requirements
 
@@ -703,10 +715,10 @@ For development and testing:
 
 - `pytest` - Testing framework
 - `pytest-cov` - Coverage reporting
-- `pytest-asyncio` - Async test support
 - `pyright` - Type checking
 - `ruff` - Fast Python linter
 - `black` - Code formatting
+- `beautifulsoup4` - Wiki scraping scripts
 
 ## Error Handling and Troubleshooting
 
@@ -722,9 +734,9 @@ cascette examine build --timeout 60 wow 11.2.0.62706 <config>
 **Cache Corruption**:
 
 ```bash
-# Clean and retry
-cascette analyze cache --clean --execute
-cascette validate root-transitions
+# Remove cached data and retry
+rm -rf ~/.local/share/cascette-tools/cache/
+cascette builds sync
 ```
 
 **Missing Build Data**:
@@ -751,40 +763,30 @@ cascette --debug <command>  # Enable debug mode globally
 
 1. Create new command module in `cascette_tools/commands/`
 2. Use existing format parsers from `cascette_tools/formats/`
-3. Register command in `__main__.py`
+3. Register command group in `__main__.py` via `main.add_command()`
 4. Add tests to `tests/` directory
-5. Update this README
 
 ### Testing Changes
 
 ```bash
-# Run test suite
-pytest
-
-# Run with coverage
-pytest --cov=cascette_tools
+# Run test suite (80% coverage minimum enforced)
+uv run pytest
 
 # Type checking
-pyright cascette_tools
+uv run pyright cascette_tools
 
 # Linting
-ruff check cascette_tools tests
-
-# Quick verification of changes
-cascette validate all
-
-# Full format analysis
-cascette analyze format-evolution wow
+uv run ruff check cascette_tools tests
 ```
 
 ### Cache Management During Development
 
 ```bash
-# Clean cache between major changes
-cascette analyze cache --clean --execute
+# Check database status
+ls -lh ~/.local/share/cascette-tools/
 
-# Monitor cache growth
-cascette analyze cache --list
+# View downloaded test data
+ls -la test_data/
 ```
 
 ## Format Examination Methodology
@@ -933,42 +935,23 @@ These tools inform the Rust implementation in several ways:
 
 The examination methodology follows a systematic discovery process:
 
-1. **Initial Survey**: `fetch_wago_builds.py` establishes the complete build
+1. **Initial Survey**: `cascette builds sync` fetches the build database from
+   Wago.tools
 
-   database foundation
+2. **Strategic Sampling**: Builds are selected across WoW version transitions
+   to identify format changes
 
-2. **Strategic Sampling**: Selection algorithms identify builds most likely to
+3. **Detailed Analysis**: CLI examination commands (`cascette examine`)
+   validate format assumptions against real files
 
-   contain format transitions
+4. **Verification**: Format parsers are tested against multiple builds to
+   confirm consistency
 
-3. **Detailed Analysis**: Individual examination tools (`examine_*.py`)
-
-   validate format assumptions
-
-4. **Evolution Tracking**: Specialized trackers (`track_*_evolution.py`)
-
-   identify changes over time
-
-5. **Verification**: Automated scripts (`verify_*.py`) confirm discovered
-
-   patterns across build ranges
-
-6. **Documentation**: Findings are documented with exact build references and
-
+5. **Documentation**: Findings are documented with exact build references and
    transition points
-
-This process ensures that the Rust implementation handles the complete
-spectrum of NGDP/CASC format variations encountered in production WoW builds
-from 2014 through present.
 
 ## Further Reading
 
-- [Format Evolution Documentation](../docs/format-transitions.md)
+- [Battle.net Installation Process Analysis](docs/battlenet-install-process.md)
 
-- [Root File Format Specification](../docs/root.md)
-
-- [BLTE Format Documentation](../docs/blte.md)
-
-- [Build Configuration Formats](../docs/config-formats.md)
-
-- [NGDP System Overview](../docs/README.md)
+- [Full Installation POC Plan](docs/full-install-poc-plan.md)
