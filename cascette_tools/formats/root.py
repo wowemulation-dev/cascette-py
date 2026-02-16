@@ -96,8 +96,10 @@ class RootParser(FormatParser[RootFile]):
             return 2
 
         # Read potential header_size and version fields
-        value1 = struct.unpack('<I', data[4:8])[0]
-        value2 = struct.unpack('<I', data[8:12])[0]
+        # TSFM = little-endian, MFST = big-endian header fields
+        endian = '<' if magic == b'TSFM' else '>'
+        value1 = struct.unpack(f'{endian}I', data[4:8])[0]
+        value2 = struct.unpack(f'{endian}I', data[8:12])[0]
 
         # V3/V4 have an extended header: header_size (small) + version (2..=4)
         # V2 has total_files + named_files (both typically large)
@@ -124,6 +126,9 @@ class RootParser(FormatParser[RootFile]):
         if len(magic_bytes) != 4:
             raise ValueError("Incomplete magic bytes")
 
+        # TSFM = little-endian, MFST = big-endian header fields
+        endian = '<' if magic_bytes == b'TSFM' else '>'
+
         if version == 2:
             # Version 2: Build 30080+
             total_files_bytes = stream.read(4)
@@ -132,8 +137,8 @@ class RootParser(FormatParser[RootFile]):
             if len(total_files_bytes) != 4 or len(named_files_bytes) != 4:
                 raise ValueError("Incomplete header for version 2")
 
-            total_files = struct.unpack('<I', total_files_bytes)[0]
-            named_files = struct.unpack('<I', named_files_bytes)[0]
+            total_files = struct.unpack(f'{endian}I', total_files_bytes)[0]
+            named_files = struct.unpack(f'{endian}I', named_files_bytes)[0]
 
             return RootHeader(
                 version=2,
@@ -155,11 +160,11 @@ class RootParser(FormatParser[RootFile]):
                 len(padding_bytes) != 4):
                 raise ValueError(f"Incomplete header for version {version}")
 
-            header_size = struct.unpack('<I', header_size_bytes)[0]
-            version_field = struct.unpack('<I', version_field_bytes)[0]
-            total_files = struct.unpack('<I', total_files_bytes)[0]
-            named_files = struct.unpack('<I', named_files_bytes)[0]
-            padding = struct.unpack('<I', padding_bytes)[0]
+            header_size = struct.unpack(f'{endian}I', header_size_bytes)[0]
+            version_field = struct.unpack(f'{endian}I', version_field_bytes)[0]
+            total_files = struct.unpack(f'{endian}I', total_files_bytes)[0]
+            named_files = struct.unpack(f'{endian}I', named_files_bytes)[0]
+            padding = struct.unpack(f'{endian}I', padding_bytes)[0]
 
             return RootHeader(
                 version=version,
@@ -174,13 +179,19 @@ class RootParser(FormatParser[RootFile]):
         raise ValueError(f"Unsupported root version: {version}")
 
     def _parse_blocks(self, stream: BinaryIO, version: int = 1) -> list[RootBlock]:
-        """Parse all blocks in the root file."""
+        """Parse all blocks in the root file.
+
+        Empty blocks (num_records == 0) are skipped rather than treated
+        as end-of-file, matching the Rust implementation behavior.
+        """
         blocks: list[RootBlock] = []
 
         while True:
             block = self._parse_block(stream, version)
             if block is None:
                 break
+            if block.num_records == 0:
+                continue  # Skip empty blocks
             blocks.append(block)
 
         return blocks
@@ -193,7 +204,7 @@ class RootParser(FormatParser[RootFile]):
             return None
 
         num_records = struct.unpack('<I', num_records_bytes)[0]
-        if num_records == 0 or num_records > 1000000:  # Sanity check
+        if num_records > 1000000:  # Sanity check
             return None
 
         # V4 uses 5-byte (40-bit) content flags, V1-V3 use 4-byte
@@ -335,23 +346,24 @@ class RootParser(FormatParser[RootFile]):
 
         if header.version >= 2:
             # Write magic
-            if header.magic:
-                result.write(header.magic)
-            else:
-                result.write(b'MFST')
+            magic = header.magic if header.magic else b'MFST'
+            result.write(magic)
+
+            # TSFM = little-endian, MFST = big-endian header fields
+            endian = '<' if magic == b'TSFM' else '>'
 
             if header.version == 2:
                 # Version 2 header
-                result.write(struct.pack('<I', header.total_files or 0))
-                result.write(struct.pack('<I', header.named_files or 0))
+                result.write(struct.pack(f'{endian}I', header.total_files or 0))
+                result.write(struct.pack(f'{endian}I', header.named_files or 0))
 
             elif header.version in (3, 4):
                 # Version 3/4 header
-                result.write(struct.pack('<I', header.header_size or 24))
-                result.write(struct.pack('<I', header.version_field or header.version))
-                result.write(struct.pack('<I', header.total_files or 0))
-                result.write(struct.pack('<I', header.named_files or 0))
-                result.write(struct.pack('<I', header.padding or 0))
+                result.write(struct.pack(f'{endian}I', header.header_size or 24))
+                result.write(struct.pack(f'{endian}I', header.version_field or header.version))
+                result.write(struct.pack(f'{endian}I', header.total_files or 0))
+                result.write(struct.pack(f'{endian}I', header.named_files or 0))
+                result.write(struct.pack(f'{endian}I', header.padding or 0))
 
         # Write blocks
         for block in obj.blocks:
@@ -414,10 +426,10 @@ class RootBuilder:
         if version == 1:
             header = RootHeader(magic=None, version=1, total_files=0, named_files=0)
         elif version == 2:
-            header = RootHeader(magic=b'TSFM', version=2, total_files=0, named_files=0)
+            header = RootHeader(magic=b'MFST', version=2, total_files=0, named_files=0)
         elif version in (3, 4):
             header = RootHeader(
-                magic=b'TSFM', version=version,
+                magic=b'MFST', version=version,
                 header_size=24, version_field=version,
                 total_files=0, named_files=0, padding=0
             )
@@ -454,12 +466,12 @@ class RootBuilder:
             )
         elif version == 2:
             header = RootHeader(
-                magic=b'TSFM', version=2,
+                magic=b'MFST', version=2,
                 total_files=total_files, named_files=named_files
             )
         elif version in (3, 4):
             header = RootHeader(
-                magic=b'TSFM', version=version,
+                magic=b'MFST', version=version,
                 header_size=24, version_field=version,
                 total_files=total_files, named_files=named_files, padding=0
             )

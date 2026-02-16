@@ -5,6 +5,7 @@ from io import BytesIO
 
 from cascette_tools.formats.root import (
     RootBlock,
+    RootBuilder,
     RootFile,
     RootHeader,
     RootParser,
@@ -41,8 +42,8 @@ class TestRootParser:
 
     def test_detect_version_v2(self):
         """Test version detection for v2."""
-        # MFST + large value (>= 1000)
-        data = b'MFST' + struct.pack('<I', 5000) + struct.pack('<I', 2000)
+        # MFST + large value (>= 1000) - MFST uses big-endian header fields
+        data = b'MFST' + struct.pack('>I', 5000) + struct.pack('>I', 2000)
 
         parser = RootParser()
         version = parser._detect_version(data)
@@ -50,8 +51,8 @@ class TestRootParser:
 
     def test_detect_version_v3(self):
         """Test version detection for v3."""
-        # MFST + small header_size + version=3
-        data = b'MFST' + struct.pack('<I', 24) + struct.pack('<I', 3)
+        # MFST + small header_size + version=3 - MFST uses big-endian
+        data = b'MFST' + struct.pack('>I', 24) + struct.pack('>I', 3)
 
         parser = RootParser()
         version = parser._detect_version(data)
@@ -59,8 +60,8 @@ class TestRootParser:
 
     def test_detect_version_v4(self):
         """Test version detection for v4."""
-        # MFST + small header_size + version=4
-        data = b'MFST' + struct.pack('<I', 24) + struct.pack('<I', 4)
+        # MFST + small header_size + version=4 - MFST uses big-endian
+        data = b'MFST' + struct.pack('>I', 24) + struct.pack('>I', 4)
 
         parser = RootParser()
         version = parser._detect_version(data)
@@ -72,9 +73,9 @@ class TestRootParser:
         Regression test: the old heuristic (value1 < 1000) would classify
         a v2 file with fewer than 1000 total files as v3.
         """
-        # MFST + total_files=42, named_files=5
+        # MFST + total_files=42, named_files=5 - MFST uses big-endian
         # value2=5 is NOT in (2,3,4) so this stays v2
-        data = b'MFST' + struct.pack('<I', 42) + struct.pack('<I', 5)
+        data = b'MFST' + struct.pack('>I', 42) + struct.pack('>I', 5)
 
         parser = RootParser()
         version = parser._detect_version(data)
@@ -98,14 +99,11 @@ class TestRootParser:
 
     def test_parse_header_v2(self):
         """Test parsing v2 header."""
-        # Create v2 data
+        # Create v2 data - MFST uses big-endian header fields
         root_data = BytesIO()
         root_data.write(b'MFST')  # magic
-        root_data.write(struct.pack('<I', 5000))  # total_files (large value for v2)
-        root_data.write(struct.pack('<I', 3000))  # named_files
-
-        # Add minimal block to complete parsing
-        root_data.write(struct.pack('<I', 0))  # Empty block to terminate
+        root_data.write(struct.pack('>I', 5000))  # total_files (large value for v2)
+        root_data.write(struct.pack('>I', 3000))  # named_files
 
         parser = RootParser()
         root_file = parser.parse(root_data.getvalue())
@@ -119,17 +117,14 @@ class TestRootParser:
 
     def test_parse_header_v3(self):
         """Test parsing v3 header."""
-        # Create v3 data
+        # Create v3 data - MFST uses big-endian header fields
         root_data = BytesIO()
         root_data.write(b'MFST')  # magic
-        root_data.write(struct.pack('<I', 24))  # header_size (small value for v3)
-        root_data.write(struct.pack('<I', 3))   # version_field
-        root_data.write(struct.pack('<I', 8000))  # total_files
-        root_data.write(struct.pack('<I', 6000))  # named_files
-        root_data.write(struct.pack('<I', 0))   # padding
-
-        # Add minimal block to complete parsing
-        root_data.write(struct.pack('<I', 0))  # Empty block to terminate
+        root_data.write(struct.pack('>I', 24))  # header_size (small value for v3)
+        root_data.write(struct.pack('>I', 3))   # version_field
+        root_data.write(struct.pack('>I', 8000))  # total_files
+        root_data.write(struct.pack('>I', 6000))  # named_files
+        root_data.write(struct.pack('>I', 0))   # padding
 
         parser = RootParser()
         root_file = parser.parse(root_data.getvalue())
@@ -405,15 +400,16 @@ class TestRootParser:
 
     def test_parse_header_v4(self):
         """Test parsing v4 header."""
+        # MFST uses big-endian header fields; block data remains little-endian
         root_data = BytesIO()
         root_data.write(b'MFST')  # magic
-        root_data.write(struct.pack('<I', 24))   # header_size
-        root_data.write(struct.pack('<I', 4))    # version_field
-        root_data.write(struct.pack('<I', 10000))  # total_files
-        root_data.write(struct.pack('<I', 8000))  # named_files
-        root_data.write(struct.pack('<I', 0))    # padding
+        root_data.write(struct.pack('>I', 24))   # header_size
+        root_data.write(struct.pack('>I', 4))    # version_field
+        root_data.write(struct.pack('>I', 10000))  # total_files
+        root_data.write(struct.pack('>I', 8000))  # named_files
+        root_data.write(struct.pack('>I', 0))    # padding
 
-        # Add a block with 5-byte content flags (V4)
+        # Add a block with 5-byte content flags (V4) - block data is always LE
         root_data.write(struct.pack('<I', 1))    # num_records
         # 5-byte content flags (40-bit little-endian)
         root_data.write(b'\x01\x00\x00\x00\x01')  # flags = 0x0100000001
@@ -639,3 +635,269 @@ class TestRootModels:
         assert root_file.header.version == 1
         assert len(root_file.blocks) == 1
         assert root_file.blocks[0].num_records == 1
+
+
+class TestRootEmptyBlocks:
+    """Test empty block handling (backported from cascette-rs dda8ead)."""
+
+    def test_empty_block_skipped_v1(self):
+        """Test that empty blocks (num_records=0) are skipped, not treated as EOF."""
+        root_data = BytesIO()
+
+        # First block: empty (should be skipped)
+        root_data.write(struct.pack('<I', 0))    # num_records = 0
+        root_data.write(struct.pack('<I', 0x00)) # content_flags
+        root_data.write(struct.pack('<I', 0x00)) # locale_flags
+
+        # Second block: has data (should be parsed)
+        root_data.write(struct.pack('<I', 1))    # num_records
+        root_data.write(struct.pack('<I', 0x01)) # content_flags
+        root_data.write(struct.pack('<I', 0x02)) # locale_flags
+        root_data.write(struct.pack('<i', 42))   # file_id delta
+        root_data.write(b'\xAB' * 16)            # content_key
+        root_data.write(struct.pack('<Q', 0xDEAD))  # name_hash
+
+        parser = RootParser()
+        root_file = parser.parse(root_data.getvalue())
+
+        assert len(root_file.blocks) == 1
+        assert root_file.blocks[0].records[0].file_id == 42
+
+    def test_multiple_empty_blocks_skipped(self):
+        """Test that multiple consecutive empty blocks are all skipped."""
+        root_data = BytesIO()
+
+        # Two empty blocks
+        for _ in range(2):
+            root_data.write(struct.pack('<I', 0))    # num_records = 0
+            root_data.write(struct.pack('<I', 0x00)) # content_flags
+            root_data.write(struct.pack('<I', 0x00)) # locale_flags
+
+        # Real block
+        root_data.write(struct.pack('<I', 1))
+        root_data.write(struct.pack('<I', 0x01))
+        root_data.write(struct.pack('<I', 0x02))
+        root_data.write(struct.pack('<i', 99))
+        root_data.write(b'\xCC' * 16)
+        root_data.write(struct.pack('<Q', 0xBEEF))
+
+        parser = RootParser()
+        root_file = parser.parse(root_data.getvalue())
+
+        assert len(root_file.blocks) == 1
+        assert root_file.blocks[0].records[0].file_id == 99
+
+    def test_empty_block_between_real_blocks(self):
+        """Test that an empty block between two real blocks is skipped."""
+        root_data = BytesIO()
+
+        # First real block
+        root_data.write(struct.pack('<I', 1))
+        root_data.write(struct.pack('<I', 0x01))
+        root_data.write(struct.pack('<I', 0x02))
+        root_data.write(struct.pack('<i', 10))
+        root_data.write(b'\x11' * 16)
+        root_data.write(struct.pack('<Q', 0x1111))
+
+        # Empty block (should be skipped)
+        root_data.write(struct.pack('<I', 0))
+        root_data.write(struct.pack('<I', 0x00))
+        root_data.write(struct.pack('<I', 0x00))
+
+        # Second real block
+        root_data.write(struct.pack('<I', 1))
+        root_data.write(struct.pack('<I', 0x04))
+        root_data.write(struct.pack('<I', 0x08))
+        root_data.write(struct.pack('<i', 20))
+        root_data.write(b'\x22' * 16)
+        root_data.write(struct.pack('<Q', 0x2222))
+
+        parser = RootParser()
+        root_file = parser.parse(root_data.getvalue())
+
+        assert len(root_file.blocks) == 2
+        assert root_file.blocks[0].records[0].file_id == 10
+        assert root_file.blocks[1].records[0].file_id == 20
+
+
+class TestRootEndianness:
+    """Test endianness-aware header I/O (backported from cascette-rs dda8ead).
+
+    MFST magic = big-endian header fields.
+    TSFM magic = little-endian header fields.
+    Block data always uses little-endian regardless of header magic.
+    """
+
+    def test_mfst_v2_round_trip(self):
+        """Test MFST (big-endian) v2 header round-trip."""
+        header = RootHeader(version=2, magic=b'MFST', total_files=1000, named_files=800)
+        record = RootRecord(file_id=456, content_key=b'\x07' * 16, name_hash=0x123456)
+        block = RootBlock(num_records=1, content_flags=0x08, locale_flags=0x10, records=[record])
+        root_file = RootFile(header=header, blocks=[block])
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+
+        # Verify MFST magic at start
+        assert binary_data[:4] == b'MFST'
+        # Verify big-endian header fields
+        assert struct.unpack('>I', binary_data[4:8])[0] == 1000
+        assert struct.unpack('>I', binary_data[8:12])[0] == 800
+
+        # Parse back and verify
+        parsed = parser.parse(binary_data)
+        assert parsed.header.version == 2
+        assert parsed.header.magic == b'MFST'
+        assert parsed.header.total_files == 1000
+        assert parsed.header.named_files == 800
+        assert len(parsed.blocks) == 1
+        assert parsed.blocks[0].records[0].file_id == 456
+
+    def test_tsfm_v2_round_trip(self):
+        """Test TSFM (little-endian) v2 header round-trip."""
+        header = RootHeader(version=2, magic=b'TSFM', total_files=1000, named_files=800)
+        record = RootRecord(file_id=456, content_key=b'\x07' * 16, name_hash=0x123456)
+        block = RootBlock(num_records=1, content_flags=0x08, locale_flags=0x10, records=[record])
+        root_file = RootFile(header=header, blocks=[block])
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+
+        # Verify TSFM magic at start
+        assert binary_data[:4] == b'TSFM'
+        # Verify little-endian header fields
+        assert struct.unpack('<I', binary_data[4:8])[0] == 1000
+        assert struct.unpack('<I', binary_data[8:12])[0] == 800
+
+        # Parse back and verify
+        parsed = parser.parse(binary_data)
+        assert parsed.header.version == 2
+        assert parsed.header.magic == b'TSFM'
+        assert parsed.header.total_files == 1000
+        assert parsed.header.named_files == 800
+
+    def test_mfst_v3_round_trip(self):
+        """Test MFST (big-endian) v3 header round-trip."""
+        header = RootHeader(
+            version=3, magic=b'MFST', header_size=24,
+            version_field=3, total_files=5000, named_files=4000, padding=0
+        )
+        record = RootRecord(file_id=100, content_key=b'\xAA' * 16, name_hash=0xDEAD)
+        block = RootBlock(num_records=1, content_flags=0x01, locale_flags=0x02, records=[record])
+        root_file = RootFile(header=header, blocks=[block])
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+        parsed = parser.parse(binary_data)
+
+        assert parsed.header.version == 3
+        assert parsed.header.magic == b'MFST'
+        assert parsed.header.header_size == 24
+        assert parsed.header.total_files == 5000
+        assert parsed.header.named_files == 4000
+
+    def test_tsfm_v3_round_trip(self):
+        """Test TSFM (little-endian) v3 header round-trip."""
+        header = RootHeader(
+            version=3, magic=b'TSFM', header_size=24,
+            version_field=3, total_files=5000, named_files=4000, padding=0
+        )
+        record = RootRecord(file_id=100, content_key=b'\xBB' * 16, name_hash=0xBEEF)
+        block = RootBlock(num_records=1, content_flags=0x01, locale_flags=0x02, records=[record])
+        root_file = RootFile(header=header, blocks=[block])
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+        parsed = parser.parse(binary_data)
+
+        assert parsed.header.version == 3
+        assert parsed.header.magic == b'TSFM'
+        assert parsed.header.total_files == 5000
+
+    def test_detect_version_tsfm_v3(self):
+        """Test version detection with TSFM (little-endian) magic."""
+        data = b'TSFM' + struct.pack('<I', 24) + struct.pack('<I', 3)
+
+        parser = RootParser()
+        version = parser._detect_version(data)
+        assert version == 3
+
+    def test_detect_version_tsfm_v2(self):
+        """Test version detection with TSFM (little-endian) v2."""
+        data = b'TSFM' + struct.pack('<I', 5000) + struct.pack('<I', 2000)
+
+        parser = RootParser()
+        version = parser._detect_version(data)
+        assert version == 2
+
+    def test_parse_tsfm_v2_manual(self):
+        """Test parsing manually constructed TSFM v2 data."""
+        root_data = BytesIO()
+        root_data.write(b'TSFM')
+        root_data.write(struct.pack('<I', 3000))  # total_files (LE for TSFM)
+        root_data.write(struct.pack('<I', 2000))  # named_files (LE for TSFM)
+
+        # Block data (always LE)
+        root_data.write(struct.pack('<I', 1))
+        root_data.write(struct.pack('<I', 0x01))
+        root_data.write(struct.pack('<I', 0x02))
+        root_data.write(struct.pack('<i', 77))
+        root_data.write(b'\xDD' * 16)
+        root_data.write(struct.pack('<Q', 0xCAFE))
+
+        parser = RootParser()
+        root_file = parser.parse(root_data.getvalue())
+
+        assert root_file.header.magic == b'TSFM'
+        assert root_file.header.total_files == 3000
+        assert root_file.header.named_files == 2000
+        assert root_file.blocks[0].records[0].file_id == 77
+
+
+class TestRootBuilderDefaults:
+    """Test RootBuilder default magic (backported from cascette-rs dda8ead)."""
+
+    def test_create_empty_v2_defaults_to_mfst(self):
+        """Test that create_empty v2 defaults to MFST magic."""
+        root_file = RootBuilder.create_empty(version=2)
+        assert root_file.header.magic == b'MFST'
+
+    def test_create_empty_v3_defaults_to_mfst(self):
+        """Test that create_empty v3 defaults to MFST magic."""
+        root_file = RootBuilder.create_empty(version=3)
+        assert root_file.header.magic == b'MFST'
+
+    def test_create_empty_v4_defaults_to_mfst(self):
+        """Test that create_empty v4 defaults to MFST magic."""
+        root_file = RootBuilder.create_empty(version=4)
+        assert root_file.header.magic == b'MFST'
+
+    def test_create_with_records_v2_defaults_to_mfst(self):
+        """Test that create_with_records v2 defaults to MFST magic."""
+        records = [RootRecord(file_id=1, content_key=b'\x01' * 16, name_hash=0x1234)]
+        root_file = RootBuilder.create_with_records(records, version=2)
+        assert root_file.header.magic == b'MFST'
+
+    def test_create_with_records_v3_defaults_to_mfst(self):
+        """Test that create_with_records v3 defaults to MFST magic."""
+        records = [RootRecord(file_id=1, content_key=b'\x01' * 16, name_hash=0x1234)]
+        root_file = RootBuilder.create_with_records(records, version=3)
+        assert root_file.header.magic == b'MFST'
+
+    def test_builder_round_trip_mfst(self):
+        """Test that builder-created MFST files round-trip correctly."""
+        records = [
+            RootRecord(file_id=100, content_key=b'\xAA' * 16, name_hash=0xDEAD),
+            RootRecord(file_id=200, content_key=b'\xBB' * 16, name_hash=0xBEEF),
+        ]
+        root_file = RootBuilder.create_with_records(records, version=2)
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+        parsed = parser.parse(binary_data)
+
+        assert parsed.header.magic == b'MFST'
+        assert parsed.header.total_files == 2
+        assert len(parsed.blocks) == 1
+        assert parsed.blocks[0].records[0].file_id == 100
+        assert parsed.blocks[0].records[1].file_id == 200
