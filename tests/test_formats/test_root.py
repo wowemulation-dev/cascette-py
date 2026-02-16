@@ -50,12 +50,35 @@ class TestRootParser:
 
     def test_detect_version_v3(self):
         """Test version detection for v3."""
-        # MFST + small value (< 1000, likely header_size)
+        # MFST + small header_size + version=3
         data = b'MFST' + struct.pack('<I', 24) + struct.pack('<I', 3)
 
         parser = RootParser()
         version = parser._detect_version(data)
         assert version == 3
+
+    def test_detect_version_v4(self):
+        """Test version detection for v4."""
+        # MFST + small header_size + version=4
+        data = b'MFST' + struct.pack('<I', 24) + struct.pack('<I', 4)
+
+        parser = RootParser()
+        version = parser._detect_version(data)
+        assert version == 4
+
+    def test_detect_version_small_v2_not_misidentified(self):
+        """Test that a v2 file with small total_files is not misidentified as v3+.
+
+        Regression test: the old heuristic (value1 < 1000) would classify
+        a v2 file with fewer than 1000 total files as v3.
+        """
+        # MFST + total_files=42, named_files=5
+        # value2=5 is NOT in (2,3,4) so this stays v2
+        data = b'MFST' + struct.pack('<I', 42) + struct.pack('<I', 5)
+
+        parser = RootParser()
+        version = parser._detect_version(data)
+        assert version == 2
 
     def test_parse_header_v1(self):
         """Test parsing v1 header (no header)."""
@@ -379,6 +402,76 @@ class TestRootParser:
         assert parsed_file.header.magic == b'MFST'
         assert parsed_file.header.total_files == 1000
         assert parsed_file.header.named_files == 800
+
+    def test_parse_header_v4(self):
+        """Test parsing v4 header."""
+        root_data = BytesIO()
+        root_data.write(b'MFST')  # magic
+        root_data.write(struct.pack('<I', 24))   # header_size
+        root_data.write(struct.pack('<I', 4))    # version_field
+        root_data.write(struct.pack('<I', 10000))  # total_files
+        root_data.write(struct.pack('<I', 8000))  # named_files
+        root_data.write(struct.pack('<I', 0))    # padding
+
+        # Add a block with 5-byte content flags (V4)
+        root_data.write(struct.pack('<I', 1))    # num_records
+        # 5-byte content flags (40-bit little-endian)
+        root_data.write(b'\x01\x00\x00\x00\x01')  # flags = 0x0100000001
+        root_data.write(struct.pack('<I', 0x02))  # locale_flags
+        root_data.write(struct.pack('<i', 500))  # file_id delta
+        root_data.write(b'\xAA' * 16)            # content_key
+        root_data.write(struct.pack('<Q', 0x1234567890abcdef))  # name_hash
+
+        parser = RootParser()
+        root_file = parser.parse(root_data.getvalue())
+
+        assert root_file.header.version == 4
+        assert root_file.header.magic == b'MFST'
+        assert root_file.header.header_size == 24
+        assert root_file.header.version_field == 4
+        assert root_file.header.total_files == 10000
+        assert root_file.header.named_files == 8000
+
+        assert len(root_file.blocks) == 1
+        assert root_file.blocks[0].content_flags == 0x0100000001
+        assert root_file.blocks[0].records[0].file_id == 500
+
+    def test_round_trip_v4(self):
+        """Test round-trip parsing and building for v4 with 5-byte content flags."""
+        header = RootHeader(
+            version=4,
+            magic=b'MFST',
+            header_size=24,
+            version_field=4,
+            total_files=1,
+            named_files=1,
+            padding=0
+        )
+
+        record = RootRecord(file_id=100, content_key=b'\xBB' * 16, name_hash=0xDEAD)
+        block = RootBlock(
+            num_records=1,
+            content_flags=0x0100000001,  # 40-bit flag
+            locale_flags=0x02,
+            records=[record]
+        )
+        root_file = RootFile(header=header, blocks=[block])
+
+        parser = RootParser()
+        binary_data = parser.build(root_file)
+        parsed_file = parser.parse(binary_data)
+
+        assert parsed_file.header.version == 4
+        assert len(parsed_file.blocks) == 1
+        assert parsed_file.blocks[0].content_flags == 0x0100000001
+        assert parsed_file.blocks[0].records[0].file_id == 100
+
+    def test_format_content_flags_v4_wide(self):
+        """Test formatting of 40-bit content flags."""
+        # Flags exceeding 32 bits should use wider hex format
+        formatted = format_content_flags(0x0100000001)
+        assert "LoadOnWindows" in formatted
+        assert "0x0100000001" in formatted
 
     def test_invalid_block_num_records(self):
         """Test error handling for invalid num_records."""

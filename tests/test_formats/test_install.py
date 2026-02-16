@@ -276,6 +276,82 @@ class TestInstallParser:
         assert len(install.entries) == 1
         assert set(install.entries[0].tags) == set(tag_names)
 
+    def test_parse_v2_with_file_type(self):
+        """Test parsing V2 install manifest with file_type field."""
+        parser = InstallParser()
+
+        data = BytesIO()
+        data.write(b'IN')  # magic
+        data.write(struct.pack('B', 2))  # version 2
+        data.write(struct.pack('B', 16))  # hash_size
+        data.write(struct.pack('>H', 0))  # tag_count
+        data.write(struct.pack('>I', 1))  # entry_count
+
+        data.write(b'test.txt\x00')
+        data.write(bytes(range(16)))  # MD5 hash
+        data.write(struct.pack('>I', 1024))  # file size
+        data.write(struct.pack('B', 3))  # file_type = 3
+
+        install = parser.parse(data.getvalue())
+
+        assert install.version == 2
+        assert len(install.entries) == 1
+        assert install.entries[0].file_type == 3
+        assert install.entries[0].size == 1024
+
+    def test_round_trip_v2(self):
+        """Test round-trip for V2 install manifest."""
+        parser = InstallParser()
+
+        install = InstallFile(
+            version=2,
+            hash_size=16,
+            tags=[],
+            entries=[
+                InstallEntry(
+                    filename="game.exe",
+                    md5_hash=bytes(range(16)),
+                    size=4096,
+                    file_type=1,
+                    tags=[]
+                ),
+                InstallEntry(
+                    filename="data.bin",
+                    md5_hash=bytes(range(1, 17)),
+                    size=8192,
+                    file_type=0,
+                    tags=[]
+                ),
+            ]
+        )
+
+        data = parser.build(install)
+        parsed = parser.parse(data)
+
+        assert parsed.version == 2
+        assert len(parsed.entries) == 2
+        assert parsed.entries[0].file_type == 1
+        assert parsed.entries[1].file_type == 0
+        assert parsed.entries[0].size == 4096
+
+    def test_unsupported_version_rejected(self):
+        """Test that version 0 and version > 2 are rejected."""
+        parser = InstallParser()
+
+        for version in [0, 3, 255]:
+            data = BytesIO()
+            data.write(b'IN')
+            data.write(struct.pack('B', version))
+            data.write(struct.pack('B', 16))
+            data.write(struct.pack('>H', 0))
+            data.write(struct.pack('>I', 0))
+
+            try:
+                parser.parse(data.getvalue())
+                raise AssertionError(f"Version {version} should have raised ValueError")
+            except ValueError as e:
+                assert "Unsupported install version" in str(e)
+
     def test_invalid_magic(self):
         """Test parsing with invalid magic."""
         parser = InstallParser()

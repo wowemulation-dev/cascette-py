@@ -731,13 +731,13 @@ class TestTVFSEdgeCases:
         assert parsed.entries[500].file_data_id == 500
 
     def test_max_values(self):
-        """Test with maximum values."""
+        """Test with maximum values (except version which must be 1)."""
         parser = TVFSParser()
 
         header = TVFSHeader(
             magic=b"TVFS",
-            version=255,  # Max uint8
-            flags=255,  # Max uint8 (not uint32)
+            version=1,  # Must be 1 (validated)
+            flags=255,  # Max uint8
             data_version=255,  # Max uint8
             reserved=255,  # Max uint8
             block_count=0xFFFFFFFF,  # Max uint32
@@ -756,16 +756,16 @@ class TestTVFSEdgeCases:
 
         # Should be able to parse it back
         parsed = parser.parse(data)
-        assert parsed.header.version == 255
+        assert parsed.header.version == 1
         assert parsed.entries[0].path_hash == 0xFFFFFFFFFFFFFFFF
 
     def test_zero_values(self):
-        """Test with zero values."""
+        """Test with zero values (except version which must be 1)."""
         parser = TVFSParser()
 
         header = TVFSHeader(
             magic=b"TVFS",
-            version=0,
+            version=1,  # Must be 1 (validated)
             flags=0,
             data_version=0,
             reserved=0,
@@ -785,6 +785,14 @@ class TestTVFSEdgeCases:
 
         # Should be able to parse it back
         parsed = parser.parse(data)
-        assert parsed.header.version == 0
+        assert parsed.header.version == 1
         assert parsed.entries[0].path_hash == 0
         assert parsed.entries[0].ckey == b"\x00" * 16
+
+    def test_unsupported_version_rejected(self):
+        """Test that version != 1 is rejected during parsing."""
+        parser = TVFSParser()
+        data = struct.pack(">4sBBBBIII", b"TVFS", 2, 0, 0, 0, 0, 0, 0)
+
+        with pytest.raises(ValueError, match="Unsupported TVFS version: 2"):
+            parser.parse(data)

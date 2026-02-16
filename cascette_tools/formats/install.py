@@ -49,6 +49,7 @@ class InstallEntry(BaseModel):
     filename: str = Field(description="File path")
     md5_hash: bytes = Field(description="MD5 content key (16 bytes)")
     size: int = Field(description="File size in bytes")
+    file_type: int | None = Field(default=None, description="File type byte (V2 only)")
     tags: list[str] = Field(default_factory=list, description="List of tag names")
 
 
@@ -91,6 +92,10 @@ class InstallParser(FormatParser[InstallFile]):
         hash_size = header_data[3]
         tag_count = struct.unpack('>H', header_data[4:6])[0]  # big-endian
         entry_count = struct.unpack('>I', header_data[6:10])[0]  # big-endian
+
+        # Validate version (accept V1 and V2, matching Agent.exe)
+        if version == 0 or version > 2:
+            raise ValueError(f"Unsupported install version: {version}")
 
         logger.debug("Parsed install header",
                     version=version, hash_size=hash_size,
@@ -153,6 +158,14 @@ class InstallParser(FormatParser[InstallFile]):
                 raise ValueError(f"Insufficient data for file size: {filename}")
             file_size = struct.unpack('>I', size_data)[0]
 
+            # Read file type for V2 (1 byte after file_size)
+            file_type = None
+            if version >= 2:
+                ft_data = stream.read(1)
+                if len(ft_data) < 1:
+                    raise ValueError(f"Insufficient data for file_type: {filename}")
+                file_type = ft_data[0]
+
             # Determine tags for this file
             file_tags: list[str] = []
             for tag in tags:
@@ -163,6 +176,7 @@ class InstallParser(FormatParser[InstallFile]):
                 filename=filename,
                 md5_hash=md5_data,
                 size=file_size,
+                file_type=file_type,
                 tags=file_tags
             ))
 
@@ -228,6 +242,10 @@ class InstallParser(FormatParser[InstallFile]):
 
             # Write file size (4 bytes big-endian)
             result.write(struct.pack('>I', entry.size))
+
+            # Write file type for V2
+            if entry.file_type is not None:
+                result.write(struct.pack('B', entry.file_type))
 
         return result.getvalue()
 

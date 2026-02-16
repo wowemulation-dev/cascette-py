@@ -59,6 +59,14 @@ class PatchArchiveHeader(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    def is_plain_data(self) -> bool:
+        """Check if flag bit 0 (plain data) is set."""
+        return (self.flags & 0x01) != 0
+
+    def has_extended_header(self) -> bool:
+        """Check if flag bit 1 (extended header) is set."""
+        return (self.flags & 0x02) != 0
+
 
 class PatchEntry(BaseModel):
     """Single patch entry from PA file."""
@@ -217,7 +225,7 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         if patch_key_size != DEFAULT_KEY_SIZE:
             logger.warning("Unexpected patch key size", size=patch_key_size)
 
-        return PatchArchiveHeader(
+        header = PatchArchiveHeader(
             magic=magic,
             version=version,
             file_key_size=file_key_size,
@@ -227,6 +235,15 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             block_count=block_count,
             flags=flags
         )
+
+        # Reject extended header flag (bit 1) - parser does not support
+        # the extra data Agent.exe would read for this flag
+        if header.has_extended_header():
+            raise ValueError(
+                f"Unsupported patch archive flags: extended header (flags=0x{flags:02x})"
+            )
+
+        return header
 
     def _parse_entries(self, data: bytes, header: PatchArchiveHeader, max_entries: int = 1000) -> list[PatchEntry]:
         """Parse patch entries from PA data.

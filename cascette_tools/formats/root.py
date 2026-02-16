@@ -71,12 +71,19 @@ class RootParser(FormatParser[RootFile]):
         header = self._parse_header(stream)
 
         # Parse blocks
-        blocks = self._parse_blocks(stream)
+        blocks = self._parse_blocks(stream, header.version)
 
         return RootFile(header=header, blocks=blocks)
 
     def _detect_version(self, data: bytes) -> int:
-        """Detect root file version from data."""
+        """Detect root file version from data.
+
+        Version detection uses a tightened heuristic matching the Rust
+        implementation (verified against Agent.exe TACT 3.13.3):
+        - V1: No MFST/TSFM magic
+        - V2: MFST magic, second u32 is NOT a known version (2..=4)
+        - V3/V4: MFST magic, header_size is small, second u32 is 2, 3, or 4
+        """
         if len(data) < 4:
             return 1
 
@@ -88,14 +95,16 @@ class RootParser(FormatParser[RootFile]):
         if len(data) < 12:
             return 2
 
-        # Read potential counts/header size
+        # Read potential header_size and version fields
         value1 = struct.unpack('<I', data[4:8])[0]
+        value2 = struct.unpack('<I', data[8:12])[0]
 
-        # Heuristic: if first value < 1000, likely v3+ with header_size
-        if value1 < 1000:
-            return 3  # Build 50893+
-        else:
-            return 2  # Build 30080+
+        # V3/V4 have an extended header: header_size (small) + version (2..=4)
+        # V2 has total_files + named_files (both typically large)
+        if value2 in (2, 3, 4) and value1 < 100:
+            return value2  # Returns 2, 3, or 4
+
+        return 2  # Build 30080+
 
     def _parse_header(self, stream: BinaryIO) -> RootHeader:
         """Parse root file header based on detected version."""
@@ -133,8 +142,8 @@ class RootParser(FormatParser[RootFile]):
                 named_files=named_files
             )
 
-        elif version == 3:
-            # Version 3: Build 50893+
+        elif version in (3, 4):
+            # Version 3/4: Build 50893+
             header_size_bytes = stream.read(4)
             version_field_bytes = stream.read(4)
             total_files_bytes = stream.read(4)
@@ -144,7 +153,7 @@ class RootParser(FormatParser[RootFile]):
             if (len(header_size_bytes) != 4 or len(version_field_bytes) != 4 or
                 len(total_files_bytes) != 4 or len(named_files_bytes) != 4 or
                 len(padding_bytes) != 4):
-                raise ValueError("Incomplete header for version 3")
+                raise ValueError(f"Incomplete header for version {version}")
 
             header_size = struct.unpack('<I', header_size_bytes)[0]
             version_field = struct.unpack('<I', version_field_bytes)[0]
@@ -153,7 +162,7 @@ class RootParser(FormatParser[RootFile]):
             padding = struct.unpack('<I', padding_bytes)[0]
 
             return RootHeader(
-                version=3,
+                version=version,
                 magic=magic_bytes,
                 header_size=header_size,
                 version_field=version_field,
@@ -164,19 +173,19 @@ class RootParser(FormatParser[RootFile]):
 
         raise ValueError(f"Unsupported root version: {version}")
 
-    def _parse_blocks(self, stream: BinaryIO) -> list[RootBlock]:
+    def _parse_blocks(self, stream: BinaryIO, version: int = 1) -> list[RootBlock]:
         """Parse all blocks in the root file."""
         blocks: list[RootBlock] = []
 
         while True:
-            block = self._parse_block(stream)
+            block = self._parse_block(stream, version)
             if block is None:
                 break
             blocks.append(block)
 
         return blocks
 
-    def _parse_block(self, stream: BinaryIO) -> RootBlock | None:
+    def _parse_block(self, stream: BinaryIO, version: int = 1) -> RootBlock | None:
         """Parse a single root block."""
         # Read block header
         num_records_bytes = stream.read(4)
@@ -187,13 +196,25 @@ class RootParser(FormatParser[RootFile]):
         if num_records == 0 or num_records > 1000000:  # Sanity check
             return None
 
-        content_flags_bytes = stream.read(4)
-        locale_flags_bytes = stream.read(4)
+        # V4 uses 5-byte (40-bit) content flags, V1-V3 use 4-byte
+        if version >= 4:
+            content_flags_bytes = stream.read(5)
+            locale_flags_bytes = stream.read(4)
 
-        if len(content_flags_bytes) != 4 or len(locale_flags_bytes) != 4:
-            return None
+            if len(content_flags_bytes) != 5 or len(locale_flags_bytes) != 4:
+                return None
 
-        content_flags = struct.unpack('<I', content_flags_bytes)[0]
+            # Read 5-byte little-endian content flags
+            content_flags = int.from_bytes(content_flags_bytes, byteorder='little')
+        else:
+            content_flags_bytes = stream.read(4)
+            locale_flags_bytes = stream.read(4)
+
+            if len(content_flags_bytes) != 4 or len(locale_flags_bytes) != 4:
+                return None
+
+            content_flags = struct.unpack('<I', content_flags_bytes)[0]
+
         locale_flags = struct.unpack('<I', locale_flags_bytes)[0]
 
         # Read FileDataID deltas
@@ -324,10 +345,10 @@ class RootParser(FormatParser[RootFile]):
                 result.write(struct.pack('<I', header.total_files or 0))
                 result.write(struct.pack('<I', header.named_files or 0))
 
-            elif header.version == 3:
-                # Version 3 header
+            elif header.version in (3, 4):
+                # Version 3/4 header
                 result.write(struct.pack('<I', header.header_size or 24))
-                result.write(struct.pack('<I', header.version_field or 3))
+                result.write(struct.pack('<I', header.version_field or header.version))
                 result.write(struct.pack('<I', header.total_files or 0))
                 result.write(struct.pack('<I', header.named_files or 0))
                 result.write(struct.pack('<I', header.padding or 0))
@@ -336,7 +357,11 @@ class RootParser(FormatParser[RootFile]):
         for block in obj.blocks:
             # Write block header
             result.write(struct.pack('<I', block.num_records))
-            result.write(struct.pack('<I', block.content_flags))
+            # V4 uses 5-byte (40-bit) content flags, V1-V3 use 4-byte
+            if header.version >= 4:
+                result.write(block.content_flags.to_bytes(5, byteorder='little'))
+            else:
+                result.write(struct.pack('<I', block.content_flags))
             result.write(struct.pack('<I', block.locale_flags))
 
             # Write FileDataID deltas
@@ -381,15 +406,23 @@ class RootBuilder:
         """Create an empty root file.
 
         Args:
-            version: Root format version
+            version: Root format version (1-4)
 
         Returns:
             Empty root file object
         """
         if version == 1:
             header = RootHeader(magic=None, version=1, total_files=0, named_files=0)
+        elif version == 2:
+            header = RootHeader(magic=b'TSFM', version=2, total_files=0, named_files=0)
+        elif version in (3, 4):
+            header = RootHeader(
+                magic=b'TSFM', version=version,
+                header_size=24, version_field=version,
+                total_files=0, named_files=0, padding=0
+            )
         else:
-            header = RootHeader(magic=b'TSFM', version=version, total_files=0, named_files=0)
+            raise ValueError(f"Unsupported root version: {version}")
 
         return RootFile(header=header, blocks=[])
 
@@ -399,12 +432,11 @@ class RootBuilder:
 
         Args:
             records: List of root records
-            version: Root format version
+            version: Root format version (1-4)
 
         Returns:
             Root file object
         """
-        # Group records into blocks (simplified)
         block = RootBlock(
             num_records=len(records),
             content_flags=0,
@@ -412,20 +444,27 @@ class RootBuilder:
             records=records
         )
 
+        total_files = len(records)
+        named_files = len([r for r in records if r.name_hash != 0])
+
         if version == 1:
             header = RootHeader(
-                magic=None,
-                version=1,
-                total_files=len(records),
-                named_files=len([r for r in records if r.name_hash != 0])
+                magic=None, version=1,
+                total_files=total_files, named_files=named_files
+            )
+        elif version == 2:
+            header = RootHeader(
+                magic=b'TSFM', version=2,
+                total_files=total_files, named_files=named_files
+            )
+        elif version in (3, 4):
+            header = RootHeader(
+                magic=b'TSFM', version=version,
+                header_size=24, version_field=version,
+                total_files=total_files, named_files=named_files, padding=0
             )
         else:
-            header = RootHeader(
-                magic=b'TSFM',
-                version=version,
-                total_files=len(records),
-                named_files=len([r for r in records if r.name_hash != 0])
-            )
+            raise ValueError(f"Unsupported root version: {version}")
 
         return RootFile(header=header, blocks=[block])
 
@@ -454,8 +493,12 @@ def format_content_flags(flags: int) -> str:
         flag_names.append("NoCompression")
 
     if not flag_names:
+        if flags > 0xFFFFFFFF:
+            return f"None (0x{flags:010x})"
         return "None (0x00000000)"
 
+    if flags > 0xFFFFFFFF:
+        return f"{', '.join(flag_names)} (0x{flags:010x})"
     return f"{', '.join(flag_names)} (0x{flags:08x})"
 
 

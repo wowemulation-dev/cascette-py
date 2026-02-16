@@ -158,6 +158,10 @@ class TVFSParser(FormatParser[TVFSFile]):
         if magic != b"TVFS":
             raise ValueError(f"Invalid magic: {magic!r}, expected b'TVFS'")
 
+        # Validate version (only version 1 is known)
+        if version != 1:
+            raise ValueError(f"Unsupported TVFS version: {version}")
+
         # Log parsed header
         logger.debug(
             "Parsed TVFS header",

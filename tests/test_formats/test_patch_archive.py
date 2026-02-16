@@ -533,6 +533,70 @@ class TestUtilityFunctions:
         assert patch_archive.header.patch_key_size == 20
 
 
+class TestPatchArchiveFlags:
+    """Test patch archive flag methods and validation."""
+
+    def test_is_plain_data(self):
+        """Test is_plain_data flag method."""
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC, version=2, file_key_size=16, old_key_size=16,
+            patch_key_size=16, block_size_bits=16, block_count=0, flags=0x01
+        )
+        assert header.is_plain_data() is True
+        assert header.has_extended_header() is False
+
+    def test_has_extended_header(self):
+        """Test has_extended_header flag method."""
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC, version=2, file_key_size=16, old_key_size=16,
+            patch_key_size=16, block_size_bits=16, block_count=0, flags=0x02
+        )
+        assert header.is_plain_data() is False
+        assert header.has_extended_header() is True
+
+    def test_both_flags(self):
+        """Test both flags set."""
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC, version=2, file_key_size=16, old_key_size=16,
+            patch_key_size=16, block_size_bits=16, block_count=0, flags=0x03
+        )
+        assert header.is_plain_data() is True
+        assert header.has_extended_header() is True
+
+    def test_extended_header_rejected_during_parse(self):
+        """Test that extended header flag is rejected during parsing."""
+        header_data = bytearray()
+        header_data.extend(PA_MAGIC)
+        header_data.append(2)   # version
+        header_data.append(16)  # file_key_size
+        header_data.append(16)  # old_key_size
+        header_data.append(16)  # patch_key_size
+        header_data.append(16)  # block_size_bits
+        header_data.extend(struct.pack('>H', 0))  # block_count
+        header_data.append(0x02)  # flags with extended header bit
+
+        parser = PatchArchiveParser()
+        with pytest.raises(ValueError, match="extended header"):
+            parser.parse(bytes(header_data))
+
+    def test_plain_data_flag_accepted(self):
+        """Test that plain data flag (bit 0) is accepted."""
+        header_data = bytearray()
+        header_data.extend(PA_MAGIC)
+        header_data.append(2)
+        header_data.append(16)
+        header_data.append(16)
+        header_data.append(16)
+        header_data.append(16)
+        header_data.extend(struct.pack('>H', 0))
+        header_data.append(0x01)  # plain data flag only
+
+        parser = PatchArchiveParser()
+        pa = parser.parse(bytes(header_data))
+        assert pa.header.flags == 0x01
+        assert pa.header.is_plain_data() is True
+
+
 class TestEdgeCases:
     """Test edge cases and error conditions."""
 

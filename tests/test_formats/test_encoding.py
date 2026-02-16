@@ -17,6 +17,52 @@ from cascette_tools.formats.encoding import (
 )
 
 
+def _make_espec_data(strings: list[str]) -> bytes:
+    """Build null-terminated ESpec table data."""
+    return b'\x00'.join(s.encode('ascii') for s in strings) + b'\x00'
+
+
+def _build_valid_encoding_header(
+    ckey_page_count: int = 1,
+    ekey_page_count: int = 1,
+    espec_strings: list[str] | None = None,
+    ckey_page_size_kb: int = 1,
+    ekey_page_size_kb: int = 1,
+) -> BytesIO:
+    """Build a valid encoding header with required ESpec data.
+
+    Returns a BytesIO positioned at the end of the header + espec + indices + pages.
+    """
+    if espec_strings is None:
+        espec_strings = ["z"]
+
+    espec_data = _make_espec_data(espec_strings)
+
+    buf = BytesIO()
+    buf.write(b'EN')
+    buf.write(struct.pack('B', 1))  # version
+    buf.write(struct.pack('B', 16))  # ckey_size
+    buf.write(struct.pack('B', 16))  # ekey_size
+    buf.write(struct.pack('>H', ckey_page_size_kb))
+    buf.write(struct.pack('>H', ekey_page_size_kb))
+    buf.write(struct.pack('>I', ckey_page_count))
+    buf.write(struct.pack('>I', ekey_page_count))
+    buf.write(struct.pack('B', 0))  # unknown
+    buf.write(struct.pack('>I', len(espec_data)))
+
+    # ESpec table
+    buf.write(espec_data)
+
+    # CKey index
+    buf.write(b'\x00' * (ckey_page_count * 32))
+    # CKey pages
+    buf.write(b'\x00' * (ckey_page_count * ckey_page_size_kb * 1024))
+    # EKey index
+    buf.write(b'\x00' * (ekey_page_count * 32))
+
+    return buf
+
+
 class TestEncodingParser:
     """Test encoding format parser."""
 
@@ -32,7 +78,9 @@ class TestEncodingParser:
 
     def test_parse_header_basic(self):
         """Test parsing basic encoding header."""
-        # Create test header
+        espec_strings = ["z", "zn"]
+        espec_data = _make_espec_data(espec_strings)
+
         header_data = BytesIO()
         header_data.write(b'EN')  # magic
         header_data.write(struct.pack('B', 1))  # version
@@ -43,17 +91,16 @@ class TestEncodingParser:
         header_data.write(struct.pack('>I', 2))  # ckey_page_count
         header_data.write(struct.pack('>I', 3))  # ekey_page_count
         header_data.write(struct.pack('B', 0))  # unknown
-        header_data.write(struct.pack('>I', 100))  # espec_size
+        header_data.write(struct.pack('>I', len(espec_data)))  # espec_size
 
-        # Add minimal data to satisfy parsing
-        header_data.write(b'\x00' * 100)  # espec_data
-        header_data.write(b'\x00' * (2 * (16 + 16)))  # ckey_index (2 entries)
-
-        # Add CKey pages data (4KB per page * 2 pages)
-        ckey_pages_size = 4 * 1024 * 2
-        header_data.write(b'\x00' * ckey_pages_size)
-
-        header_data.write(b'\x00' * (3 * (16 + 16)))  # ekey_index (3 entries)
+        # ESpec table
+        header_data.write(espec_data)
+        # CKey index (2 entries)
+        header_data.write(b'\x00' * (2 * 32))
+        # CKey pages data (4KB per page * 2 pages)
+        header_data.write(b'\x00' * (4 * 1024 * 2))
+        # EKey index (3 entries)
+        header_data.write(b'\x00' * (3 * 32))
 
         parser = EncodingParser()
         encoding_file = parser.parse(header_data.getvalue())
@@ -69,102 +116,119 @@ class TestEncodingParser:
         assert header.ckey_page_count == 2
         assert header.ekey_page_count == 3
         assert header.unknown == 0
-        assert header.espec_size == 100
 
     def test_parse_espec_table(self):
         """Test parsing ESpec table."""
-        # Create test data with ESpec strings
         espec_strings = ["z", "zn", "ze"]
-        espec_data = b'\x00'.join(s.encode('ascii') for s in espec_strings) + b'\x00'
-
-        # Create complete encoding data
-        encoding_data = BytesIO()
-        # Header
-        encoding_data.write(b'EN')
-        encoding_data.write(struct.pack('B', 1))  # version
-        encoding_data.write(struct.pack('B', 16))  # ckey_size
-        encoding_data.write(struct.pack('B', 16))  # ekey_size
-        encoding_data.write(struct.pack('>H', 1))  # ckey_page_size_kb
-        encoding_data.write(struct.pack('>H', 1))  # ekey_page_size_kb
-        encoding_data.write(struct.pack('>I', 0))  # ckey_page_count
-        encoding_data.write(struct.pack('>I', 0))  # ekey_page_count
-        encoding_data.write(struct.pack('B', 0))  # unknown
-        encoding_data.write(struct.pack('>I', len(espec_data)))  # espec_size
-
-        # ESpec table
-        encoding_data.write(espec_data)
+        buf = _build_valid_encoding_header(espec_strings=espec_strings)
 
         parser = EncodingParser()
-        encoding_file = parser.parse(encoding_data.getvalue())
+        encoding_file = parser.parse(buf.getvalue())
 
-        # Verify ESpec table
         assert len(encoding_file.espec_table) == len(espec_strings)
         for i, expected in enumerate(espec_strings):
             assert encoding_file.espec_table[i] == expected
 
-    def test_parse_empty_espec_table(self):
-        """Test parsing with empty ESpec table."""
-        # Create encoding data with no ESpec table
+    def test_parse_empty_espec_rejects(self):
+        """Test that espec_size=0 is rejected by header validation."""
         encoding_data = BytesIO()
-        # Header
         encoding_data.write(b'EN')
         encoding_data.write(struct.pack('B', 1))
         encoding_data.write(struct.pack('B', 16))
         encoding_data.write(struct.pack('B', 16))
         encoding_data.write(struct.pack('>H', 1))
         encoding_data.write(struct.pack('>H', 1))
-        encoding_data.write(struct.pack('>I', 0))
-        encoding_data.write(struct.pack('>I', 0))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
         encoding_data.write(struct.pack('B', 0))
         encoding_data.write(struct.pack('>I', 0))  # espec_size = 0
 
         parser = EncodingParser()
-        encoding_file = parser.parse(encoding_data.getvalue())
+        with pytest.raises(ValueError, match="Invalid espec_size"):
+            parser.parse(encoding_data.getvalue())
 
-        assert len(encoding_file.espec_table) == 0
+    def test_parse_espec_consecutive_nulls_rejects(self):
+        """Test that consecutive null bytes in ESpec table are rejected."""
+        # Two null bytes in a row means an empty string
+        espec_data = b'z\x00\x00n\x00'  # "z", empty, "n"
+
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', len(espec_data)))
+        encoding_data.write(espec_data)
+
+        parser = EncodingParser()
+        with pytest.raises(ValueError, match="Empty ESpec string"):
+            parser.parse(encoding_data.getvalue())
+
+    def test_parse_espec_unterminated_rejects(self):
+        """Test that unterminated ESpec data is rejected."""
+        espec_data = b'z'  # No null terminator
+
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', len(espec_data)))
+        encoding_data.write(espec_data)
+
+        parser = EncodingParser()
+        with pytest.raises(ValueError, match="Unterminated ESpec block"):
+            parser.parse(encoding_data.getvalue())
 
     def test_parse_indices(self):
         """Test parsing CKey and EKey indices."""
         ckey_page_count = 2
         ekey_page_count = 1
-        key_size = 16
+        espec_strings = ["z"]
+        espec_data = _make_espec_data(espec_strings)
 
         # Create test indices (each entry is first_key + checksum = 32 bytes)
         ckey_index_data = b'\x01' * 16 + b'\x02' * 16 + b'\x03' * 16 + b'\x04' * 16  # 2 entries = 64 bytes
         ekey_index_data = b'\x05' * 16 + b'\x06' * 16  # 1 entry = 32 bytes
 
-        # Create encoding data
         encoding_data = BytesIO()
-        # Header
         encoding_data.write(b'EN')
         encoding_data.write(struct.pack('B', 1))
-        encoding_data.write(struct.pack('B', key_size))
-        encoding_data.write(struct.pack('B', key_size))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
         encoding_data.write(struct.pack('>H', 1))
         encoding_data.write(struct.pack('>H', 1))
         encoding_data.write(struct.pack('>I', ckey_page_count))
         encoding_data.write(struct.pack('>I', ekey_page_count))
         encoding_data.write(struct.pack('B', 0))
-        encoding_data.write(struct.pack('>I', 0))  # espec_size = 0
+        encoding_data.write(struct.pack('>I', len(espec_data)))
 
-        # Indices and pages layout: CKey index -> CKey pages -> EKey index -> EKey pages
+        # ESpec table
+        encoding_data.write(espec_data)
+
+        # CKey index
         encoding_data.write(ckey_index_data)
-
-        # Add CKey pages data (page_size_kb * 1024 * page_count)
-        ckey_pages_size = 1 * 1024 * ckey_page_count  # 1KB per page * 2 pages
-        encoding_data.write(b'\x00' * ckey_pages_size)
-
-        # Now write EKey index
+        # CKey pages (1KB per page * 2 pages)
+        encoding_data.write(b'\x00' * (1 * 1024 * ckey_page_count))
+        # EKey index
         encoding_data.write(ekey_index_data)
 
         parser = EncodingParser()
         encoding_file = parser.parse(encoding_data.getvalue())
 
-        # Verify indices
         assert len(encoding_file.ckey_index) == ckey_page_count
         assert len(encoding_file.ekey_index) == ekey_page_count
 
-        # Check specific entries (now tuples of (first_key, checksum))
         assert encoding_file.ckey_index[0] == (b'\x01' * 16, b'\x02' * 16)
         assert encoding_file.ckey_index[1] == (b'\x03' * 16, b'\x04' * 16)
         assert encoding_file.ekey_index[0] == (b'\x05' * 16, b'\x06' * 16)
@@ -334,8 +398,8 @@ class TestEncodingParser:
         encoding_data.write(struct.pack('B', 16))
         encoding_data.write(struct.pack('>H', 1))
         encoding_data.write(struct.pack('>H', 1))
-        encoding_data.write(struct.pack('>I', 0))
-        encoding_data.write(struct.pack('>I', 0))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
         encoding_data.write(struct.pack('B', 0))
         encoding_data.write(struct.pack('>I', 1000))  # Large ESpec size
 
@@ -378,86 +442,77 @@ class TestEncodingParser:
         with pytest.raises(ValueError, match="Page index 5 >= page count 1"):
             parser.load_ekey_page(b'', encoding_file, 5)
 
-    def test_round_trip_header(self):
-        """Test round-trip parsing and building for header."""
-        # Create encoding file structure
-        header = EncodingHeader(
-            magic=b'EN',
-            version=1,
-            ckey_size=16,
-            ekey_size=16,
-            ckey_page_size_kb=4,
-            ekey_page_size_kb=4,
-            ckey_page_count=0,  # Set to 0 to avoid page data requirements
-            ekey_page_count=0,  # Set to 0 to avoid page data requirements
-            unknown=42,
-            espec_size=0
-        )
+    def test_build_produces_valid_header(self):
+        """Test that build() writes a correct header and ESpec table.
 
-        # Create empty indices to match header counts
-        ckey_index = []
-        ekey_index = []
+        Note: build() is a simplified implementation that writes header,
+        ESpec, and indices but not page data. Full round-trip requires
+        page data which build() does not produce.
+        """
+        buf = _build_valid_encoding_header(espec_strings=["z"])
 
-        encoding_file = EncodingFile(
-            header=header,
-            espec_table=[],
-            ckey_index=ckey_index,
-            ekey_index=ekey_index
-        )
-
-        # Build and parse back
         parser = EncodingParser()
+        encoding_file = parser.parse(buf.getvalue())
+
         binary_data = parser.build(encoding_file)
-        parsed_file = parser.parse(binary_data)
 
-        # Verify round trip
-        assert parsed_file.header.magic == header.magic
-        assert parsed_file.header.version == header.version
-        assert parsed_file.header.ckey_size == header.ckey_size
-        assert parsed_file.header.ekey_size == header.ekey_size
-        assert parsed_file.header.ckey_page_size_kb == header.ckey_page_size_kb
-        assert parsed_file.header.ekey_page_size_kb == header.ekey_page_size_kb
-        assert parsed_file.header.ckey_page_count == header.ckey_page_count  # 0
-        assert parsed_file.header.ekey_page_count == header.ekey_page_count  # 0
-        assert parsed_file.header.unknown == header.unknown
+        # Verify header bytes are correct
+        assert binary_data[:2] == b'EN'
+        assert binary_data[2] == 1  # version
 
-    def test_round_trip_with_espec(self):
-        """Test round-trip with ESpec table."""
-        # Create encoding file with ESpec table
+    def test_build_espec_output(self):
+        """Test that build() writes ESpec table correctly."""
         espec_strings = ["z", "zn", "ze"]
-        header = EncodingHeader(
-            magic=b'EN',
-            version=1,
-            ckey_size=16,
-            ekey_size=16,
-            ckey_page_size_kb=1,
-            ekey_page_size_kb=1,
-            ckey_page_count=0,
-            ekey_page_count=0,
-            unknown=0,
-            espec_size=8  # Will be recalculated
-        )
+        buf = _build_valid_encoding_header(espec_strings=espec_strings)
 
-        encoding_file = EncodingFile(
-            header=header,
-            espec_table=espec_strings,
-            ckey_index=[],
-            ekey_index=[]
-        )
-
-        # Build and parse back
         parser = EncodingParser()
-        binary_data = parser.build(encoding_file)
-        parsed_file = parser.parse(binary_data)
+        encoding_file = parser.parse(buf.getvalue())
 
-        # Verify ESpec table
-        assert len(parsed_file.espec_table) == len(espec_strings)
-        for i, expected in enumerate(espec_strings):
-            assert parsed_file.espec_table[i] == expected
+        binary_data = parser.build(encoding_file)
+
+        # Extract ESpec table from built data (starts at offset 22)
+        espec_size = encoding_file.header.espec_size
+        espec_data = binary_data[22:22 + espec_size]
+
+        # Split and verify
+        parts = espec_data.split(b'\x00')
+        # Last element is empty due to trailing null
+        decoded = [p.decode('ascii') for p in parts if p]
+        assert decoded == espec_strings
 
     def test_file_parsing(self, tmp_path):
         """Test parsing from file."""
-        # Create test encoding file
+        buf = _build_valid_encoding_header()
+
+        test_file = tmp_path / "test.encoding"
+        test_file.write_bytes(buf.getvalue())
+
+        parser = EncodingParser()
+        encoding_file = parser.parse_file(str(test_file))
+
+        assert encoding_file.header.magic == b'EN'
+        assert encoding_file.header.version == 1
+
+    def test_header_validation_bad_version(self):
+        """Test that non-1 version is rejected."""
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 2))  # version 2
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', 2))
+
+        parser = EncodingParser()
+        with pytest.raises(ValueError, match="Unsupported encoding version"):
+            parser.parse(encoding_data.getvalue())
+
+    def test_header_validation_bad_unknown(self):
+        """Test that non-zero unk_11 is rejected."""
         encoding_data = BytesIO()
         encoding_data.write(b'EN')
         encoding_data.write(struct.pack('B', 1))
@@ -465,20 +520,159 @@ class TestEncodingParser:
         encoding_data.write(struct.pack('B', 16))
         encoding_data.write(struct.pack('>H', 1))
         encoding_data.write(struct.pack('>H', 1))
-        encoding_data.write(struct.pack('>I', 0))
-        encoding_data.write(struct.pack('>I', 0))
-        encoding_data.write(struct.pack('B', 0))
-        encoding_data.write(struct.pack('>I', 0))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 42))  # non-zero unknown
+        encoding_data.write(struct.pack('>I', 2))
 
-        test_file = tmp_path / "test.encoding"
-        test_file.write_bytes(encoding_data.getvalue())
-
-        # Parse from file
         parser = EncodingParser()
-        encoding_file = parser.parse_file(str(test_file))
+        with pytest.raises(ValueError, match="Invalid encoding flags"):
+            parser.parse(encoding_data.getvalue())
 
-        assert encoding_file.header.magic == b'EN'
-        assert encoding_file.header.version == 1
+    def test_header_validation_bad_key_size(self):
+        """Test that invalid key sizes are rejected."""
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 0))  # ckey_size = 0
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', 2))
+
+        parser = EncodingParser()
+        with pytest.raises(ValueError, match="Invalid ckey_size"):
+            parser.parse(encoding_data.getvalue())
+
+    def test_header_validation_zero_page_count(self):
+        """Test that zero page counts are rejected."""
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 0))  # ckey_page_count = 0
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', 2))
+
+        parser = EncodingParser()
+        with pytest.raises(ValueError, match="Invalid ckey_page_count"):
+            parser.parse(encoding_data.getvalue())
+
+
+class TestEKeyPaddingDetection:
+    """Test EKey page padding detection with Agent.exe sentinel."""
+
+    def test_ekey_sentinel_0xFFFFFFFF(self):
+        """Test that espec_index == 0xFFFFFFFF is detected as padding."""
+        header = EncodingHeader(
+            magic=b'EN', version=1, ckey_size=16, ekey_size=16,
+            ckey_page_size_kb=1, ekey_page_size_kb=1,
+            ckey_page_count=1, ekey_page_count=1,
+            unknown=0, espec_size=2
+        )
+
+        encoding_file = EncodingFile(
+            header=header, espec_table=["z"],
+            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            ekey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            pages_start_offset=22 + 2 + 32
+        )
+
+        # Build page: one valid entry, then sentinel padding
+        page_data = BytesIO()
+        # Valid entry
+        page_data.write(b'\x03' * 16)  # encoding_key (non-zero)
+        page_data.write(struct.pack('>I', 1))  # espec_index = 1
+        page_data.write(struct.pack('B', 0))  # file_size_high
+        page_data.write(struct.pack('>I', 100))  # file_size_low
+        page_data.write(b'\x04' * 16)  # content_key
+        # Sentinel entry: non-zero key but espec_index == 0xFFFFFFFF
+        page_data.write(b'\x05' * 16)  # encoding_key (non-zero!)
+        page_data.write(struct.pack('>I', 0xFFFFFFFF))  # sentinel
+        page_data.write(b'\x00' * (1024 - page_data.tell()))
+
+        # Build complete encoding data
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', 2))
+        encoding_data.write(b'z\x00')  # espec
+        encoding_data.write(b'\x00' * 32)  # ckey index
+        encoding_data.write(b'\x00' * 1024)  # ckey pages
+        encoding_data.write(b'\x00' * 32)  # ekey index
+        encoding_data.write(page_data.getvalue())
+
+        parser = EncodingParser()
+        page = parser.load_ekey_page(encoding_data.getvalue(), encoding_file, 0)
+
+        # Should have exactly 1 entry (sentinel stopped parsing)
+        assert len(page.entries) == 1
+        assert page.entries[0].encoding_key == b'\x03' * 16
+        assert page.entries[0].espec_index == 1
+
+    def test_ekey_zero_fill_padding(self):
+        """Test that all-zero key + espec_index==0 is detected as padding."""
+        header = EncodingHeader(
+            magic=b'EN', version=1, ckey_size=16, ekey_size=16,
+            ckey_page_size_kb=1, ekey_page_size_kb=1,
+            ckey_page_count=1, ekey_page_count=1,
+            unknown=0, espec_size=2
+        )
+
+        encoding_file = EncodingFile(
+            header=header, espec_table=["z"],
+            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            ekey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            pages_start_offset=22 + 2 + 32
+        )
+
+        # Build page: one valid entry, then zero-fill padding
+        page_data = BytesIO()
+        page_data.write(b'\x03' * 16)  # encoding_key
+        page_data.write(struct.pack('>I', 1))  # espec_index
+        page_data.write(struct.pack('B', 0))
+        page_data.write(struct.pack('>I', 100))
+        page_data.write(b'\x04' * 16)  # content_key
+        # Zero-fill: all-zero key + espec_index == 0
+        page_data.write(b'\x00' * 16)
+        page_data.write(struct.pack('>I', 0))
+        page_data.write(b'\x00' * (1024 - page_data.tell()))
+
+        encoding_data = BytesIO()
+        encoding_data.write(b'EN')
+        encoding_data.write(struct.pack('B', 1))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('B', 16))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>H', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('>I', 1))
+        encoding_data.write(struct.pack('B', 0))
+        encoding_data.write(struct.pack('>I', 2))
+        encoding_data.write(b'z\x00')
+        encoding_data.write(b'\x00' * 32)
+        encoding_data.write(b'\x00' * 1024)
+        encoding_data.write(b'\x00' * 32)
+        encoding_data.write(page_data.getvalue())
+
+        parser = EncodingParser()
+        page = parser.load_ekey_page(encoding_data.getvalue(), encoding_file, 0)
+
+        assert len(page.entries) == 1
 
 
 class TestEncodingModels:

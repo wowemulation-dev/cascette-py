@@ -146,7 +146,7 @@ class EncodingParser(FormatParser[EncodingFile]):
         unknown = header_data[17]
         espec_size = struct.unpack('>I', header_data[18:22])[0]
 
-        return EncodingHeader(
+        header = EncodingHeader(
             magic=magic,
             version=version,
             ckey_size=ckey_size,
@@ -159,18 +159,46 @@ class EncodingParser(FormatParser[EncodingFile]):
             espec_size=espec_size
         )
 
+        # Validate header fields matching Agent.exe constraints
+        if version != 1:
+            raise ValueError(f"Unsupported encoding version: {version}")
+        if unknown != 0:
+            raise ValueError(f"Invalid encoding flags (unk_11): {unknown}")
+        if ckey_size == 0 or ckey_size > 16:
+            raise ValueError(f"Invalid ckey_size: {ckey_size}")
+        if ekey_size == 0 or ekey_size > 16:
+            raise ValueError(f"Invalid ekey_size: {ekey_size}")
+        if ckey_page_count == 0:
+            raise ValueError(f"Invalid ckey_page_count: {ckey_page_count}")
+        if ekey_page_count == 0:
+            raise ValueError(f"Invalid ekey_page_count: {ekey_page_count}")
+        if espec_size == 0:
+            raise ValueError(f"Invalid espec_size: {espec_size}")
+
+        return header
+
     def _parse_espec_table(self, stream: BinaryIO, header: EncodingHeader) -> list[str]:
         """Parse ESpec string table."""
-        if header.espec_size == 0:
-            return []
-
         espec_data = stream.read(header.espec_size)
         if len(espec_data) != header.espec_size:
             raise ValueError(f"Incomplete ESpec table: expected {header.espec_size}, got {len(espec_data)}")
 
-        # Split on null bytes to get individual ESpec strings
-        especs = espec_data.split(b'\x00')
-        return [spec.decode('ascii', errors='replace') for spec in especs if spec]
+        # Parse null-terminated strings, rejecting empty strings and unterminated data
+        entries: list[str] = []
+        current = bytearray()
+        for byte in espec_data:
+            if byte == 0:
+                if not current:
+                    raise ValueError("Empty ESpec string (consecutive nulls)")
+                entries.append(current.decode('ascii', errors='replace'))
+                current = bytearray()
+            else:
+                current.append(byte)
+
+        if current:
+            raise ValueError("Unterminated ESpec block (no trailing null)")
+
+        return entries
 
     def _parse_ckey_index(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
         """Parse CKey page index."""
@@ -589,15 +617,19 @@ class EncodingParser(FormatParser[EncodingFile]):
             encoding_key = page_data[offset:offset + header.ekey_size]
             offset += header.ekey_size
 
-            # Check for padding - all zero bytes indicate padding
-            if encoding_key == b'\x00' * header.ekey_size:
-                break
-
             # Read ESpec index (4 bytes, big-endian matching Rust)
             if offset + 4 > len(page_data):
                 break
             espec_index = struct.unpack('>I', page_data[offset:offset + 4])[0]
             offset += 4
+
+            # Check for end-of-page padding:
+            # 1. Agent.exe sentinel: espec_index == 0xFFFFFFFF
+            # 2. Zero-fill padding: all-zero key AND espec_index == 0
+            if espec_index == 0xFFFFFFFF or (
+                espec_index == 0 and encoding_key == b'\x00' * header.ekey_size
+            ):
+                break
 
             # Read file size (40-bit: 1 byte high + 4 bytes low, big-endian)
             if offset + 5 > len(page_data):
@@ -792,29 +824,32 @@ class EncodingBuilder:
 
     @classmethod
     def create_empty(cls) -> EncodingFile:
-        """Create an empty encoding file.
+        """Create a minimal valid encoding file.
 
         Returns:
-            Empty encoding file object
+            Encoding file object with one empty page per index
         """
+        espec_table = ["n"]  # Minimal valid ESpec (uncompressed)
+        espec_size = 2  # "n\x00"
+
         header = EncodingHeader(
             magic=b'EN',
             version=1,
-            ckey_size=16,  # Standard MD5 size
-            ekey_size=16,  # Standard MD5 size
+            ckey_size=16,
+            ekey_size=16,
             ckey_page_size_kb=4,
             ekey_page_size_kb=4,
-            ckey_page_count=0,
-            ekey_page_count=0,
+            ckey_page_count=1,
+            ekey_page_count=1,
             unknown=0,
-            espec_size=0
+            espec_size=espec_size
         )
 
         return EncodingFile(
             header=header,
-            espec_table=[],
-            ckey_index=[],
-            ekey_index=[]
+            espec_table=espec_table,
+            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            ekey_index=[(b'\x00' * 16, b'\x00' * 16)]
         )
 
     @classmethod
@@ -834,18 +869,19 @@ class EncodingBuilder:
         Returns:
             Encoding file object
         """
-        espec_table = espec_table or []
-        espec_size = len(b'\x00'.join(spec.encode('ascii') for spec in espec_table) + b'\x00') if espec_table else 0
+        if not espec_table:
+            espec_table = ["n"]  # Minimal valid ESpec
+        espec_size = len(b'\x00'.join(spec.encode('ascii') for spec in espec_table) + b'\x00')
 
         header = EncodingHeader(
             magic=b'EN',
             version=1,
-            ckey_size=16,  # Standard MD5 size
-            ekey_size=16,  # Standard MD5 size
+            ckey_size=16,
+            ekey_size=16,
             ckey_page_size_kb=4,
             ekey_page_size_kb=4,
-            ckey_page_count=1 if ckey_entries else 0,
-            ekey_page_count=1 if ekey_entries else 0,
+            ckey_page_count=max(1, 1 if ckey_entries else 1),
+            ekey_page_count=max(1, 1 if ekey_entries else 1),
             unknown=0,
             espec_size=espec_size
         )
@@ -853,8 +889,8 @@ class EncodingBuilder:
         return EncodingFile(
             header=header,
             espec_table=espec_table,
-            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],  # Simplified index (first_key, checksum)
-            ekey_index=[(b'\x00' * 16, b'\x00' * 16)]   # Simplified index (first_key, checksum)
+            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
+            ekey_index=[(b'\x00' * 16, b'\x00' * 16)]
         )
 
 

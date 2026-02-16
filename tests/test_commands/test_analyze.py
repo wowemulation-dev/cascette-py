@@ -299,7 +299,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.formats.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_size = 16
@@ -349,7 +349,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.formats.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_size = 16
@@ -407,7 +407,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.formats.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_page_count = 5
@@ -491,7 +491,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = config, console, verbose, debug
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.formats.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_page_count = 5
