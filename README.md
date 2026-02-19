@@ -26,7 +26,7 @@ and parsing game data files.
 - **Async Support**: Efficient concurrent operations for network requests
 - **Caching**: Multi-layer caching for improved performance
 - **CLI Interface**: Rich command-line interface with comprehensive subcommands
-- **Test Coverage**: 926 tests across 31 test files (80% minimum coverage enforced)
+- **Test Coverage**: 1136 tests across 35 test files (80% minimum coverage enforced)
 
 ## Installation
 
@@ -167,13 +167,14 @@ cascette_tools/
 └── crypto/                  # Cryptographic utilities
     └── jenkins.py           # Bob Jenkins lookup3 hash
 
-tests/                       # Test suite (31 test files, 926 tests)
+tests/                       # Test suite (35 test files, 1136 tests)
 ├── conftest.py              # Shared fixtures for CLI mocking and CDN responses
 ├── test_cli.py              # Main CLI integration tests
-├── test_core/               # Core module tests (6 files)
-├── test_formats/            # Format parser tests (12 files)
+├── test_core/               # Core module tests (7 files)
+├── test_formats/            # Format parser tests (14 files)
 ├── test_commands/           # CLI command tests (7 files)
 ├── test_database/           # Database tests (3 files)
+├── test_crypto/             # Cryptographic utility tests (1 file)
 ├── test_wago_client.py      # Wago client tests
 └── test_listfile_manager.py # Listfile manager tests
 ```
