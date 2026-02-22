@@ -46,7 +46,12 @@ from cascette_tools.formats.build_info import (
 )
 from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
 from cascette_tools.formats.encoding import EncodingParser, is_encoding
-from cascette_tools.formats.install import InstallEntry, InstallParser
+from cascette_tools.formats.install import InstallEntry, InstallParser, InstallTag
+from cascette_tools.formats.size import (
+    apply_tag_query,
+    is_file_selected,
+    parse_tag_query,
+)
 
 logger = structlog.get_logger()
 
@@ -461,15 +466,14 @@ def discover_latest(
 
         console.print(f"[cyan]Querying versions for:[/cyan] {product}")
 
-        # Fetch versions manifest
-        versions_manifest = tact_client.fetch_versions(product_enum)
-        versions = tact_client.parse_versions(versions_manifest)
+        # Get latest build for the requested region
+        latest = tact_client.get_latest_build(product_enum)
 
-        if not versions:
-            raise click.ClickException("No versions found")
+        if not latest:
+            raise click.ClickException(
+                f"No version found for product '{product}' in region '{region}'"
+            )
 
-        # Get the first (latest) version
-        latest = versions[0]
         build_config_hash = latest.get("BuildConfig", "")
         cdn_config_hash = latest.get("CDNConfig", "")
         version = latest.get("VersionsName", "")
@@ -483,6 +487,20 @@ def discover_latest(
         table.add_row("Build Config", build_config_hash)
         table.add_row("CDN Config", cdn_config_hash)
         console.print(table)
+
+        # Validate BuildConfig hash before proceeding
+        if not build_config_hash:
+            raise click.ClickException(
+                "BuildConfig hash is empty or missing in version data. "
+                "This may indicate a temporary API issue or no builds are available."
+            )
+
+        # Validate hash format (should be 32-character hex string)
+        if len(build_config_hash) != 32 or not all(c in "0123456789abcdef" for c in build_config_hash.lower()):
+            raise click.ClickException(
+                f"Invalid BuildConfig hash format: '{build_config_hash}'. "
+                "Expected 32-character hexadecimal string."
+            )
 
         # Now invoke the resolve command with new parameters
         console.print("\n[bold]Resolving manifests...[/bold]\n")
@@ -858,15 +876,14 @@ def filter_entries_by_tags(
 ) -> list[DownloadEntry]:
     """Filter download entries by platform, architecture, and locale tags.
 
-    Battle.net's tag filtering logic:
-    - Files can have multiple tags from different categories
-    - For a file to be included, it must match at least one tag from each
-      specified category (OR within category, AND across categories)
-    - Files with no tags in a category are included (wildcard)
+    Uses bitmap-based tag filtering matching Agent.exe behavior:
+    - Build tag query from platform, arch, locale parameters
+    - Apply tag query using bitmap operations (one bit per file)
+    - Supports subtractive tags with '!' prefix
 
     Args:
         entries: List of DownloadEntry objects
-        tags: List of DownloadTag objects (for reference)
+        tags: List of DownloadTag objects (with bitmasks)
         platform: Platform filter (e.g., "Windows", "OSX")
         arch: Architecture filter (e.g., "x86_64", "arm64")
         locale: Locale filter (e.g., "enUS", "deDE")
@@ -874,41 +891,45 @@ def filter_entries_by_tags(
     Returns:
         Filtered list of entries
     """
-    # Unused but kept for API compatibility and future reference
-    _ = tags
+    # Build tag query from parameters
+    query_parts = []
+    if platform:
+        query_parts.append(platform)
+    if arch:
+        query_parts.append(arch)
+    if locale:
+        query_parts.append(locale)
 
-    # Define tag categories
-    platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
-    arch_tags = {"x86_32", "x86_64", "arm64"}
-    locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
+    query = ",".join(query_parts) if query_parts else ""
 
+    if not query:
+        # No filters, return all entries
+        return entries
+
+    # Create SizeTag objects from DownloadTag for apply_tag_query
+    from cascette_tools.formats.size import SizeTag
+
+    size_tags = [
+        SizeTag(
+            name=tag.name,
+            tag_id=tag.tag_type,
+            file_indices=[],
+            bit_mask=tag.bit_mask
+        )
+        for tag in tags
+    ]
+
+    # Apply tag query to get selection bitmap
+    bitmap = apply_tag_query(size_tags, query, len(entries))
+
+    # Filter entries based on bitmap
     filtered: list[DownloadEntry] = []
-    for entry in entries:
-        entry_tags = set(entry.tags)
+    for i, entry in enumerate(entries):
+        if is_file_selected(bitmap, i):
+            filtered.append(entry)
 
-        # Check platform filter
-        if platform:
-            entry_platform_tags = entry_tags & platform_tags
-            # If entry has platform tags, must match; if no platform tags, include
-            if entry_platform_tags and platform not in entry_platform_tags:
-                continue
-
-        # Check architecture filter
-        if arch:
-            entry_arch_tags = entry_tags & arch_tags
-            # If entry has arch tags, must match; if no arch tags, include
-            if entry_arch_tags and arch not in entry_arch_tags:
-                continue
-
-        # Check locale filter
-        if locale:
-            entry_locale_tags = entry_tags & locale_tags
-            # If entry has locale tags, must match; if no locale tags, include
-            if entry_locale_tags and locale not in entry_locale_tags:
-                continue
-
-        filtered.append(entry)
-
+    logger.debug("Filtered %d entries to %d using query '%s'",
+                 len(entries), len(filtered), query)
     return filtered
 
 
@@ -1301,37 +1322,59 @@ def install_to_casc(
                 install_manifest = install_parser.parse(install_data)
                 console.print(f"  Total install entries: {len(install_manifest.entries):,}")
 
-                # Filter install entries by tags (same logic as download)
+                # Filter install entries by tags using bitmap operations
                 def filter_install_entries(
                     install_entries: list[InstallEntry],
+                    install_tags: list[InstallTag],
                     plat: str | None,
                     ar: str | None,
                     loc: str | None
                 ) -> list[InstallEntry]:
-                    """Filter install entries by platform, arch, locale."""
-                    platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
-                    arch_tags = {"x86_32", "x86_64", "arm64"}
-                    locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
+                    """Filter install entries by platform, arch, locale.
+                    Uses bitmap-based tag filtering matching Agent.exe behavior.
+                    """
+                    # Build tag query from parameters
+                    query_parts = []
+                    if plat:
+                        query_parts.append(plat)
+                    if ar:
+                        query_parts.append(ar)
+                    if loc:
+                        query_parts.append(loc)
+                    query = ",".join(query_parts) if query_parts else ""
 
+                    if not query:
+                        # No filters, return all entries
+                        return install_entries
+
+                    # Create SizeTag objects from InstallTag for apply_tag_query
+                    from cascette_tools.formats.size import SizeTag
+
+                    size_tags = [
+                        SizeTag(
+                            name=tag.name,
+                            tag_id=tag.tag_type,
+                            file_indices=[],
+                            bit_mask=tag.bit_mask
+                        )
+                        for tag in install_tags
+                    ]
+
+                    # Apply tag query to get selection bitmap
+                    bitmap = apply_tag_query(size_tags, query, len(install_entries))
+
+                    # Filter entries based on bitmap
                     filtered: list[InstallEntry] = []
-                    for entry in install_entries:
-                        entry_tags = set(entry.tags)
-                        if plat:
-                            entry_platform_tags = entry_tags & platform_tags
-                            if entry_platform_tags and plat not in entry_platform_tags:
-                                continue
-                        if ar:
-                            entry_arch_tags = entry_tags & arch_tags
-                            if entry_arch_tags and ar not in entry_arch_tags:
-                                continue
-                        if loc:
-                            entry_locale_tags = entry_tags & locale_tags
-                            if entry_locale_tags and loc not in entry_locale_tags:
-                                continue
-                        filtered.append(entry)
+                    for i, entry in enumerate(install_entries):
+                        if is_file_selected(bitmap, i):
+                            filtered.append(entry)
                     return filtered
 
-                install_filtered = filter_install_entries(install_manifest.entries, platform, arch, locale)
+                install_filtered = filter_install_entries(
+                    install_manifest.entries,
+                    install_manifest.tags,
+                    platform, arch, locale
+                )
                 console.print(f"  After tag filtering: {len(install_filtered):,} entries")
 
                 # Extract install files to filesystem using archive fetcher

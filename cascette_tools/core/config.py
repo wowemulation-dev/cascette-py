@@ -57,7 +57,7 @@ class CDNConfig(BaseModel):
 
     1. cdn.arctium.tools - Full NGDP mirror, most complete historic data
     2. casc.wago.tools - Full NGDP mirror
-    3. archive.wow.tools - Backup mirror
+    3. archive.wow.tools - Full NGDP mirror, historic data
 
     Note: Blizzard CDN is authoritative but may not have all historic builds.
     Community mirrors preserve historic data that Blizzard may remove.

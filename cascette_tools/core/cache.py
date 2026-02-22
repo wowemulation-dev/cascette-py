@@ -117,7 +117,13 @@ class DiskCache:
 
         Returns:
             Full cache path in cdn/{path}/ subdirectory
+
+        Raises:
+            ValueError: If hash_str is empty or invalid
         """
+        if not hash_str:
+            raise ValueError("Hash string cannot be empty")
+
         hash_lower = hash_str.lower()
         subdir1 = hash_lower[:2]
         subdir2 = hash_lower[2:4]

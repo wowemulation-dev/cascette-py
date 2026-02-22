@@ -85,6 +85,15 @@ from cascette_tools.formats.install import (
     InstallTag,
     is_install,
 )
+from cascette_tools.formats.size import (
+    SizeBuilder,
+    SizeEntry,
+    SizeFile,
+    SizeHeader,
+    SizeParser,
+    SizeTag,
+    is_size,
+)
 from cascette_tools.formats.patch_archive import (
     CompressionSpec,
     PatchArchiveBuilder,
@@ -188,6 +197,14 @@ __all__ = [
     "InstallParser",
     "InstallTag",
     "is_install",
+    # Size
+    "SizeBuilder",
+    "SizeEntry",
+    "SizeFile",
+    "SizeHeader",
+    "SizeParser",
+    "SizeTag",
+    "is_size",
     # Root
     "RootBlock",
     "RootBuilder",

@@ -24,9 +24,9 @@ class InstallTag(BaseModel):
     def has_file(self, file_index: int) -> bool:
         """Check if file at given index has this tag.
 
-        Uses little-endian bit ordering within each byte:
-        - Bit 0 (LSB) corresponds to file index byte_index * 8 + 0
-        - Bit 7 (MSB) corresponds to file index byte_index * 8 + 7
+        Uses MSB bit ordering within each byte:
+        - Bit 7 (MSB) corresponds to file index byte_index * 8 + 0
+        - Bit 0 (LSB) corresponds to file index byte_index * 8 + 7
 
         Args:
             file_index: Index of file to check
@@ -40,7 +40,7 @@ class InstallTag(BaseModel):
         if byte_index >= len(self.bit_mask):
             return False
 
-        return (self.bit_mask[byte_index] & (1 << bit_offset)) != 0
+        return (self.bit_mask[byte_index] & (0x80 >> bit_offset)) != 0
 
 
 class InstallEntry(BaseModel):
@@ -216,7 +216,7 @@ class InstallParser(FormatParser[InstallFile]):
                 if tag.name in entry.tags:
                     byte_index = i // 8
                     bit_offset = i % 8
-                    mask[byte_index] |= (1 << bit_offset)
+                    mask[byte_index] |= (0x80 >> bit_offset)
             tag_masks[tag.name] = bytes(mask)
 
         # Write tags

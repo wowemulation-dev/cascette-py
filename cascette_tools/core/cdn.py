@@ -133,7 +133,16 @@ class CDNClient:
         else:
             raise ValueError(f"Unknown file type: {file_type}")
 
-        return f"{mirror}/{self.cdn_path}/{content_type}/{subdir1}/{subdir2}/{file_name}"
+        url = f"{mirror}/{self.cdn_path}/{content_type}/{subdir1}/{subdir2}/{file_name}"
+        logger.debug(
+            "cdn_url_built",
+            url=url,
+            mirror=mirror,
+            cdn_path=self.cdn_path,
+            content_type=content_type,
+            hash=hash_str
+        )
+        return url
 
     def _fetch_from_cdn(
         self, hash_str: str, file_type: str, quiet: bool = False
@@ -157,6 +166,13 @@ class CDNClient:
 
         # Build mirror list: Ribbit servers first, then community fallback mirrors
         mirrors = self.cdn_servers + self.config.fallback_mirrors
+        logger.info(
+            "cdn_mirror_list",
+            mirrors=mirrors,
+            cdn_servers=self.cdn_servers,
+            fallbacks=self.config.fallback_mirrors,
+            cdn_path=self.cdn_path
+        )
 
         if not mirrors:
             raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")
@@ -164,6 +180,12 @@ class CDNClient:
         # Try each mirror in order
         for mirror_idx, mirror in enumerate(mirrors):
             url = self._build_url(hash_str, file_type, mirror)
+            logger.info(
+                "cdn_url_built",
+                url=url,
+                cdn_path=self.cdn_path,
+                mirror=mirror
+            )
 
             for attempt in range(self.config.max_retries):
                 try:
