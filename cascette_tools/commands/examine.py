@@ -58,7 +58,8 @@ def _fetch_from_cdn_or_path(
     input_str: str,
     console: Console,
     config: AppConfig,
-    progress_text: str = "Fetching from CDN"
+    progress_text: str = "Fetching from CDN",
+    cdn_type: str = "data",
 ) -> bytes:
     """Fetch data from CDN hash or read from file path.
 
@@ -67,6 +68,8 @@ def _fetch_from_cdn_or_path(
         console: Rich console for output
         config: Application configuration
         progress_text: Text to show during CDN fetch
+        cdn_type: CDN content type - "config" for build/CDN/patch configs,
+            "data" for archives, encoding, root, install, download files
 
     Returns:
         File content as bytes
@@ -105,7 +108,10 @@ def _fetch_from_cdn_or_path(
             progress.add_task(description=progress_text, total=None)
 
             # Fetch from CDN (caching handled by CDNClient)
-            data = cdn_client.fetch_data(input_str)
+            if cdn_type == "config":
+                data = cdn_client.fetch_config(input_str)
+            else:
+                data = cdn_client.fetch_data(input_str)
 
             return data
 
@@ -382,7 +388,7 @@ def config(ctx: click.Context, input_path: str) -> None:
 
     try:
         # Fetch data
-        data = _fetch_from_cdn_or_path(input_path, console, config_obj, "Fetching config file")
+        data = _fetch_from_cdn_or_path(input_path, console, config_obj, "Fetching config file", cdn_type="config")
 
         # Detect config type and parse
         if not is_config_file(data):

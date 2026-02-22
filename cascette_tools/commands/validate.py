@@ -166,9 +166,19 @@ def _fetch_from_cdn_or_path(
     input_str: str,
     console: Console,
     config: AppConfig,
-    progress_text: str = "Fetching from CDN"
+    progress_text: str = "Fetching from CDN",
+    cdn_type: str = "data",
 ) -> bytes:
-    """Fetch data from CDN hash or read from file path."""
+    """Fetch data from CDN hash or read from file path.
+
+    Args:
+        input_str: Hash string or file path
+        console: Rich console for output
+        config: Application configuration
+        progress_text: Text to show during CDN fetch
+        cdn_type: CDN content type - "config" for build/CDN/patch configs,
+            "data" for archives, encoding, root, install, download files
+    """
     path = Path(input_str)
 
     if path.exists():
@@ -194,6 +204,8 @@ def _fetch_from_cdn_or_path(
             transient=True
         ) as progress:
             progress.add_task(description=progress_text, total=None)
+            if cdn_type == "config":
+                return cdn_client.fetch_config(input_str)
             return cdn_client.fetch_data(input_str)
 
     except Exception as e:
