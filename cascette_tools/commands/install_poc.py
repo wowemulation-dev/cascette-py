@@ -33,6 +33,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
 )
 from cascette_tools.core.config import AppConfig
 from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
+from cascette_tools.core.encoding_cache import EncodingCache
 from cascette_tools.core.install_state import InstallState
 from cascette_tools.core.integrity import IntegrityError
 from cascette_tools.core.local_storage import LocalStorage
@@ -892,6 +893,36 @@ def _show_priority_table(
     console.print(tbl)
 
 
+def _resolve_ekey(
+    ckey: bytes,
+    ecache: EncodingCache | None,
+    encoding_parser: EncodingParser | None,
+    encoding_data: bytes | None,
+    encoding_file: Any | None,
+) -> list[bytes] | None:
+    """Resolve CKey to EKey(s), preferring ecache over encoding file.
+
+    Args:
+        ckey: Content key to look up
+        ecache: Encoding cache (if loaded)
+        encoding_parser: Encoding parser (if encoding file was downloaded)
+        encoding_data: Raw encoding file data
+        encoding_file: Parsed encoding file structure
+
+    Returns:
+        List of encoding keys, or None if not found
+    """
+    if ecache is not None:
+        entry = ecache.lookup(ckey)
+        if entry is not None:
+            return [entry.encoding_key]
+
+    if encoding_parser is not None and encoding_data is not None and encoding_file is not None:
+        return encoding_parser.find_content_key(encoding_data, encoding_file, ckey)
+
+    return None
+
+
 @install_poc.command()
 @click.argument("build_config_hash", type=str)
 @click.argument("cdn_config_hash", type=str)
@@ -1139,32 +1170,65 @@ def install_to_casc(
             console.print("\n[cyan]Using existing .build.info...[/cyan]")
             build_info = existing_info
 
-        # Step 2: Fetch encoding file (CDNClient handles caching)
-        console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
-        encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
-        encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
-        console.print(f"  Size: {len(encoding_data_raw):,} bytes")
+        # Step 2: Load ecache or fetch encoding file
+        ecache_path = install_path / "Data" / "ecache"
+        ecache: EncodingCache | None = None
+        encoding_parser: EncodingParser | None = None
+        encoding_data: bytes | None = None
+        encoding_file: Any = None
 
-        # Write raw encoding file to local CASC storage
-        storage.write_content(encoding_ekey, encoding_data_raw)
-        console.print("  Written to local storage")
+        # Try loading existing ecache first
+        if ecache_path.exists():
+            ecache = EncodingCache.load(ecache_path)
 
-        # Decompress for parsing
-        encoding_data = encoding_data_raw
-        if is_blte(encoding_data):
-            encoding_data = decompress_blte(encoding_data)
+        if ecache is not None and ecache.entry_count() > 0:
+            console.print("\n[cyan]Step 2:[/cyan] Using encoding cache (ecache)...")
+            console.print(f"  Entries: {ecache.entry_count():,}")
+            console.print("  [green]Skipping encoding file download[/green]")
+        else:
+            console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
+            encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
+            encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
+            console.print(f"  Size: {len(encoding_data_raw):,} bytes")
 
-        encoding_parser = EncodingParser()
-        encoding_file = encoding_parser.parse(encoding_data)
-        console.print(f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages")
+            # Write raw encoding file to local CASC storage
+            storage.write_content(encoding_ekey, encoding_data_raw)
+            console.print("  Written to local storage")
+
+            # Decompress for parsing
+            encoding_data = encoding_data_raw
+            if is_blte(encoding_data):
+                encoding_data = decompress_blte(encoding_data)
+
+            encoding_parser = EncodingParser()
+            encoding_file = encoding_parser.parse(encoding_data)
+            console.print(f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages")
+
+            # Step 2a: Populate ecache from encoding file
+            console.print("\n[cyan]Step 2a:[/cyan] Populating encoding cache...")
+            ecache = EncodingCache(base_path=ecache_path)
+            ecache.initialize()
+
+            for page_idx in range(encoding_file.header.ckey_page_count):
+                page = encoding_parser.load_ckey_page_sequential(
+                    encoding_data, encoding_file, page_idx
+                )
+                for entry in page.entries:
+                    if entry.encoding_keys:
+                        ecache.write_entry(
+                            entry.content_key, entry.encoding_keys[0], 0
+                        )
+
+            ecache.flush()
+            console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
 
         # Step 2b: Fetch and parse size manifest (if present)
         size_file: SizeFile | None = None
         if size_info and size_info.encoding_key:
             console.print("\n[cyan]Step 2b:[/cyan] Resolving size manifest...")
             size_ckey = bytes.fromhex(size_info.content_key)
-            size_ekeys = encoding_parser.find_content_key(
-                encoding_data, encoding_file, size_ckey
+            size_ekeys = _resolve_ekey(
+                size_ckey, ecache, encoding_parser, encoding_data, encoding_file
             )
 
             if size_ekeys:
@@ -1222,10 +1286,12 @@ def install_to_casc(
 
         console.print("\n[cyan]Step 3:[/cyan] Resolving download manifest...")
         download_ckey = bytes.fromhex(download_info.content_key)
-        download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
+        download_ekeys = _resolve_ekey(
+            download_ckey, ecache, encoding_parser, encoding_data, encoding_file
+        )
 
         if not download_ekeys:
-            raise click.ClickException("Download manifest not found in encoding file")
+            raise click.ClickException("Download manifest not found in encoding file or ecache")
 
         download_ekey = download_ekeys[0]
         download_ekey_hex = download_ekey.hex()
@@ -1377,7 +1443,9 @@ def install_to_casc(
         if install_info:
             console.print("\n[cyan]Step 6:[/cyan] Processing install manifest (executables)...")
             install_ckey = bytes.fromhex(install_info.content_key)
-            install_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, install_ckey)
+            install_ekeys = _resolve_ekey(
+                install_ckey, ecache, encoding_parser, encoding_data, encoding_file
+            )
 
             if install_ekeys:
                 install_ekey = install_ekeys[0]
@@ -1461,8 +1529,9 @@ def install_to_casc(
 
                     for inst_entry in install_filtered:
                         # Look up encoding keys for this content key
-                        file_ekeys = encoding_parser.find_content_key(
-                            encoding_data, encoding_file, inst_entry.md5_hash
+                        file_ekeys = _resolve_ekey(
+                            inst_entry.md5_hash, ecache, encoding_parser,
+                            encoding_data, encoding_file,
                         )
                         if not file_ekeys:
                             console.print(f"    [yellow]Skip:[/yellow] {inst_entry.filename} (not in encoding)")

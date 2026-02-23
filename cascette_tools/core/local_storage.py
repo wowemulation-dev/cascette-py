@@ -32,6 +32,7 @@ DATA_DIR = "data"
 INDICES_DIR = "indices"
 CONFIG_DIR = "config"
 SHMEM_DIR = "shmem"
+ECACHE_DIR = "ecache"
 
 
 @dataclass
@@ -287,6 +288,7 @@ class LocalStorage:
         self.indices_path = base_path / "Data" / INDICES_DIR
         self.config_path = base_path / "Data" / CONFIG_DIR
         self.shmem_path = base_path / "Data" / SHMEM_DIR
+        self.ecache_path = base_path / "Data" / ECACHE_DIR
 
         # Track current archive state
         self.current_archive_id = 0
@@ -304,7 +306,7 @@ class LocalStorage:
         logger.info(f"Initializing CASC storage at {self.base_path}")
 
         # Create directories
-        for path in [self.data_path, self.indices_path, self.config_path, self.shmem_path]:
+        for path in [self.data_path, self.indices_path, self.config_path, self.shmem_path, self.ecache_path]:
             path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Created directory: {path}")
 
