@@ -986,6 +986,12 @@ def _resolve_ekey(
     default=False,
     help="Override existing .build.info even if config hashes differ"
 )
+@click.option(
+    "--shmem-version",
+    type=click.Choice(["4", "5"]),
+    default="5",
+    help="Shmem protocol version (4=base, 5=exclusive access + PID tracking)"
+)
 @click.pass_context
 def install_to_casc(
     ctx: click.Context,
@@ -1002,6 +1008,7 @@ def install_to_casc(
     region: str,
     resume: bool,
     force: bool,
+    shmem_version: str,
 ) -> None:
     """Install files to proper local CASC storage structure.
 
@@ -1084,7 +1091,7 @@ def install_to_casc(
 
         # Initialize local storage
         console.print(f"\n[cyan]Initializing CASC storage at:[/cyan] {install_path}")
-        storage = LocalStorage(install_path)
+        storage = LocalStorage(install_path, shmem_version=int(shmem_version))
         storage.initialize()
 
         console.print("  Created: Data/data/")

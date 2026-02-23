@@ -446,11 +446,12 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
 class LocalStorage:
     """Manages local CASC storage structure."""
 
-    def __init__(self, base_path: Path):
+    def __init__(self, base_path: Path, *, shmem_version: int = 5):
         """Initialize local storage.
 
         Args:
             base_path: Base installation directory (e.g., /path/to/wow)
+            shmem_version: Shmem protocol version (4 or 5, default 5)
         """
         self.base_path = base_path
         self.data_path = base_path / "Data" / DATA_DIR
@@ -458,6 +459,7 @@ class LocalStorage:
         self.config_path = base_path / "Data" / CONFIG_DIR
         self.shmem_path = base_path / "Data" / SHMEM_DIR
         self.ecache_path = base_path / "Data" / ECACHE_DIR
+        self.shmem_version = shmem_version
 
         # Track current archive state
         self.current_archive_id = 0
@@ -609,55 +611,31 @@ class LocalStorage:
         self._write_shmem_file()
 
     def _write_shmem_file(self) -> None:
-        """Write the shmem file with generation numbers."""
+        """Write the shmem control file using ShmemControl."""
+        from cascette_tools.core.shmem import ShmemControl
+
         shmem_file = self.data_path / "shmem"
 
-        # Build the shmem content
-        # Format based on analysis of real Battle.net shmem files:
-        # - 4 bytes: Version (5)
-        # - 4 bytes: Path string length
-        # - Variable: Path string "Global\{path}"
-        # - Padding to offset 0x100
-        # - Various metadata
-        # - At offset 0x110: 16 x 4-byte generation numbers
-
-        # Create path string (Windows-style for compatibility)
+        # Build Windows-style path string
         data_path_str = str(self.data_path).replace('/', '\\')
         path_string = f"Global\\{data_path_str}"
-        path_bytes = path_string.encode('utf-8')
 
-        # Start building the shmem content
-        shmem_size = 0x5000  # 20KB like real installations
-        shmem = bytearray(shmem_size)
+        # Compute total data size from archive files
+        data_size = 0
+        for data_file in self.data_path.glob("data.*"):
+            if data_file.is_file():
+                data_size += data_file.stat().st_size
+        if data_size == 0:
+            data_size = 0x1000  # Must be non-zero
 
-        # Version (offset 0x00)
-        struct.pack_into('<I', shmem, 0, 5)
-
-        # Path string length (offset 0x04)
-        struct.pack_into('<I', shmem, 4, len(path_bytes) + 1)
-
-        # Path string (offset 0x08)
-        shmem[8:8 + len(path_bytes)] = path_bytes
-
-        # Generation numbers at offset 0x110 (16 x 4-byte little-endian)
-        for bucket in range(16):
-            offset = 0x110 + (bucket * 4)
-            struct.pack_into('<I', shmem, offset, self.bucket_generations[bucket])
-
-        # Some additional fields observed in real shmem files
-        # Offset 0x108: Archive count (seems to be number of data files)
-        struct.pack_into('<I', shmem, 0x108, self.current_archive_id + 1)
-
-        # Offset 0x10C: Something (often 0x1000 = 4096)
-        struct.pack_into('<I', shmem, 0x10C, 0x1000)
-
-        # Offset 0x150: Number of buckets (3) and archive ID
-        struct.pack_into('<I', shmem, 0x150, 3)
-        struct.pack_into('<I', shmem, 0x154, 1)
-
-        # Write the file
-        shmem_file.write_bytes(bytes(shmem))
-        logger.info(f"Created shmem file: {shmem_file}")
+        shmem = ShmemControl(
+            version=self.shmem_version,
+            initialized=True,
+            path_string=path_string,
+            data_size=data_size,
+            generations=[self.bucket_generations[i] for i in range(16)],
+        )
+        shmem.write(shmem_file)
 
     def _write_index_file(self, path: Path, bucket: int, entries: list[LocalIndexEntry]) -> None:
         """Write index file with correct V7 layout.
