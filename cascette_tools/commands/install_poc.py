@@ -62,7 +62,7 @@ from cascette_tools.formats.config import (
     CDNConfigParser,
 )
 from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
-from cascette_tools.formats.encoding import EncodingParser, is_encoding
+from cascette_tools.formats.encoding import EncodingFile, EncodingParser, is_encoding
 from cascette_tools.formats.install import InstallEntry, InstallParser, InstallTag
 from cascette_tools.formats.size import (
     SizeFile,
@@ -82,6 +82,32 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     verbose: bool = ctx.obj["verbose"]
     debug: bool = ctx.obj["debug"]
     return config, console, verbose, debug
+
+
+def _populate_ecache(
+    ecache_path: Path,
+    encoding_data: bytes,
+    encoding_file: EncodingFile,
+    encoding_parser: EncodingParser,
+) -> EncodingCache:
+    """Build an encoding cache from a parsed encoding file.
+
+    Iterates all CKey pages and writes CKey->EKey mappings to disk.
+    Returns the populated and flushed EncodingCache.
+    """
+    ecache = EncodingCache(base_path=ecache_path)
+    ecache.initialize()
+
+    for page_idx in range(encoding_file.header.ckey_page_count):
+        page = encoding_parser.load_ckey_page_sequential(
+            encoding_data, encoding_file, page_idx
+        )
+        for entry in page.entries:
+            if entry.encoding_keys:
+                ecache.write_entry(entry.content_key, entry.encoding_keys[0], 0)
+
+    ecache.flush()
+    return ecache
 
 
 def get_product_enum(product_code: str) -> Product:
@@ -865,10 +891,10 @@ async def _load_archive_indices(
     console: Console,
     max_archives: int = 0,
 ) -> tuple[CdnArchiveFetcher, int]:
-    """Fetch archive indices from CDN and populate index map.
+    """Fetch archive indices from local cache and CDN.
 
-    Extracted from install_to_casc Step 5 so that both install and update
-    commands can reuse the same archive-loading logic.
+    Two-phase approach: first scan local cache (Data/indices/) for previously
+    downloaded index files, then fetch remaining indices from CDN concurrently.
 
     Args:
         cdn_client: CDN client for fetching data
@@ -895,40 +921,71 @@ async def _load_archive_indices(
 
     fetcher = CdnArchiveFetcher(cdn_client=cdn_client)
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Loading indices...", total=len(archives))
+    # Phase 1: Load from local cache
+    need_download: list[str] = []
+    cached = 0
+    for archive_hash in archives:
+        local_path = storage.indices_path / f"{archive_hash.lower()}.index"
+        if fetcher.load_index_from_file(archive_hash, local_path):
+            cached += 1
+        else:
+            need_download.append(archive_hash)
 
-        semaphore = asyncio.Semaphore(12)
-        lock = asyncio.Lock()
-        successful = 0
+    if cached > 0:
+        console.print(f"  Loaded {cached} indices from cache")
 
-        async def fetch_one(archive_hash: str) -> None:
-            nonlocal successful
-            async with semaphore:
-                index_data = await cdn_client.fetch_data_async(
-                    archive_hash, is_index=True
-                )
+    # Phase 2: Download missing indices from CDN
+    downloaded = 0
+    failed = 0
+    if need_download:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(
+                "Downloading indices...", total=len(need_download)
+            )
 
-            async with lock:
-                fetcher.load_index_from_bytes(archive_hash, index_data)
-                local_path = storage.indices_path / f"{archive_hash.lower()}.index"
-                if not local_path.exists():
-                    local_path.write_bytes(index_data)
-                successful += 1
-                progress.update(task, advance=1)
+            semaphore = asyncio.Semaphore(12)
+            lock = asyncio.Lock()
 
-        tasks = [fetch_one(h) for h in archives]
-        await asyncio.gather(*tasks, return_exceptions=True)
+            async def fetch_one(archive_hash: str) -> None:
+                nonlocal downloaded, failed
+                try:
+                    async with semaphore:
+                        index_data = await cdn_client.fetch_data_async(
+                            archive_hash, is_index=True
+                        )
 
+                    async with lock:
+                        fetcher.load_index_from_bytes(archive_hash, index_data)
+                        local_path = (
+                            storage.indices_path / f"{archive_hash.lower()}.index"
+                        )
+                        if not local_path.exists():
+                            local_path.write_bytes(index_data)
+                        downloaded += 1
+                except Exception:
+                    logger.warning("Failed to download index %s", archive_hash)
+                    async with lock:
+                        failed += 1
+                finally:
+                    progress.update(task, advance=1)
+
+            tasks = [fetch_one(h) for h in need_download]
+            await asyncio.gather(*tasks)
+
+    total_loaded = cached + downloaded
     console.print(f"  Index map: {fetcher.index_map.total_entries:,} entries")
-    console.print(f"  Archives: {successful}/{len(archives)} loaded")
-    return fetcher, successful
+    parts = [f"{cached} cached" if cached else "", f"{downloaded} downloaded" if downloaded else ""]
+    if failed:
+        parts.append(f"{failed} failed")
+    detail = ", ".join(p for p in parts if p)
+    console.print(f"  Archives: {total_loaded}/{len(archives)} loaded ({detail})")
+    return fetcher, total_loaded
 
 
 async def _download_casc_files(
@@ -1413,20 +1470,7 @@ def install_to_casc(
 
             # Step 2a: Populate ecache from encoding file
             console.print("\n[cyan]Step 2a:[/cyan] Populating encoding cache...")
-            ecache = EncodingCache(base_path=ecache_path)
-            ecache.initialize()
-
-            for page_idx in range(encoding_file.header.ckey_page_count):
-                page = encoding_parser.load_ckey_page_sequential(
-                    encoding_data, encoding_file, page_idx
-                )
-                for entry in page.entries:
-                    if entry.encoding_keys:
-                        ecache.write_entry(
-                            entry.content_key, entry.encoding_keys[0], 0
-                        )
-
-            ecache.flush()
+            ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
             console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
 
         # Step 2b: Fetch and parse size manifest (if present)
@@ -2178,18 +2222,7 @@ def update(
 
         # Step 11: Update ecache from new encoding file
         console.print("\n[cyan]Step 11:[/cyan] Rebuilding encoding cache...")
-        ecache = EncodingCache(base_path=ecache_path)
-        ecache.initialize()
-
-        for page_idx in range(encoding_file.header.ckey_page_count):
-            page = encoding_parser.load_ckey_page_sequential(
-                encoding_data, encoding_file, page_idx
-            )
-            for entry in page.entries:
-                if entry.encoding_keys:
-                    ecache.write_entry(entry.content_key, entry.encoding_keys[0], 0)
-
-        ecache.flush()
+        ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
         console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
 
         # Step 12: Update .build.info
@@ -2247,3 +2280,108 @@ def update(
     except Exception as e:
         logger.error("Update failed", error=str(e))
         raise click.ClickException(f"Update failed: {e}") from e
+
+
+@install_poc.command("build-ecache")
+@click.argument("install_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--product", "-r",
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    required=True,
+    help="Product code for CDN lookup",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default="us",
+    help="CDN region",
+)
+@click.pass_context
+def build_ecache(
+    ctx: click.Context,
+    install_path: Path,
+    product: str,
+    region: str,
+) -> None:
+    """Bootstrap an encoding cache from CDN for an existing installation.
+
+    Reads .build.info to find the build config, fetches the encoding file
+    from CDN, and populates Data/ecache/ with CKey->EKey mappings.
+
+    This is useful for old installations that lack an ecache directory,
+    enabling them to be used with the update command.
+
+    INSTALL_PATH is the root of an existing installation (must contain .build.info).
+    """
+    _config, console, _verbose, _debug = _get_context_objects(ctx)
+
+    try:
+        # Step 1: Read .build.info
+        console.print("[cyan]Step 1:[/cyan] Reading .build.info...")
+        build_info_path = install_path / ".build.info"
+
+        if not build_info_path.exists():
+            raise click.ClickException(
+                f"No .build.info found at {install_path}."
+            )
+
+        parser = BuildInfoParser()
+        existing_info = parser.parse_file(str(build_info_path))
+        build_key = existing_info.build_key
+
+        if not build_key:
+            raise click.ClickException("No Build Key in .build.info")
+
+        console.print(f"  Build config: {build_key}")
+
+        # Step 2: Fetch build config from CDN
+        console.print("\n[cyan]Step 2:[/cyan] Fetching build config...")
+        product_enum = get_product_enum(product)
+        cdn_client = CDNClient(product_enum, region=region)
+
+        build_config_data = cdn_client.fetch_config(build_key, config_type="build")
+        build_config = BuildConfigParser().parse(build_config_data)
+        console.print(f"  Build name: {build_config.build_name}")
+
+        encoding_info = build_config.get_encoding_info()
+        if not encoding_info or not encoding_info.encoding_key:
+            raise click.ClickException("No encoding key in BuildConfig")
+
+        console.print(f"  Encoding EKey: {encoding_info.encoding_key}")
+
+        # Step 3: Fetch and parse encoding file
+        console.print("\n[cyan]Step 3:[/cyan] Fetching encoding file...")
+        encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
+        console.print(f"  Downloaded: {len(encoding_data_raw):,} bytes")
+
+        encoding_data = encoding_data_raw
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
+
+        if not is_encoding(encoding_data):
+            raise click.ClickException("Downloaded data is not a valid encoding file")
+
+        encoding_parser = EncodingParser()
+        encoding_file = encoding_parser.parse(encoding_data)
+        console.print(f"  CKey pages: {encoding_file.header.ckey_page_count}")
+
+        # Step 4: Populate ecache
+        console.print("\n[cyan]Step 4:[/cyan] Populating encoding cache...")
+        ecache_path = install_path / "Data" / "ecache"
+        ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
+
+        console.print(Panel.fit(
+            f"[green]Encoding cache built.[/green]\n\n"
+            f"Build: {build_config.build_name}\n"
+            f"Entries: {ecache.entry_count():,}\n"
+            f"Path: {ecache_path}",
+            title="build-ecache",
+        ))
+
+        cdn_client.close()
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("build-ecache failed", error=str(e))
+        raise click.ClickException(f"build-ecache failed: {e}") from e
