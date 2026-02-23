@@ -33,6 +33,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
 )
 from cascette_tools.core.config import AppConfig
 from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
+from cascette_tools.core.install_state import InstallState
 from cascette_tools.core.integrity import IntegrityError
 from cascette_tools.core.local_storage import LocalStorage
 from cascette_tools.core.product_state import (
@@ -936,6 +937,49 @@ def filter_entries_by_tags(
     return filtered
 
 
+def _fmt_size(nbytes: int) -> str:
+    """Format byte count as human-readable string."""
+    if nbytes >= 1024 ** 3:
+        return f"{nbytes / (1024 ** 3):.1f} GB"
+    if nbytes >= 1024 ** 2:
+        return f"{nbytes / (1024 ** 2):.1f} MB"
+    if nbytes >= 1024:
+        return f"{nbytes / 1024:.1f} KB"
+    return f"{nbytes} B"
+
+
+def _show_priority_table(
+    console: Console,
+    entries: list[DownloadEntry],
+    state: InstallState,
+    title: str = "Download Priority Distribution",
+) -> None:
+    """Display a Rich table of per-priority file counts and sizes."""
+    buckets: dict[int, tuple[int, int]] = {}
+    for entry in entries:
+        count, size = buckets.get(entry.priority, (0, 0))
+        buckets[entry.priority] = (count + 1, size + entry.size)
+
+    tbl = Table(title=title)
+    tbl.add_column("Priority", style="cyan", justify="right")
+    tbl.add_column("Files", style="green", justify="right")
+    tbl.add_column("Size", style="yellow", justify="right")
+    tbl.add_column("Status", style="dim")
+
+    for pri in sorted(buckets):
+        count, size = buckets[pri]
+        ps = state.priority_stats.get(pri)
+        if ps and ps.completed >= ps.total:
+            status = "done"
+        elif ps and ps.completed > 0:
+            status = f"{ps.completed}/{ps.total} done"
+        else:
+            status = "pending"
+        tbl.add_row(str(pri), f"{count:,}", _fmt_size(size), status)
+
+    console.print(tbl)
+
+
 @install_poc.command()
 @click.argument("build_config_hash", type=str)
 @click.argument("cdn_config_hash", type=str)
@@ -1260,6 +1304,27 @@ def install_to_casc(
         total_filtered_size = sum(e.size for e in download_entries)
         console.print(f"  Total filtered size: {total_filtered_size / (1024**3):.2f} GB")
 
+        # Load or create install state for resume tracking
+        install_state = InstallState.load(install_path, build_config_hash)
+        if install_state is not None:
+            already_done = len(install_state.downloaded)
+            console.print(f"\n  [green]Resuming:[/green] {already_done:,} files already downloaded")
+            console.print(f"  Previously written: {_fmt_size(install_state.total_bytes_written)}")
+        else:
+            install_state = InstallState(install_path, build_config_hash)
+
+        # Initialize priority stats from the full filtered set
+        install_state.init_priority_stats(download_entries)
+
+        # Show per-priority overview
+        _show_priority_table(console, download_entries, install_state)
+
+        # Filter out already-downloaded entries
+        pending_entries = install_state.get_pending_entries(download_entries)
+        if len(pending_entries) < len(download_entries):
+            skipped = len(download_entries) - len(pending_entries)
+            console.print(f"  Skipping {skipped:,} already-downloaded files")
+
         # Step 5: Download archive indices FIRST (needed for both install and download files)
         # This is critical - most files are in archives, not loose on CDN
         console.print("\n[cyan]Step 5:[/cyan] Loading/downloading archive indices...")
@@ -1464,9 +1529,9 @@ def install_to_casc(
 
         # Step 7: Install CASC files from download manifest
         if max_files > 0:
-            download_entries = download_entries[:max_files]
+            pending_entries = pending_entries[:max_files]
 
-        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(download_entries)} files to local CASC...")
+        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC...")
         console.print("  Concurrent connections: 12 global, 3 per host")
 
         installed = 0
@@ -1479,6 +1544,8 @@ def install_to_casc(
             TransferSpeedColumn,
         )
 
+        pending_total_size = sum(e.size for e in pending_entries)
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -1490,7 +1557,7 @@ def install_to_casc(
         ) as progress:
             task = progress.add_task(
                 "Installing files...",
-                total=sum(e.size for e in download_entries),
+                total=pending_total_size,
             )
 
             async def _install_files_concurrent() -> tuple[int, int, int, int]:
@@ -1504,8 +1571,13 @@ def install_to_casc(
                     max_concurrency=12, max_per_host=3, max_retries=3
                 )
 
+                # Build a priority lookup for state tracking
+                entry_priority: dict[str, int] = {
+                    e.ekey.hex(): e.priority for e in pending_entries
+                }
+
                 # Sort by priority and submit all entries
-                sorted_entries = sorted(download_entries, key=lambda e: e.priority)
+                sorted_entries = sorted(pending_entries, key=lambda e: e.priority)
 
                 for dl_entry in sorted_entries:
                     ekey = dl_entry.ekey
@@ -1532,8 +1604,14 @@ def install_to_casc(
                     )
 
                 async for result in queue.run(total=len(sorted_entries)):
+                    ekey_hex = result.ekey.hex()
+                    pri = entry_priority.get(ekey_hex, 0)
+
                     if result.data is None:
                         _failed += 1
+                        install_state.mark_failed(result.ekey, pri)
+                        if install_state.should_save():
+                            install_state.save()
                         continue
 
                     try:
@@ -1542,20 +1620,32 @@ def install_to_casc(
                         _integrity_errors += 1
                         logger.warning(
                             "Integrity error writing content",
-                            ekey=result.ekey.hex(),
+                            ekey=ekey_hex,
                             error=str(e),
                         )
+                        install_state.mark_failed(result.ekey, pri)
+                        if install_state.should_save():
+                            install_state.save()
                         continue
 
                     _installed += 1
                     _total_bytes += len(result.data)
+                    install_state.mark_downloaded(
+                        result.ekey, len(result.data), pri
+                    )
                     progress.update(task, advance=len(result.data))
+
+                    if install_state.should_save():
+                        install_state.save()
 
                 return _installed, _failed, _integrity_errors, _total_bytes
 
             installed, failed, integrity_errors, total_bytes = asyncio.run(
                 _install_files_concurrent()
             )
+
+        # Final state save after all downloads
+        install_state.save()
 
         # Step 8: Update .build.info with last activated timestamp
         console.print("\n[cyan]Step 8:[/cyan] Updating .build.info timestamp...")
@@ -1609,6 +1699,12 @@ def install_to_casc(
         for file_name, file_path in state_files.items():
             console.print(f"  Created: {file_name} ({file_path})")
 
+        # Per-priority results
+        _show_priority_table(
+            console, download_entries, install_state,
+            title="Per-Priority Results",
+        )
+
         # Summary
         summary_table = Table(title="Installation Summary")
         summary_table.add_column("Metric", style="cyan")
@@ -1623,10 +1719,15 @@ def install_to_casc(
         summary_table.add_row("CASC files installed", f"{installed:,}")
         summary_table.add_row("CASC files failed", str(failed))
         summary_table.add_row("Integrity errors", str(integrity_errors))
-        summary_table.add_row("Total data written", f"{total_bytes / (1024*1024):.2f} MB")
+        summary_table.add_row("Total data written", _fmt_size(total_bytes))
         summary_table.add_row("Archive indices", f"{len(archives)}")
         summary_table.add_row("State files created", f"{len(state_files)}")
         console.print(summary_table)
+
+        # Clean up state file on successful completion (no failures)
+        if failed == 0 and integrity_errors == 0:
+            install_state.cleanup()
+            console.print("  [dim]Install state file removed (all files succeeded)[/dim]")
 
         console.print(Panel.fit(
             f"[green]Installation complete![/green]\n\n"
