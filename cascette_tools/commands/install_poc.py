@@ -16,7 +16,7 @@ Archive-groups are generated LOCALLY by Battle.net client.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,125 +48,22 @@ from cascette_tools.formats.build_info import (
     create_build_info,
     update_last_activated,
 )
+from cascette_tools.formats.config import (
+    BuildConfigParser,
+    CDNConfigParser,
+)
 from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
 from cascette_tools.formats.encoding import EncodingParser, is_encoding
 from cascette_tools.formats.install import InstallEntry, InstallParser, InstallTag
 from cascette_tools.formats.size import (
+    SizeFile,
+    SizeParser,
+    SizeTag,
     apply_tag_query,
     is_file_selected,
 )
 
 logger = structlog.get_logger()
-
-
-@dataclass
-class BuildConfigInfo:
-    """Parsed build config information."""
-    root_content_key: str | None
-    encoding_content_key: str | None
-    encoding_encoding_key: str | None  # CDN key for encoding file
-    encoding_size: int | None
-    install_content_key: str | None
-    install_size: int | None
-    download_content_key: str | None
-    download_size: int | None
-    patch_content_key: str | None
-    build_name: str | None
-    build_uid: str | None
-    build_product: str | None
-
-
-@dataclass
-class CdnConfigInfo:
-    """Parsed CDN config information."""
-    archives: list[str]
-    archive_group: str | None
-    file_index: str | None
-    patch_archives: list[str]
-    patch_archive_group: str | None
-
-
-def parse_build_config(content: str) -> BuildConfigInfo:
-    """Parse build config text file.
-
-    Args:
-        content: Build config text content
-
-    Returns:
-        Parsed build config info
-    """
-    config: dict[str, str] = {}
-    for line in content.split('\n'):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        if ' = ' in line:
-            key, value = line.split(' = ', 1)
-            config[key] = value
-
-    def get_first(key: str) -> str | None:
-        """Get first value from potentially space-separated list."""
-        val = config.get(key)
-        return val.split()[0] if val else None
-
-    def get_second(key: str) -> str | None:
-        """Get second value from potentially space-separated list (encoding key)."""
-        val = config.get(key)
-        parts = val.split() if val else []
-        return parts[1] if len(parts) > 1 else None
-
-    def get_size(key: str) -> int | None:
-        """Get size from install/download size field."""
-        val = config.get(f'{key}-size')
-        return int(val.split()[0]) if val else None
-
-    return BuildConfigInfo(
-        root_content_key=get_first('root'),
-        encoding_content_key=get_first('encoding'),
-        encoding_encoding_key=get_second('encoding'),
-        encoding_size=get_size('encoding'),
-        install_content_key=get_first('install'),
-        install_size=get_size('install'),
-        download_content_key=get_first('download'),
-        download_size=get_size('download'),
-        patch_content_key=get_first('patch'),
-        build_name=config.get('build-name'),
-        build_uid=config.get('build-uid'),
-        build_product=config.get('build-product'),
-    )
-
-
-def parse_cdn_config(content: str) -> CdnConfigInfo:
-    """Parse CDN config text file.
-
-    Args:
-        content: CDN config text content
-
-    Returns:
-        Parsed CDN config info
-    """
-    config: dict[str, str] = {}
-    for line in content.split('\n'):
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        if ' = ' in line:
-            key, value = line.split(' = ', 1)
-            config[key] = value
-
-    archives_str = config.get('archives', '')
-    archives = archives_str.split() if archives_str else []
-
-    patch_archives_str = config.get('patch-archives', '')
-    patch_archives = patch_archives_str.split() if patch_archives_str else []
-
-    return CdnConfigInfo(
-        archives=archives,
-        archive_group=config.get('archive-group'),
-        file_index=config.get('file-index'),
-        patch_archives=patch_archives,
-        patch_archive_group=config.get('patch-archive-group'),
-    )
 
 
 def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, bool]:
@@ -238,31 +135,35 @@ def resolve_manifests(
         # Step 1: Fetch and parse BuildConfig
         console.print("[cyan]Step 1:[/cyan] Fetching BuildConfig...")
         build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
-        build_config = parse_build_config(build_config_data.decode())
+        build_config = BuildConfigParser().parse(build_config_data)
+
+        encoding_info = build_config.get_encoding_info()
+        install_info = build_config.get_install_info()
+        download_info = build_config.get_download_info()
 
         table = Table(title="BuildConfig")
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="green")
         table.add_row("Build Name", build_config.build_name or "N/A")
         table.add_row("Build UID", build_config.build_uid or "N/A")
-        table.add_row("Root Content Key", build_config.root_content_key or "N/A")
-        table.add_row("Encoding Content Key", build_config.encoding_content_key or "N/A")
-        table.add_row("Encoding Encoding Key", build_config.encoding_encoding_key or "N/A")
-        table.add_row("Encoding Size", f"{build_config.encoding_size:,}" if build_config.encoding_size else "N/A")
-        table.add_row("Install Content Key", build_config.install_content_key or "N/A")
-        table.add_row("Install Size", f"{build_config.install_size:,}" if build_config.install_size else "N/A")
-        table.add_row("Download Content Key", build_config.download_content_key or "N/A")
-        table.add_row("Download Size", f"{build_config.download_size:,}" if build_config.download_size else "N/A")
+        table.add_row("Root Content Key", build_config.root or "N/A")
+        table.add_row("Encoding Content Key", encoding_info.content_key if encoding_info else "N/A")
+        table.add_row("Encoding Encoding Key", encoding_info.encoding_key if encoding_info else "N/A")
+        table.add_row("Encoding Size", f"{encoding_info.size:,}" if encoding_info and encoding_info.size else "N/A")
+        table.add_row("Install Content Key", install_info.content_key if install_info else "N/A")
+        table.add_row("Install Size", f"{install_info.size:,}" if install_info and install_info.size else "N/A")
+        table.add_row("Download Content Key", download_info.content_key if download_info else "N/A")
+        table.add_row("Download Size", f"{download_info.size:,}" if download_info and download_info.size else "N/A")
         console.print(table)
 
-        if not build_config.encoding_encoding_key:
+        if not encoding_info or not encoding_info.encoding_key:
             raise click.ClickException("No encoding key found in BuildConfig")
 
         # Step 2: Fetch encoding file directly from CDN
         console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file from CDN...")
-        console.print(f"  Using encoding key: {build_config.encoding_encoding_key}")
+        console.print(f"  Using encoding key: {encoding_info.encoding_key}")
 
-        encoding_data = cdn_client.fetch_data(build_config.encoding_encoding_key)
+        encoding_data = cdn_client.fetch_data(encoding_info.encoding_key)
         console.print(f"  Downloaded: {len(encoding_data):,} bytes")
 
         # Decompress BLTE if needed
@@ -285,9 +186,9 @@ def resolve_manifests(
         console.print(f"  ESpec entries: {len(encoding_file.espec_table)}")
 
         # Step 4: Look up install manifest encoding key
-        if build_config.install_content_key:
+        if install_info:
             console.print("\n[cyan]Step 4:[/cyan] Resolving install manifest...")
-            install_ckey = bytes.fromhex(build_config.install_content_key)
+            install_ckey = bytes.fromhex(install_info.content_key)
 
             # Find encoding key for install manifest
             install_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, install_ckey)
@@ -336,9 +237,9 @@ def resolve_manifests(
                 console.print("[yellow]  Install manifest content key not found in encoding file[/yellow]")
 
         # Step 7: Look up and fetch download manifest
-        if build_config.download_content_key:
+        if download_info:
             console.print("\n[cyan]Step 7:[/cyan] Resolving download manifest...")
-            download_ckey = bytes.fromhex(build_config.download_content_key)
+            download_ckey = bytes.fromhex(download_info.content_key)
 
             download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
             if download_ekeys:
@@ -739,16 +640,19 @@ def extract_priority_files(
         # Step 1: Fetch and parse BuildConfig
         console.print("[cyan]Step 1:[/cyan] Fetching BuildConfig...")
         build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
-        build_config = parse_build_config(build_config_data.decode())
+        build_config = BuildConfigParser().parse(build_config_data)
 
-        if not build_config.encoding_encoding_key:
+        encoding_info = build_config.get_encoding_info()
+        download_info = build_config.get_download_info()
+
+        if not encoding_info or not encoding_info.encoding_key:
             raise click.ClickException("No encoding key in BuildConfig")
 
         console.print(f"  Build: {build_config.build_name}")
 
         # Step 2: Fetch encoding file
         console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
-        encoding_data = cdn_client.fetch_data(build_config.encoding_encoding_key)
+        encoding_data = cdn_client.fetch_data(encoding_info.encoding_key)
 
         if is_blte(encoding_data):
             encoding_data = decompress_blte(encoding_data)
@@ -758,11 +662,11 @@ def extract_priority_files(
         console.print(f"  Loaded {encoding_file.header.ckey_page_count} CKey pages")
 
         # Step 3: Resolve and fetch download manifest
-        if not build_config.download_content_key:
+        if not download_info:
             raise click.ClickException("No download manifest in BuildConfig")
 
         console.print("\n[cyan]Step 3:[/cyan] Resolving download manifest...")
-        download_ckey = bytes.fromhex(build_config.download_content_key)
+        download_ckey = bytes.fromhex(download_info.content_key)
         download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
 
         if not download_ekeys:
@@ -876,6 +780,7 @@ def filter_entries_by_tags(
     platform: str | None = None,
     arch: str | None = None,
     locale: str | None = None,
+    size_tags: list[SizeTag] | None = None,
 ) -> list[DownloadEntry]:
     """Filter download entries by platform, architecture, and locale tags.
 
@@ -884,12 +789,17 @@ def filter_entries_by_tags(
     - Apply tag query using bitmap operations (one bit per file)
     - Supports subtractive tags with '!' prefix
 
+    When size_tags are provided (from the size manifest), they are used
+    directly as the canonical tag source. Otherwise, download manifest tags
+    are converted to SizeTag format.
+
     Args:
         entries: List of DownloadEntry objects
         tags: List of DownloadTag objects (with bitmasks)
         platform: Platform filter (e.g., "Windows", "OSX")
         arch: Architecture filter (e.g., "x86_64", "arm64")
         locale: Locale filter (e.g., "enUS", "deDE")
+        size_tags: Optional list of SizeTag objects from size manifest
 
     Returns:
         Filtered list of entries
@@ -909,22 +819,24 @@ def filter_entries_by_tags(
         # No filters, return all entries
         return entries
 
-    # Create SizeTag objects from DownloadTag for apply_tag_query
-    from cascette_tools.formats.size import SizeTag
-
-    size_tags = [
-        SizeTag(
-            name=tag.name,
-            tag_id=tag.tag_type,
-            tag_type=tag.tag_type,
-            file_indices=[],
-            bit_mask=tag.file_mask
-        )
-        for tag in tags
-    ]
+    # Use size manifest tags directly if provided, otherwise convert from
+    # download manifest tags
+    if size_tags is not None:
+        effective_tags = size_tags
+    else:
+        effective_tags = [
+            SizeTag(
+                name=tag.name,
+                tag_id=tag.tag_type,
+                tag_type=tag.tag_type,
+                file_indices=[],
+                bit_mask=tag.file_mask,
+            )
+            for tag in tags
+        ]
 
     # Apply tag query to get selection bitmap
-    bitmap = apply_tag_query(size_tags, query, len(entries))
+    bitmap = apply_tag_query(effective_tags, query, len(entries))
 
     # Filter entries based on bitmap
     filtered: list[DownloadEntry] = []
@@ -1161,23 +1073,26 @@ def install_to_casc(
 
         # Build config
         build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
-        build_config_text = build_config_data.decode()
         console.print(f"  BuildConfig: {build_config_hash}")
         # Also save to local CASC config directory
         storage.save_config(build_config_hash, build_config_data)
-        build_config = parse_build_config(build_config_text)
+        build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  Build: {build_config.build_name}")
+
+        encoding_info = build_config.get_encoding_info()
+        install_info = build_config.get_install_info()
+        download_info = build_config.get_download_info()
+        size_info = build_config.get_size_info()
 
         # CDN config
         cdn_config_data = cdn_client.fetch_config(cdn_config_hash, config_type="cdn")
-        cdn_config_text = cdn_config_data.decode()
         console.print(f"  CDNConfig: {cdn_config_hash}")
         # Also save to local CASC config directory
         storage.save_config(cdn_config_hash, cdn_config_data)
-        cdn_config = parse_cdn_config(cdn_config_text)
+        cdn_config = CDNConfigParser().parse(cdn_config_data)
         console.print(f"  Archives: {len(cdn_config.archives)}")
 
-        if not build_config.encoding_encoding_key:
+        if not encoding_info or not encoding_info.encoding_key:
             raise click.ClickException("No encoding key in BuildConfig")
 
         # Step 1.5: Create .build.info early (locks configuration before downloads)
@@ -1226,8 +1141,8 @@ def install_to_casc(
 
         # Step 2: Fetch encoding file (CDNClient handles caching)
         console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
-        encoding_ekey = bytes.fromhex(build_config.encoding_encoding_key)
-        encoding_data_raw = cdn_client.fetch_data(build_config.encoding_encoding_key)
+        encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
+        encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
         console.print(f"  Size: {len(encoding_data_raw):,} bytes")
 
         # Write raw encoding file to local CASC storage
@@ -1243,12 +1158,70 @@ def install_to_casc(
         encoding_file = encoding_parser.parse(encoding_data)
         console.print(f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages")
 
+        # Step 2b: Fetch and parse size manifest (if present)
+        size_file: SizeFile | None = None
+        if size_info and size_info.encoding_key:
+            console.print("\n[cyan]Step 2b:[/cyan] Resolving size manifest...")
+            size_ckey = bytes.fromhex(size_info.content_key)
+            size_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, size_ckey
+            )
+
+            if size_ekeys:
+                size_ekey = size_ekeys[0]
+                console.print(f"  Encoding key: {size_ekey.hex()}")
+
+                try:
+                    size_data_raw = cdn_client.fetch_data(size_ekey.hex())
+                    storage.write_content(size_ekey, size_data_raw)
+
+                    size_data = size_data_raw
+                    if is_blte(size_data):
+                        size_data = decompress_blte(size_data)
+
+                    size_parser = SizeParser()
+                    size_file = size_parser.parse(size_data)
+                    console.print(f"  Entries: {len(size_file.entries):,}")
+
+                    if size_file.header.total_size:
+                        console.print(
+                            f"  Total build size: {_fmt_size(size_file.header.total_size)}"
+                        )
+
+                    # Parse tag entries from remaining data after entries
+                    # The tag blob starts after the entry data in the stream
+                    if size_file.header.tag_count > 0:
+                        # Re-parse to get stream position after entries
+                        stream = BytesIO(size_data)
+                        _ = size_parser.parse(stream)
+                        remaining = stream.read()
+                        if remaining:
+                            size_file.tags = size_parser.parse_tag_entries(
+                                remaining,
+                                size_file.header.tag_count,
+                                len(size_file.entries),
+                            )
+                            console.print(
+                                f"  Tags: {len(size_file.tags)}"
+                            )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch/parse size manifest, continuing without it",
+                        error=str(e),
+                    )
+                    size_file = None
+            else:
+                console.print("  [yellow]Size manifest not found in encoding file[/yellow]")
+        elif size_info:
+            # Size manifest has content key but no encoding key - try direct CDN fetch
+            console.print("\n[cyan]Step 2b:[/cyan] Size manifest has no encoding key, skipping")
+
         # Step 3: Resolve and fetch download manifest
-        if not build_config.download_content_key:
+        if not download_info:
             raise click.ClickException("No download manifest in BuildConfig")
 
         console.print("\n[cyan]Step 3:[/cyan] Resolving download manifest...")
-        download_ckey = bytes.fromhex(build_config.download_content_key)
+        download_ckey = bytes.fromhex(download_info.content_key)
         download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
 
         if not download_ekeys:
@@ -1284,6 +1257,13 @@ def install_to_casc(
         console.print(f"  Locale: {locale}")
         console.print(f"  Max priority: {priority}")
 
+        # Display total build size from size manifest if available
+        if size_file and size_file.header.total_size:
+            console.print(
+                f"  Total build size (from size manifest): "
+                f"{_fmt_size(size_file.header.total_size)}"
+            )
+
         # Filter by priority
         download_entries: list[DownloadEntry] = [
             e for e in download_manifest.entries if e.priority <= priority
@@ -1291,18 +1271,31 @@ def install_to_casc(
         console.print(f"  After priority filter (<= {priority}): {len(download_entries):,} entries")
 
         # Filter by tags (platform, arch, locale)
-        download_entries = filter_entries_by_tags(
-            download_entries,
-            download_manifest.tags,
-            platform=platform,
-            arch=arch,
-            locale=locale
-        )
+        # Use size manifest tags if available (canonical tag source),
+        # fall back to download manifest tags
+        if size_file and size_file.tags:
+            console.print("  Using size manifest tags for filtering")
+            download_entries = filter_entries_by_tags(
+                download_entries,
+                download_manifest.tags,
+                platform=platform,
+                arch=arch,
+                locale=locale,
+                size_tags=size_file.tags,
+            )
+        else:
+            download_entries = filter_entries_by_tags(
+                download_entries,
+                download_manifest.tags,
+                platform=platform,
+                arch=arch,
+                locale=locale,
+            )
         console.print(f"  After tag filtering: {len(download_entries):,} entries")
 
         # Calculate total size
         total_filtered_size = sum(e.size for e in download_entries)
-        console.print(f"  Total filtered size: {total_filtered_size / (1024**3):.2f} GB")
+        console.print(f"  Total filtered size: {_fmt_size(total_filtered_size)}")
 
         # Load or create install state for resume tracking
         install_state = InstallState.load(install_path, build_config_hash)
@@ -1381,9 +1374,9 @@ def install_to_casc(
         # Step 6: Process install manifest (executables and DLLs)
         # Now we can fetch files using the archive indices
         install_entries_extracted = 0
-        if build_config.install_content_key:
+        if install_info:
             console.print("\n[cyan]Step 6:[/cyan] Processing install manifest (executables)...")
-            install_ckey = bytes.fromhex(build_config.install_content_key)
+            install_ckey = bytes.fromhex(install_info.content_key)
             install_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, install_ckey)
 
             if install_ekeys:
