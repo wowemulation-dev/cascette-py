@@ -7,7 +7,7 @@ This module implements the official CASC directory structure:
 - Data/shmem/ - Shared memory files
 
 Key concepts:
-1. 16 hash buckets (0x00-0x0F): Encoding key's first byte & 0x0F
+1. 16 hash buckets (0x00-0x0F): XOR-fold of first 9 encoding key bytes
 2. Index files (.idx): Map 9-byte truncated keys to archive locations
 3. Data files (.data): Sequential content storage
 """
@@ -23,6 +23,7 @@ from typing import Any
 import structlog
 
 from cascette_tools.core.integrity import IntegrityError
+from cascette_tools.crypto.jenkins import hashlittle, hashlittle2
 
 logger = structlog.get_logger()
 
@@ -92,12 +93,106 @@ class LocalIndexEntry:
 
 
 @dataclass
+class UpdateEntry:
+    """Entry in the update section of a V7 index file (24-byte format).
+
+    The update section uses an LSM-tree structure with 512-byte pages.
+    Each entry is 24 bytes:
+    - 4 bytes: Hash guard (LE) — hashlittle(entry_bytes[4:24], 0) | 0x80000000
+    - 9 bytes: Truncated encoding key
+    - 5 bytes: Archive location (same packing as LocalIndexEntry)
+    - 4 bytes: Size (LE)
+    - 1 byte: Status (0=normal, 3=delete, 6=hdr-nonres, 7=data-nonres)
+    - 1 byte: Padding
+    """
+
+    hash_guard: int  # 4 bytes LE
+    key: bytes  # 9 bytes truncated encoding key
+    archive_id: int
+    archive_offset: int
+    size: int  # 4 bytes LE
+    status: int  # 1 byte
+
+    def to_bytes(self) -> bytes:
+        """Serialize entry to 24 bytes."""
+        key_bytes = self.key[:9].ljust(9, b'\x00')
+
+        # Archive location (5 bytes, same as LocalIndexEntry)
+        index_high = (self.archive_id >> 2) & 0xFF
+        archive_low = self.archive_id & 0x03
+        index_low = (archive_low << 30) | (self.archive_offset & 0x3FFFFFFF)
+        location_bytes = struct.pack('>B', index_high) + struct.pack('>I', index_low)
+
+        return (
+            struct.pack('<I', self.hash_guard)
+            + key_bytes
+            + location_bytes
+            + struct.pack('<I', self.size)
+            + struct.pack('BB', self.status, 0)
+        )
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> UpdateEntry:
+        """Parse entry from 24 bytes."""
+        if len(data) < 24:
+            raise ValueError(f"Update entry data too small: {len(data)} < 24")
+
+        hash_guard = struct.unpack('<I', data[0:4])[0]
+        key = data[4:13]
+
+        # Parse archive location (5 bytes)
+        index_high = data[13]
+        index_low = struct.unpack('>I', data[14:18])[0]
+        archive_id = (index_high << 2) | (index_low >> 30)
+        archive_offset = index_low & 0x3FFFFFFF
+
+        size = struct.unpack('<I', data[18:22])[0]
+        status = data[22]
+
+        return cls(
+            hash_guard=hash_guard,
+            key=key,
+            archive_id=archive_id,
+            archive_offset=archive_offset,
+            size=size,
+            status=status,
+        )
+
+    @classmethod
+    def from_index_entry(cls, entry: LocalIndexEntry, status: int = 0) -> UpdateEntry:
+        """Create an UpdateEntry from a LocalIndexEntry.
+
+        Computes the hash guard automatically.
+        """
+        # Build the 20 bytes after the hash guard to compute the guard
+        key_bytes = entry.key[:9].ljust(9, b'\x00')
+        index_high = (entry.archive_id >> 2) & 0xFF
+        archive_low = entry.archive_id & 0x03
+        index_low = (archive_low << 30) | (entry.archive_offset & 0x3FFFFFFF)
+        location_bytes = struct.pack('>B', index_high) + struct.pack('>I', index_low)
+        payload = key_bytes + location_bytes + struct.pack('<I', entry.size) + struct.pack('BB', status, 0)
+        hash_guard = hashlittle(payload, 0) | 0x80000000
+
+        return cls(
+            hash_guard=hash_guard,
+            key=entry.key[:9],
+            archive_id=entry.archive_id,
+            archive_offset=entry.archive_offset,
+            size=entry.size,
+            status=status,
+        )
+
+
+# Update section constants
+UPDATE_PAGE_SIZE = 512  # Bytes per update page
+UPDATE_SECTION_MIN_SIZE = 0x7800  # Minimum update section size (60 pages)
+
+
+@dataclass
 class LocalIndexHeader:
     """Header for local index file (V7 format).
 
     Format (16 bytes):
-    - 4 bytes: Block size (little-endian)
-    - 4 bytes: Block hash (Jenkins)
     - 2 bytes: Version (0x07)
     - 1 byte: Bucket (0x00-0x0F)
     - 1 byte: Extra bytes (0)
@@ -105,6 +200,7 @@ class LocalIndexHeader:
     - 1 byte: Storage offset length (5)
     - 1 byte: EKey length (9)
     - 1 byte: File offset bits (30)
+    - 8 bytes: Segment size (little-endian uint64)
     """
     version: int = 7
     bucket: int = 0
@@ -113,6 +209,7 @@ class LocalIndexHeader:
     storage_offset_length: int = 5
     ekey_length: int = 9
     file_offset_bits: int = 30
+    segment_size: int = 0x40000000  # 1 GB default
 
     def to_bytes(self) -> bytes:
         """Serialize header to 16 bytes (without guarded block header)."""
@@ -124,22 +221,28 @@ class LocalIndexHeader:
             self.encoded_size_length,
             self.storage_offset_length,
             self.ekey_length,
-            self.file_offset_bits
-        )
+            self.file_offset_bits,
+        ) + struct.pack('<Q', self.segment_size)
 
 
-def compute_bucket(encoding_key: bytes) -> int:
-    """Compute bucket ID from encoding key.
+def compute_bucket(encoding_key: bytes, seed: int = 0) -> int:
+    """Compute bucket ID from encoding key using XOR-fold.
+
+    Agent.exe formula:
+      xor = ekey[0] ^ ekey[1] ^ ... ^ ekey[8]
+      bucket = (((xor >> 4) ^ xor) + seed) & 0x0F
 
     Args:
-        encoding_key: Encoding key (at least 1 byte)
+        encoding_key: Encoding key (at least 9 bytes)
+        seed: Hash seed (0 = key lookup, 1 = segment header reconstruction)
 
     Returns:
         Bucket ID (0x00-0x0F)
     """
-    if not encoding_key:
-        return 0
-    return encoding_key[0] & 0x0F
+    xor_val = 0
+    for i in range(min(9, len(encoding_key))):
+        xor_val ^= encoding_key[i]
+    return (((xor_val >> 4) ^ xor_val) + seed) & 0x0F
 
 
 def format_idx_filename(bucket: int, generation: int = 1) -> str:
@@ -172,6 +275,11 @@ def _local_index_entry_list() -> list[LocalIndexEntry]:
     return []
 
 
+def _update_entry_list() -> list[UpdateEntry]:
+    """Factory function for creating typed empty list of UpdateEntry."""
+    return []
+
+
 @dataclass
 class LocalIndexFileInfo:
     """Parsed information from a local index file."""
@@ -184,23 +292,26 @@ class LocalIndexFileInfo:
     file_offset_bits: int
     segment_size: int
     entries: list[LocalIndexEntry] = field(default_factory=_local_index_entry_list)
+    update_entries: list[UpdateEntry] = field(default_factory=_update_entry_list)
 
 
 def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
     """Parse a local .idx file (V7 format with guarded blocks).
 
-    The V7 format structure:
-    - Guarded block header (8 bytes): block_size + Jenkins hash
-    - Index header (16 bytes): version, bucket, field sizes, segment_size
-    - Padding (8 bytes)
-    - Entry block guarded header (8 bytes): block_size + Jenkins hash
-    - Entry data: 18-byte entries (9-byte key + 5-byte location + 4-byte size)
+    V7 file layout:
+      0x00: Guarded block header (8 bytes) — header block
+      0x08: File header (16 bytes)
+      0x18: Padding (8 bytes, zeros) — align to 0x20
+      0x20: Guarded block header (8 bytes) — sorted section block
+      0x28: Sorted entries (N * 18 bytes)
+      Pad to 0x10000 boundary
+      0x10000: Update section (24-byte entries in 512-byte pages)
 
     Args:
         data: Raw .idx file bytes
 
     Returns:
-        LocalIndexFileInfo with parsed header and entries
+        LocalIndexFileInfo with parsed header, sorted entries, and update entries
 
     Raises:
         ValueError: If data is too short or format is invalid
@@ -209,9 +320,18 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         raise ValueError(f"Data too short for local idx file: {len(data)} < 40")
 
     # Parse header guarded block (8 bytes)
-    # Note: We only validate format, actual hash verification could be added
-    _ = struct.unpack('<I', data[0:4])[0]  # header_block_size
-    # _ = struct.unpack('<I', data[4:8])[0]  # header_block_hash
+    header_block_size = struct.unpack('<I', data[0:4])[0]
+    header_block_hash = struct.unpack('<I', data[4:8])[0]
+
+    # Validate header hash
+    header_data = data[8:8 + header_block_size]
+    actual_header_hash = hashlittle(header_data, 0)
+    if actual_header_hash != header_block_hash:
+        logger.warning(
+            "Header block hash mismatch",
+            expected=f"{header_block_hash:#010x}",
+            actual=f"{actual_header_hash:#010x}",
+        )
 
     # Parse IndexHeaderV2 (16 bytes starting at offset 8)
     version = struct.unpack('<H', data[8:10])[0]
@@ -232,16 +352,32 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
     # Entry size: key + location + size
     entry_size = ekey_length + storage_offset_length + encoded_size_length
 
-    # Skip 8 bytes padding after header
-    # Entry block starts at offset 32 (0x20)
+    # Entry block starts at offset 0x20 (after header block + padding)
+    entry_block_offset = 0x20
 
     # Parse entry block guarded header (8 bytes)
-    entry_block_size = struct.unpack('<I', data[32:36])[0]
-    # entry_block_hash = struct.unpack('<I', data[36:40])[0]
+    entry_block_size = struct.unpack('<I', data[entry_block_offset:entry_block_offset + 4])[0]
+    entry_block_hash = struct.unpack('<I', data[entry_block_offset + 4:entry_block_offset + 8])[0]
 
-    # Entry data starts at offset 40 (0x28)
-    entry_data = data[40:40 + entry_block_size]
+    # Entry data starts at offset 0x28
+    entry_data_start = entry_block_offset + 8
+    entry_data = data[entry_data_start:entry_data_start + entry_block_size]
 
+    # Validate sorted section hash using iterative hashlittle2
+    pc, pb = 0, 0
+    offset = 0
+    while offset + entry_size <= len(entry_data):
+        chunk = entry_data[offset:offset + entry_size]
+        pc, pb = hashlittle2(chunk, pc, pb)
+        offset += entry_size
+    if pc != entry_block_hash:
+        logger.warning(
+            "Entry block hash mismatch",
+            expected=f"{entry_block_hash:#010x}",
+            actual=f"{pc:#010x}",
+        )
+
+    # Parse sorted entries
     entries: list[LocalIndexEntry] = []
     offset = 0
 
@@ -249,7 +385,7 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         entry_bytes = entry_data[offset:offset + entry_size]
 
         # Skip empty entries (all zeros in key)
-        if entry_bytes[:9] == b'\x00' * 9:
+        if entry_bytes[:ekey_length] == b'\x00' * ekey_length:
             offset += entry_size
             continue
 
@@ -257,10 +393,42 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
             entry = LocalIndexEntry.from_bytes(entry_bytes)
             entries.append(entry)
         except ValueError:
-            # Skip malformed entries
             pass
 
         offset += entry_size
+
+    # Parse update section (starts at 0x10000 if file is large enough)
+    update_entries: list[UpdateEntry] = []
+    update_section_offset = 0x10000
+
+    if len(data) > update_section_offset:
+        update_data = data[update_section_offset:]
+        uoffset = 0
+
+        while uoffset + 24 <= len(update_data):
+            entry_bytes = update_data[uoffset:uoffset + 24]
+
+            # Skip empty entries (zero hash guard means unused slot)
+            if entry_bytes[:4] == b'\x00\x00\x00\x00':
+                uoffset += 24
+                continue
+
+            try:
+                uentry = UpdateEntry.from_bytes(entry_bytes)
+                # Validate hash guard
+                payload = entry_bytes[4:24]
+                expected_guard = hashlittle(payload, 0) | 0x80000000
+                if uentry.hash_guard != expected_guard:
+                    logger.warning(
+                        "Update entry hash guard mismatch",
+                        expected=f"{expected_guard:#010x}",
+                        actual=f"{uentry.hash_guard:#010x}",
+                    )
+                update_entries.append(uentry)
+            except ValueError:
+                pass
+
+            uoffset += 24
 
     return LocalIndexFileInfo(
         version=version,
@@ -271,6 +439,7 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         file_offset_bits=file_offset_bits,
         segment_size=segment_size,
         entries=entries,
+        update_entries=update_entries,
     )
 
 
@@ -336,18 +505,7 @@ class LocalStorage:
 
     def _write_empty_index(self, path: Path, bucket: int) -> None:
         """Write an empty index file for a bucket."""
-        header = LocalIndexHeader(bucket=bucket)
-        header_data = header.to_bytes()
-
-        # Calculate Jenkins hash of header
-        header_hash = jenkins_hash(header_data)
-
-        # Write guarded block header + header data
-        with open(path, 'wb') as f:
-            f.write(struct.pack('<I', len(header_data)))  # Block size
-            f.write(struct.pack('<I', header_hash))  # Block hash
-            f.write(header_data)
-
+        self._write_index_file(path, bucket, [])
         logger.debug(f"Created empty index: {path}")
 
     def write_content(
@@ -502,27 +660,103 @@ class LocalStorage:
         logger.info(f"Created shmem file: {shmem_file}")
 
     def _write_index_file(self, path: Path, bucket: int, entries: list[LocalIndexEntry]) -> None:
-        """Write index file with entries."""
-        header = LocalIndexHeader(bucket=bucket)
-        header_data = header.to_bytes()
+        """Write index file with correct V7 layout.
 
-        # Serialize entries
+        Layout:
+          0x00: Guarded block header (8 bytes) — header block
+          0x08: File header (16 bytes)
+          0x18: Padding (8 bytes, zeros) — align to 0x20
+          0x20: Guarded block header (8 bytes) — sorted section block
+          0x28: Sorted entries (N * 18 bytes)
+          Pad to 0x10000 boundary
+          0x10000: Update section (empty pages, min 0x7800 bytes)
+        """
+        header = LocalIndexHeader(bucket=bucket)
+        header_data = header.to_bytes()  # 16 bytes
+
+        # Serialize sorted entries
         entries_data = b''.join(entry.to_bytes() for entry in entries)
 
-        # Calculate hashes
-        header_hash = jenkins_hash(header_data)
-        entries_hash = jenkins_hash(entries_data)
+        # Header hash: hashlittle of header data
+        header_hash = hashlittle(header_data, 0)
+
+        # Sorted section hash: iterative hashlittle2 per entry
+        pc, pb = 0, 0
+        for entry in entries:
+            pc, pb = hashlittle2(entry.to_bytes(), pc, pb)
+        entries_hash = pc
 
         with open(path, 'wb') as f:
-            # Write header block
+            # 0x00: Header guarded block (8 bytes)
             f.write(struct.pack('<I', len(header_data)))
             f.write(struct.pack('<I', header_hash))
+
+            # 0x08: Header data (16 bytes)
             f.write(header_data)
 
-            # Write entries block
+            # 0x18: Padding to 0x20 (8 bytes)
+            f.write(b'\x00' * 8)
+
+            # 0x20: Entry guarded block header (8 bytes)
             f.write(struct.pack('<I', len(entries_data)))
             f.write(struct.pack('<I', entries_hash))
+
+            # 0x28: Sorted entries
             f.write(entries_data)
+
+            # Pad sorted section to 0x10000 boundary
+            current_pos = 0x28 + len(entries_data)
+            padding_needed = 0x10000 - current_pos
+            if padding_needed > 0:
+                f.write(b'\x00' * padding_needed)
+
+            # 0x10000: Update section (empty, minimum 0x7800 bytes)
+            f.write(b'\x00' * UPDATE_SECTION_MIN_SIZE)
+
+    def insert_entry(self, bucket: int, entry: LocalIndexEntry, status: int = 0) -> None:
+        """Append an UpdateEntry to the update section of a bucket's .idx file.
+
+        This writes a single entry to the update section without rewriting the
+        sorted section. Used for marking entries as non-resident or adding
+        single entries incrementally.
+
+        Args:
+            bucket: Bucket ID (0x00-0x0F)
+            entry: Index entry to insert
+            status: Update entry status (0=normal, 3=delete, 6=hdr-nonres, 7=data-nonres)
+        """
+        generation = self.bucket_generations[bucket]
+        idx_path = self.data_path / format_idx_filename(bucket, generation)
+
+        if not idx_path.exists():
+            logger.warning(f"Index file not found for bucket {bucket}: {idx_path}")
+            return
+
+        update_entry = UpdateEntry.from_index_entry(entry, status)
+        update_bytes = update_entry.to_bytes()
+
+        # Read existing file to find first empty slot in update section
+        file_data = idx_path.read_bytes()
+        update_offset = 0x10000
+
+        if len(file_data) < update_offset:
+            logger.warning(f"Index file too small for update section: {idx_path}")
+            return
+
+        # Scan for first empty 24-byte slot
+        pos = update_offset
+        while pos + 24 <= len(file_data):
+            if file_data[pos:pos + 4] == b'\x00\x00\x00\x00':
+                break
+            pos += 24
+        else:
+            # No empty slot found; extend the file
+            pos = len(file_data)
+
+        # Write the update entry at the found position
+        with open(idx_path, 'r+b') as f:
+            f.seek(pos)
+            f.write(update_bytes)
 
     def save_cdn_index(self, archive_hash: str, data: bytes) -> Path:
         """Save a downloaded CDN archive index.
@@ -586,25 +820,3 @@ class LocalStorage:
         return stats
 
 
-def jenkins_hash(data: bytes) -> int:
-    """Compute Jenkins one-at-a-time hash.
-
-    Args:
-        data: Data to hash
-
-    Returns:
-        32-bit hash value
-    """
-    hash_value = 0
-    for byte in data:
-        hash_value += byte
-        hash_value += (hash_value << 10) & 0xFFFFFFFF
-        hash_value ^= (hash_value >> 6)
-        hash_value &= 0xFFFFFFFF
-
-    hash_value += (hash_value << 3) & 0xFFFFFFFF
-    hash_value ^= (hash_value >> 11)
-    hash_value += (hash_value << 15) & 0xFFFFFFFF
-    hash_value &= 0xFFFFFFFF
-
-    return hash_value

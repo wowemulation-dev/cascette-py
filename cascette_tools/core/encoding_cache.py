@@ -28,8 +28,8 @@ import structlog
 from cascette_tools.core.local_storage import (
     LocalIndexHeader,
     format_idx_filename,
-    jenkins_hash,
 )
+from cascette_tools.crypto.jenkins import hashlittle
 
 logger = structlog.get_logger()
 
@@ -184,8 +184,8 @@ class EncodingCache:
 
         entries_data = b"".join(entry.to_bytes() for entry in entries)
 
-        header_hash = jenkins_hash(header_data)
-        entries_hash = jenkins_hash(entries_data)
+        header_hash = hashlittle(header_data)
+        entries_hash = hashlittle(entries_data)
 
         with open(path, "wb") as f:
             # Header guarded block
@@ -278,7 +278,7 @@ def _parse_ecache_idx(data: bytes) -> list[EncodingCacheEntry]:
     entry_data = data[entries_offset + 8 : entries_offset + 8 + entry_block_size]
 
     # Verify hash
-    actual_hash = jenkins_hash(entry_data)
+    actual_hash = hashlittle(entry_data)
     if actual_hash != entry_block_hash:
         logger.warning(
             "Ecache entry block hash mismatch",

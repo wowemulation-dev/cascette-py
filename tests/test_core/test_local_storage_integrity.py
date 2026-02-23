@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from cascette_tools.core.integrity import IntegrityError
-from cascette_tools.core.local_storage import LocalStorage
+from cascette_tools.core.local_storage import LocalStorage, compute_bucket
 
 
 class TestWriteContentDeduplication:
@@ -30,7 +30,7 @@ class TestWriteContentDeduplication:
         assert entry1.size == entry2.size
 
         # Only one entry should exist in bucket
-        bucket = ekey[0] & 0x0F
+        bucket = compute_bucket(ekey)
         assert len(storage.bucket_entries[bucket]) == 1
 
     def test_different_size_not_deduplicated(self, tmp_path: Path):
@@ -46,7 +46,7 @@ class TestWriteContentDeduplication:
         storage.write_content(ekey, data2)
 
         # Both entries should exist (different sizes)
-        bucket = ekey[0] & 0x0F
+        bucket = compute_bucket(ekey)
         assert len(storage.bucket_entries[bucket]) == 2
 
     def test_different_keys_not_deduplicated(self, tmp_path: Path):
@@ -120,7 +120,7 @@ class TestWriteContentVerification:
             storage.write_content(ekey, data, expected_ckey=wrong_ckey)
 
         # No entries should exist
-        bucket = ekey[0] & 0x0F
+        bucket = compute_bucket(ekey)
         assert len(storage.bucket_entries[bucket]) == 0
 
         # Data file should not have been written
