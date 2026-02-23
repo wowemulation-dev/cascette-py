@@ -15,6 +15,7 @@ Archive-groups are generated LOCALLY by Battle.net client.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -31,6 +32,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     parse_cdn_config_archives,
 )
 from cascette_tools.core.config import AppConfig
+from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
 from cascette_tools.core.integrity import IntegrityError
 from cascette_tools.core.local_storage import LocalStorage
 from cascette_tools.core.product_state import (
@@ -1280,20 +1282,36 @@ def install_to_casc(
         ) as progress:
             task = progress.add_task("Loading indices...", total=len(archives))
 
-            for archive_hash in archives:
-                progress.update(task, advance=1)
+            async def _download_indices_concurrent() -> int:
+                """Download archive indices concurrently (12 at a time)."""
+                semaphore = asyncio.Semaphore(12)
+                lock = asyncio.Lock()
+                successful = 0
 
-                # Fetch index via CDNClient (handles caching and fallback)
-                index_data = cdn_client.fetch_data(archive_hash, is_index=True)
-                fetcher.load_index_from_bytes(archive_hash, index_data)
+                async def fetch_one(archive_hash: str) -> None:
+                    nonlocal successful
+                    async with semaphore:
+                        index_data = await cdn_client.fetch_data_async(
+                            archive_hash, is_index=True
+                        )
 
-                # Also write to local indices directory for CASC installation
-                local_path = storage.indices_path / f"{archive_hash.lower()}.index"
-                if not local_path.exists():
-                    local_path.write_bytes(index_data)
+                    # Index parsing and disk write under lock (CPU-bound, fast)
+                    async with lock:
+                        fetcher.load_index_from_bytes(archive_hash, index_data)
+                        local_path = storage.indices_path / f"{archive_hash.lower()}.index"
+                        if not local_path.exists():
+                            local_path.write_bytes(index_data)
+                        successful += 1
+                        progress.update(task, advance=1)
+
+                tasks = [fetch_one(h) for h in archives]
+                await asyncio.gather(*tasks, return_exceptions=True)
+                return successful
+
+            indices_loaded = asyncio.run(_download_indices_concurrent())
 
         console.print(f"  Index map: {fetcher.index_map.total_entries:,} entries")
-        console.print(f"  Archives: {len(archives)} loaded")
+        console.print(f"  Archives: {indices_loaded}/{len(archives)} loaded")
 
         # Step 6: Process install manifest (executables and DLLs)
         # Now we can fetch files using the archive indices
@@ -1449,48 +1467,95 @@ def install_to_casc(
             download_entries = download_entries[:max_files]
 
         console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(download_entries)} files to local CASC...")
+        console.print("  Concurrent connections: 12 global, 3 per host")
 
         installed = 0
         failed = 0
         integrity_errors = 0
         total_bytes = 0
 
+        from rich.progress import (
+            DownloadColumn,
+            TransferSpeedColumn,
+        )
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
             console=console
         ) as progress:
-            task = progress.add_task("Installing files...", total=len(download_entries))
+            task = progress.add_task(
+                "Installing files...",
+                total=sum(e.size for e in download_entries),
+            )
 
-            for dl_entry in download_entries:
-                progress.update(task, advance=1)
+            async def _install_files_concurrent() -> tuple[int, int, int, int]:
+                """Download and install CASC files concurrently."""
+                _installed = 0
+                _failed = 0
+                _integrity_errors = 0
+                _total_bytes = 0
 
-                # Fetch file from CDN archive via CDNClient (keep BLTE compressed)
-                # verify=True checks that extracted size matches index entry
-                data = fetcher.fetch_file_via_cdn(
-                    cdn_client, dl_entry.ekey, decompress=False, verify=True,
+                queue = DownloadQueue(
+                    max_concurrency=12, max_per_host=3, max_retries=3
                 )
 
-                if data is None:
-                    failed += 1
-                    continue
+                # Sort by priority and submit all entries
+                sorted_entries = sorted(download_entries, key=lambda e: e.priority)
 
-                # Write to local CASC storage (with deduplication)
-                try:
-                    storage.write_content(dl_entry.ekey, data)
-                except IntegrityError as e:
-                    integrity_errors += 1
-                    logger.warning(
-                        "Integrity error writing content",
-                        ekey=dl_entry.ekey.hex(),
-                        error=str(e),
+                for dl_entry in sorted_entries:
+                    ekey = dl_entry.ekey
+
+                    async def make_factory(ek: bytes = ekey) -> DownloadResult:
+                        data = await fetcher.fetch_file_via_cdn_async(
+                            cdn_client, ek, decompress=False, verify=True,
+                        )
+                        source = ""
+                        loc = fetcher.index_map.find(ek)
+                        if loc:
+                            source = loc.archive_hash
+                        return DownloadResult(
+                            ekey=ek,
+                            data=data,
+                            error=None if data is not None else "Not found in archives",
+                            source=source,
+                        )
+
+                    await queue.submit(
+                        priority=dl_entry.priority,
+                        ekey=dl_entry.ekey,
+                        coro_factory=make_factory,
                     )
-                    continue
 
-                installed += 1
-                total_bytes += len(data)
+                async for result in queue.run(total=len(sorted_entries)):
+                    if result.data is None:
+                        _failed += 1
+                        continue
+
+                    try:
+                        storage.write_content(result.ekey, result.data)
+                    except IntegrityError as e:
+                        _integrity_errors += 1
+                        logger.warning(
+                            "Integrity error writing content",
+                            ekey=result.ekey.hex(),
+                            error=str(e),
+                        )
+                        continue
+
+                    _installed += 1
+                    _total_bytes += len(result.data)
+                    progress.update(task, advance=len(result.data))
+
+                return _installed, _failed, _integrity_errors, _total_bytes
+
+            installed, failed, integrity_errors, total_bytes = asyncio.run(
+                _install_files_concurrent()
+            )
 
         # Step 8: Update .build.info with last activated timestamp
         console.print("\n[cyan]Step 8:[/cyan] Updating .build.info timestamp...")

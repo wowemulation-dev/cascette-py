@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import structlog
 
@@ -317,6 +319,123 @@ class CDNClient:
 
         return data
 
+    async def _fetch_from_cdn_async(
+        self, hash_str: str, file_type: str, quiet: bool = False
+    ) -> bytes:
+        """Fetch file from CDN servers with mirror fallback (async).
+
+        Same mirror-fallback logic as _fetch_from_cdn but uses the async client.
+
+        Args:
+            hash_str: File hash
+            file_type: Type of file (config, data, index, patch, patch_index)
+            quiet: If True, log at debug level instead of error when all mirrors fail
+
+        Returns:
+            File data
+
+        Raises:
+            httpx.HTTPError: If all mirrors fail
+        """
+        last_error = None
+
+        mirrors = self.cdn_servers + self.config.fallback_mirrors
+
+        if not mirrors:
+            raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")
+
+        for mirror_idx, mirror in enumerate(mirrors):
+            url = self._build_url(hash_str, file_type, mirror)
+
+            for attempt in range(self.config.max_retries):
+                try:
+                    response = await self.async_client.get(url)
+                    response.raise_for_status()
+
+                    logger.debug(
+                        "cdn_fetch_async_success",
+                        hash=hash_str,
+                        type=file_type,
+                        mirror=mirror,
+                        mirror_idx=mirror_idx,
+                        attempt=attempt + 1
+                    )
+                    return response.content
+
+                except httpx.HTTPError as e:
+                    last_error = e
+                    logger.debug(
+                        "cdn_fetch_async_retry",
+                        hash=hash_str,
+                        type=file_type,
+                        mirror=mirror,
+                        attempt=attempt + 1,
+                        error=str(e)
+                    )
+                    continue
+
+            logger.debug(
+                "cdn_mirror_failed",
+                hash=hash_str,
+                type=file_type,
+                mirror=mirror,
+                mirror_idx=mirror_idx
+            )
+
+        if quiet:
+            logger.debug("cdn_all_mirrors_failed", hash=hash_str, type=file_type)
+        else:
+            logger.error("cdn_all_mirrors_failed", hash=hash_str, type=file_type)
+        if last_error:
+            raise last_error
+        raise httpx.HTTPError(f"Failed to fetch {hash_str} from all mirrors")
+
+    async def fetch_data_async(
+        self, hash_str: str, is_index: bool = False, quiet: bool = False
+    ) -> bytes:
+        """Fetch data file asynchronously with caching.
+
+        Checks the local disk cache first (synchronously, since disk I/O
+        is fast), then fetches from CDN using the async client.
+
+        Args:
+            hash_str: Data file hash
+            is_index: True if fetching an archive index
+            quiet: If True, log at debug level when all mirrors fail
+
+        Returns:
+            File data
+        """
+        self.ensure_initialized()
+        assert self.cdn_path is not None, "CDN path should be set after initialization"
+
+        file_type = "index" if is_index else "data"
+
+        # Check cache first (sync - local disk)
+        cached = self.cache.get_cdn(hash_str, file_type, self.cdn_path)
+        if cached:
+            logger.debug(
+                "cache_hit",
+                hash=hash_str,
+                type=file_type,
+                path=self.cdn_path
+            )
+            return cached
+
+        # Fetch from CDN with mirror fallback (async)
+        data = await self._fetch_from_cdn_async(hash_str, file_type, quiet=quiet)
+
+        # Store in cache (sync - local disk)
+        self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
+        logger.debug(
+            "cache_store",
+            hash=hash_str,
+            type=file_type,
+            size=len(data)
+        )
+
+        return data
+
     def fetch_patch(self, hash_str: str, is_index: bool = False) -> bytes:
         """Fetch patch file (manifest, archive, or index).
 
@@ -358,12 +477,29 @@ class CDNClient:
         return data
 
     def close(self) -> None:
-        """Close HTTP clients."""
+        """Close sync HTTP client.
+
+        For async client cleanup, use aclose() in an async context.
+        """
         if self._client:
             self._client.close()
         if self._async_client:
-            # This would need to be awaited in an async context
-            # For now we just set to None to avoid potential issues
+            # Best-effort sync close: schedule in running loop if available
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._async_client.aclose())
+            except RuntimeError:
+                # No running loop - just drop the reference
+                pass
+            self._async_client = None
+
+    async def aclose(self) -> None:
+        """Close both sync and async HTTP clients."""
+        if self._client:
+            self._client.close()
+            self._client = None
+        if self._async_client:
+            await self._async_client.aclose()
             self._async_client = None
 
     def __enter__(self) -> CDNClient:
@@ -373,3 +509,11 @@ class CDNClient:
     def __exit__(self, *args: object) -> None:
         """Context manager exit."""
         self.close()
+
+    async def __aenter__(self) -> CDNClient:
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Async context manager exit."""
+        await self.aclose()
