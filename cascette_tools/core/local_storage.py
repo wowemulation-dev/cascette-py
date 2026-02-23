@@ -14,12 +14,15 @@ Key concepts:
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import structlog
+
+from cascette_tools.core.integrity import IntegrityError
 
 logger = structlog.get_logger()
 
@@ -293,6 +296,9 @@ class LocalStorage:
         # Track generation numbers for each bucket (starts at 1)
         self.bucket_generations: dict[int, int] = dict.fromkeys(range(16), 1)
 
+        # Deduplication: track (truncated_key, size) of written entries
+        self._written_keys: dict[bytes, int] = {}
+
     def initialize(self) -> None:
         """Create directory structure matching Battle.net."""
         logger.info(f"Initializing CASC storage at {self.base_path}")
@@ -342,16 +348,60 @@ class LocalStorage:
 
         logger.debug(f"Created empty index: {path}")
 
-    def write_content(self, encoding_key: bytes, data: bytes) -> LocalIndexEntry:
+    def write_content(
+        self,
+        encoding_key: bytes,
+        data: bytes,
+        *,
+        expected_ckey: bytes | None = None,
+    ) -> LocalIndexEntry:
         """Write content to local storage.
 
         Args:
             encoding_key: Full encoding key (16 bytes)
-            data: Content data to write
+            data: Content data to write (raw BLTE-encoded bytes)
+            expected_ckey: If provided, verify decompressed content MD5
+                matches this content key. Only meaningful when data is
+                the decompressed content, not the raw BLTE blob.
 
         Returns:
             Index entry for the written content
+
+        Raises:
+            IntegrityError: If expected_ckey is provided and MD5
+                of data does not match
         """
+        truncated_key = encoding_key[:9]
+
+        # Deduplication: skip if already written with same size
+        if truncated_key in self._written_keys:
+            existing_size = self._written_keys[truncated_key]
+            if existing_size == len(data):
+                logger.debug(
+                    "Skipping duplicate write",
+                    ekey=encoding_key.hex(),
+                    size=len(data),
+                )
+                # Return a dummy entry pointing to the existing data
+                # (the real entry is already in bucket_entries)
+                bucket = compute_bucket(encoding_key)
+                for entry in self.bucket_entries[bucket]:
+                    if entry.key == truncated_key:
+                        return entry
+                # Fallthrough: key tracked but entry not found (shouldn't happen)
+
+        # Verify content key if provided
+        if expected_ckey is not None:
+            actual_md5 = hashlib.md5(data).digest()
+            if actual_md5 != expected_ckey:
+                raise IntegrityError(
+                    f"Content key mismatch for ekey {encoding_key.hex()}: "
+                    f"expected {expected_ckey.hex()}, got {actual_md5.hex()}",
+                    expected=expected_ckey.hex(),
+                    actual=actual_md5.hex(),
+                    key_hex=encoding_key.hex(),
+                )
+
         # Determine bucket
         bucket = compute_bucket(encoding_key)
 
@@ -370,7 +420,7 @@ class LocalStorage:
 
         # Create index entry
         entry = LocalIndexEntry(
-            key=encoding_key[:9],
+            key=truncated_key,
             archive_id=self.current_archive_id,
             archive_offset=self.current_archive_offset,
             size=len(data)
@@ -379,6 +429,7 @@ class LocalStorage:
         # Update offset and track entry
         self.current_archive_offset += len(data)
         self.bucket_entries[bucket].append(entry)
+        self._written_keys[truncated_key] = len(data)
 
         return entry
 

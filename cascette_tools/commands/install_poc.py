@@ -31,6 +31,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     parse_cdn_config_archives,
 )
 from cascette_tools.core.config import AppConfig
+from cascette_tools.core.integrity import IntegrityError
 from cascette_tools.core.local_storage import LocalStorage
 from cascette_tools.core.product_state import (
     ProductInfo,
@@ -50,7 +51,6 @@ from cascette_tools.formats.install import InstallEntry, InstallParser, InstallT
 from cascette_tools.formats.size import (
     apply_tag_query,
     is_file_selected,
-    parse_tag_query,
 )
 
 logger = structlog.get_logger()
@@ -892,7 +892,7 @@ def filter_entries_by_tags(
         Filtered list of entries
     """
     # Build tag query from parameters
-    query_parts = []
+    query_parts: list[str] = []
     if platform:
         query_parts.append(platform)
     if arch:
@@ -913,8 +913,9 @@ def filter_entries_by_tags(
         SizeTag(
             name=tag.name,
             tag_id=tag.tag_type,
+            tag_type=tag.tag_type,
             file_indices=[],
-            bit_mask=tag.bit_mask
+            bit_mask=tag.file_mask
         )
         for tag in tags
     ]
@@ -1334,7 +1335,7 @@ def install_to_casc(
                     Uses bitmap-based tag filtering matching Agent.exe behavior.
                     """
                     # Build tag query from parameters
-                    query_parts = []
+                    query_parts: list[str] = []
                     if plat:
                         query_parts.append(plat)
                     if ar:
@@ -1354,6 +1355,7 @@ def install_to_casc(
                         SizeTag(
                             name=tag.name,
                             tag_id=tag.tag_type,
+                            tag_type=tag.tag_type,
                             file_indices=[],
                             bit_mask=tag.bit_mask
                         )
@@ -1450,6 +1452,7 @@ def install_to_casc(
 
         installed = 0
         failed = 0
+        integrity_errors = 0
         total_bytes = 0
 
         with Progress(
@@ -1465,14 +1468,27 @@ def install_to_casc(
                 progress.update(task, advance=1)
 
                 # Fetch file from CDN archive via CDNClient (keep BLTE compressed)
-                data = fetcher.fetch_file_via_cdn(cdn_client, dl_entry.ekey, decompress=False)
+                # verify=True checks that extracted size matches index entry
+                data = fetcher.fetch_file_via_cdn(
+                    cdn_client, dl_entry.ekey, decompress=False, verify=True,
+                )
 
                 if data is None:
                     failed += 1
                     continue
 
-                # Write to local CASC storage
-                storage.write_content(dl_entry.ekey, data)
+                # Write to local CASC storage (with deduplication)
+                try:
+                    storage.write_content(dl_entry.ekey, data)
+                except IntegrityError as e:
+                    integrity_errors += 1
+                    logger.warning(
+                        "Integrity error writing content",
+                        ekey=dl_entry.ekey.hex(),
+                        error=str(e),
+                    )
+                    continue
+
                 installed += 1
                 total_bytes += len(data)
 
@@ -1541,6 +1557,7 @@ def install_to_casc(
         summary_table.add_row("Install manifest files", f"{install_entries_extracted}")
         summary_table.add_row("CASC files installed", f"{installed:,}")
         summary_table.add_row("CASC files failed", str(failed))
+        summary_table.add_row("Integrity errors", str(integrity_errors))
         summary_table.add_row("Total data written", f"{total_bytes / (1024*1024):.2f} MB")
         summary_table.add_row("Archive indices", f"{len(archives)}")
         summary_table.add_row("State files created", f"{len(state_files)}")

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import httpx
 import structlog
 
+from cascette_tools.core.integrity import IntegrityError, verify_ekey_size
 from cascette_tools.formats.blte import decompress_blte, is_blte
 from cascette_tools.formats.cdn_archive import CdnArchiveEntry, CdnArchiveParser
 
@@ -365,7 +366,8 @@ class CdnArchiveFetcher:
         self,
         client: httpx.Client,
         encoding_key: bytes,
-        decompress: bool = True
+        decompress: bool = True,
+        verify: bool = True,
     ) -> bytes | None:
         """Fetch a file from CDN archives by encoding key.
 
@@ -373,6 +375,7 @@ class CdnArchiveFetcher:
             client: HTTP client
             encoding_key: Encoding key (16 bytes)
             decompress: Whether to decompress BLTE data
+            verify: Whether to verify extracted size against index entry
 
         Returns:
             File data or None if not found
@@ -401,6 +404,20 @@ class CdnArchiveFetcher:
                 return None
 
             data = response.content
+
+            # Verify extracted size matches index entry
+            if verify:
+                try:
+                    verify_ekey_size(data, location.size)
+                except IntegrityError as e:
+                    logger.warning(
+                        "Archive range size mismatch",
+                        ekey=encoding_key.hex(),
+                        expected=location.size,
+                        actual=len(data),
+                        error=str(e),
+                    )
+                    return None
 
             # Decompress BLTE if requested
             if decompress and is_blte(data):
@@ -452,7 +469,8 @@ class CdnArchiveFetcher:
         self,
         cdn_client: CDNClient,
         encoding_key: bytes,
-        decompress: bool = True
+        decompress: bool = True,
+        verify: bool = True,
     ) -> bytes | None:
         """Fetch a file from CDN archives using CDNClient with fallback support.
 
@@ -463,6 +481,7 @@ class CdnArchiveFetcher:
             cdn_client: CDNClient instance with initialized CDN servers
             encoding_key: Encoding key (16 bytes)
             decompress: Whether to decompress BLTE data
+            verify: Whether to verify extracted size against index entry
 
         Returns:
             File data or None if not found
@@ -499,6 +518,22 @@ class CdnArchiveFetcher:
                 response = cdn_client.client.get(url, headers=headers)
                 if response.status_code in [200, 206]:
                     data = response.content
+
+                    # Verify extracted size matches index entry
+                    if verify:
+                        try:
+                            verify_ekey_size(data, location.size)
+                        except IntegrityError as e:
+                            logger.warning(
+                                "Archive range size mismatch",
+                                ekey=encoding_key.hex(),
+                                archive=location.archive_hash,
+                                expected=location.size,
+                                actual=len(data),
+                                error=str(e),
+                            )
+                            # Try next mirror in case of partial response
+                            continue
 
                     # Decompress BLTE if requested
                     if decompress and is_blte(data):

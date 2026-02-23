@@ -3,11 +3,11 @@
 import struct
 from io import BytesIO
 
+import pytest
+
 from cascette_tools.formats.size import (
     SizeBuilder,
     SizeEntry,
-    SizeFile,
-    SizeHeader,
     SizeParser,
     SizeTag,
     apply_tag_query,
@@ -174,11 +174,8 @@ class TestSizeParser:
         data.write(struct.pack('>H', 0x0000))  # Invalid: 0x0000
         data.write(struct.pack('>I', 1024))
 
-        try:
+        with pytest.raises(ValueError, match="Invalid key hash"):
             parser.parse(data.getvalue())
-            assert False, "Should have raised ValueError for invalid key hash"
-        except ValueError as e:
-            assert "Invalid key hash" in str(e)
 
         # Try with 0xFFFF
         data2 = BytesIO()
@@ -197,11 +194,8 @@ class TestSizeParser:
         data2.write(struct.pack('>H', 0xFFFF))  # Invalid: 0xFFFF
         data2.write(struct.pack('>I', 1024))
 
-        try:
+        with pytest.raises(ValueError, match="Invalid key hash"):
             parser.parse(data2.getvalue())
-            assert False, "Should have raised ValueError for invalid key hash"
-        except ValueError as e:
-            assert "Invalid key hash" in str(e)
 
     def test_unsupported_version(self):
         """Test that unsupported versions are rejected."""
@@ -215,11 +209,8 @@ class TestSizeParser:
         data.write(struct.pack('>I', 0))
         data.write(struct.pack('>H', 128))
 
-        try:
+        with pytest.raises(ValueError, match="Unsupported size manifest version"):
             parser.parse(data.getvalue())
-            assert False, "Should have raised ValueError for version 0"
-        except ValueError as e:
-            assert "Unsupported size manifest version" in str(e)
 
         # Version 3
         data2 = BytesIO()
@@ -229,17 +220,15 @@ class TestSizeParser:
         data2.write(struct.pack('>I', 0))
         data2.write(struct.pack('>H', 128))
 
-        try:
+        with pytest.raises(ValueError, match="Unsupported size manifest version"):
             parser.parse(data2.getvalue())
-            assert False, "Should have raised ValueError for version 3"
-        except ValueError as e:
-            assert "Unsupported size manifest version" in str(e)
 
     def test_size_tag_has_file(self):
-        """Test SizeTag.has_file method."""
+        """Test SizeTag.has_file method using file_indices fallback."""
         tag = SizeTag(
             name="test",
             tag_id=1,
+            tag_type=1,
             file_indices=[0, 2, 5, 10, 100]
         )
 
@@ -363,8 +352,8 @@ class TestTagQuery:
     def test_apply_tag_query_empty(self):
         """Test applying empty tag query."""
         tags = [
-            SizeTag(name="enUS", tag_id=1, file_indices=[], bit_mask=b'\xFF'),
-            SizeTag(name="deDE", tag_id=2, file_indices=[], bit_mask=b'\xFF'),
+            SizeTag(name="enUS", tag_id=1, tag_type=4, file_indices=[], bit_mask=b'\xFF'),
+            SizeTag(name="deDE", tag_id=2, tag_type=4, file_indices=[], bit_mask=b'\xFF'),
         ]
 
         bitmap = apply_tag_query(tags, "", 10)
@@ -398,8 +387,8 @@ class TestTagQuery:
             tag2_mask[byte_index] |= (0x80 >> bit_position)
 
         tags = [
-            SizeTag(name="enUS", tag_id=1, file_indices=[], bit_mask=bytes(tag1_mask)),
-            SizeTag(name="deDE", tag_id=2, file_indices=[], bit_mask=bytes(tag2_mask)),
+            SizeTag(name="enUS", tag_id=1, tag_type=4, file_indices=[], bit_mask=bytes(tag1_mask)),
+            SizeTag(name="deDE", tag_id=2, tag_type=4, file_indices=[], bit_mask=bytes(tag2_mask)),
         ]
 
         # Query for enUS should select files 0, 2, 4, 6, 8
@@ -416,8 +405,8 @@ class TestTagQuery:
         tag_mask = bytes([0xFF, 0xFF])
 
         tags = [
-            SizeTag(name="all", tag_id=1, file_indices=[], bit_mask=tag_mask),
-            SizeTag(name="beta", tag_id=2, file_indices=[0, 1], bit_mask=b'\xC0\x00'),
+            SizeTag(name="all", tag_id=1, tag_type=1, file_indices=[], bit_mask=tag_mask),
+            SizeTag(name="beta", tag_id=2, tag_type=1, file_indices=[0, 1], bit_mask=b'\xC0\x00'),
         ]
 
         # Query for all but exclude beta
@@ -457,10 +446,8 @@ class TestTagQuery:
 
     def test_unknown_tag_warning(self, caplog):
         """Test that unknown tags are logged as warnings."""
-        import logging
-
         tags = [
-            SizeTag(name="enUS", tag_id=1, file_indices=[], bit_mask=b'\xFF'),
+            SizeTag(name="enUS", tag_id=1, tag_type=4, file_indices=[], bit_mask=b'\xFF'),
         ]
 
         # Query with unknown tag
@@ -479,27 +466,27 @@ class TestTagEntries:
     def test_parse_tag_entries_simple(self):
         """Test parsing single tag entry.
 
-        Tag format: null-terminated string + 3-byte header + bitmap
+        Tag format: null-terminated string + 2-byte BE tag_type + bitmap
         - String: "enUS\x00" (5 bytes)
-        - Header byte[0]: 0x00
-        - Header byte[1-2]: BE field = 5 (bitmap size = (5+7)>>3 = 1)
-        - Bitmap: 0xA8 (bits 0,2,4 set = 0b10101000 in MSB order)
+        - Tag type: 0x0004 (locale category)
+        - Bitmap: 0xA8 (files 0,2,4 set in MSB order)
+        - entry_count=5 determines bitmap size: (5+7)>>3 = 1 byte
         """
         parser = SizeParser()
 
         blob = BytesIO()
-        blob.write(b'enUS\x00')  # Null-terminated string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 5))  # 2-byte BE field (max index + 1)
-        blob.write(b'\xa8')       # Bitmap: bits 0,2,4 set = 0b10101000 = 0xA8 (MSB)
+        blob.write(b'enUS\x00')              # Null-terminated string
+        blob.write(struct.pack('>H', 4))      # 2-byte BE tag_type (locale)
+        blob.write(b'\xa8')                   # Bitmap: files 0,2,4 = 0xA8 (MSB)
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1, entry_count=5)
 
         assert len(tags) == 1
         tag = tags[0]
         assert tag.name == "enUS"
         assert tag.tag_id == 0
+        assert tag.tag_type == 4
         assert tag.file_indices == [0, 2, 4]
         # Verify bitmap was built correctly (MSB bit ordering)
         assert tag.has_file(0) is True
@@ -516,19 +503,17 @@ class TestTagEntries:
 
         # Entry 1: "enUS" tag with indices [0, 1, 2]
         # Bitmap for [0,1,2]: bits 0,1,2 set = 0b11100000 = 0xE0 (MSB order)
-        blob.write(b'enUS\x00')  # Null-terminated string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 3))  # 2-byte BE field = 3
-        blob.write(b'\xe0')       # Bitmap: 0b11100000 = 0xE0
+        blob.write(b'enUS\x00')              # Null-terminated string
+        blob.write(struct.pack('>H', 4))      # tag_type (locale)
+        blob.write(b'\xe0')                   # Bitmap: 0xE0
 
-        # Entry 2: "deDE" tag with indices [0, 1] (relative indices)
-        blob.write(b'deDE\x00')  # Null-terminated string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 2))  # 2-byte BE field = 2
-        blob.write(b'\xc0')       # Bitmap: bits 0,1 set = 0b11000000 = 0xC0
+        # Entry 2: "deDE" tag with indices [0, 1]
+        blob.write(b'deDE\x00')              # Null-terminated string
+        blob.write(struct.pack('>H', 4))      # tag_type (locale)
+        blob.write(b'\xc0')                   # Bitmap: 0xC0
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2, entry_count=3)
 
         assert len(tags) == 2
         assert tags[0].name == "enUS"
@@ -546,19 +531,16 @@ class TestTagEntries:
         blob = BytesIO()
 
         # Entry 1: "enUS" tag with indices [0, 1]
-        blob.write(b'enUS\x00')  # Null-terminated string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 2))  # 2-byte BE field = 2
-        blob.write(b'\xc0')       # Bitmap: bits 0,1 set = 0b11000000 = 0xC0
+        blob.write(b'enUS\x00')              # Null-terminated string
+        blob.write(struct.pack('>H', 4))      # tag_type (locale)
+        blob.write(b'\xc0')                   # Bitmap: files 0,1 = 0xC0
 
-        # End marker: field value = 0x0000
-        # Format: null-terminated string + header with 0x0000 field
-        blob.write(b'end\x00')   # Some string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 0x0000))  # End marker
+        # End marker: tag_type = 0x0000
+        blob.write(b'end\x00')               # Some string
+        blob.write(struct.pack('>H', 0x0000)) # End marker
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2, entry_count=2)
 
         # Should only parse 1 entry (stops at end marker)
         assert len(tags) == 1
@@ -571,19 +553,17 @@ class TestTagEntries:
         blob = BytesIO()
 
         # Entry: "test" tag with index [5]
-        # Bitmap for [5]: bit 5 set in byte 0 = 0b00000100 = 0x04 (MSB order)
-        blob.write(b'test\x00')  # Null-terminated string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 6))  # 2-byte BE field = 6 (need 6 bits)
-        blob.write(b'\x04')       # Bitmap: bit 5 = 0b00000100 = 0x04
+        # Bitmap for [5]: bit 5 set = 0x04 (MSB order)
+        blob.write(b'test\x00')              # Null-terminated string
+        blob.write(struct.pack('>H', 1))      # tag_type (platform)
+        blob.write(b'\x04')                   # Bitmap: file 5 = 0x04
 
-        # End marker: field value = 0xFFFF
-        blob.write(b'end\x00')   # Some string
-        blob.write(b'\x00')       # byte 0 of header
-        blob.write(struct.pack('>H', 0xFFFF))  # End marker
+        # End marker: tag_type = 0xFFFF
+        blob.write(b'end\x00')               # Some string
+        blob.write(struct.pack('>H', 0xFFFF)) # End marker
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=2, entry_count=6)
 
         assert len(tags) == 1
         assert tags[0].name == "test"
@@ -591,42 +571,37 @@ class TestTagEntries:
     def test_parse_tag_entries_bitmap_sparsity(self):
         """Test bitmap parsing for sparse file indices.
 
-        Sparse indices [5, 100, 500] require larger bitmap.
-        Max index 500 => field value 501 => bitmap size (501+7)>>3 = 63 bytes
+        Sparse indices [5, 100, 500] require entry_count=501.
+        bitmap_size = (501+7)>>3 = 63 bytes
         """
         parser = SizeParser()
 
-        blob = BytesIO()
-
-        # Tag with sparse indices: [5, 100, 500]
-        # Build bitmap manually for indices 5, 100, 500
-        max_index = 500
-        field_value = max_index + 1  # 501
-        bitmap_size = (field_value + 7) >> 3  # 63 bytes
+        entry_count = 501
+        bitmap_size = (entry_count + 7) >> 3  # 63 bytes
         bitmap = bytearray(bitmap_size)
 
         # Set bits in MSB order
-        # Index 5: byte 0, bit 5 = 0b00000100 = 0x04
-        bitmap[0] |= 0x04
-        # Index 100: byte 12 (100//8), bit 4 (100%8) = 0b00010000 = 0x10
+        # Index 5: byte 0, bit 5 = 0x04
+        bitmap[5 // 8] |= (0x80 >> (5 % 8))
+        # Index 100: byte 12, bit 4
         bitmap[100 // 8] |= (0x80 >> (100 % 8))
-        # Index 500: byte 62 (500//8), bit 4 (500%8) = 0b00010000 = 0x10
+        # Index 500: byte 62, bit 4
         bitmap[500 // 8] |= (0x80 >> (500 % 8))
 
-        blob.write(b'sparse\x00')  # Null-terminated string
-        blob.write(b'\x00')         # byte 0 of header
-        blob.write(struct.pack('>H', field_value))  # 2-byte BE field
-        blob.write(bytes(bitmap))   # Bitmap data
+        blob = BytesIO()
+        blob.write(b'sparse\x00')            # Null-terminated string
+        blob.write(struct.pack('>H', 1))       # tag_type (platform)
+        blob.write(bytes(bitmap))              # Bitmap data
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1, entry_count=entry_count)
 
         assert len(tags) == 1
         tag = tags[0]
         assert tag.name == "sparse"
         assert tag.file_indices == [5, 100, 500]
 
-        # Verify bitmap size is based on max index
+        # Verify bitmap size is based on entry_count
         assert len(tag.bit_mask) == 63
 
         # Verify specific indices are set
@@ -640,13 +615,13 @@ class TestTagEntries:
         """Test parsing empty tag table."""
         parser = SizeParser()
 
-        tags = parser.parse_tag_entries(b'', tag_count=0)
+        tags = parser.parse_tag_entries(b'', tag_count=0, entry_count=0)
         assert len(tags) == 0
 
     def test_parse_tag_entries_msb_bit_ordering(self):
         """Test MSB bit ordering in bitmap parsing.
 
-        MSB bit ordering: bit 0 is MSB (0x80), bit 7 is LSB (0x01)
+        MSB bit ordering: file 0 = bit 7 (0x80), file 7 = bit 0 (0x01)
         File indices 0-7 should produce bitmap byte 0xFF.
         """
         parser = SizeParser()
@@ -654,13 +629,12 @@ class TestTagEntries:
         blob = BytesIO()
 
         # Tag with indices 0-7: all bits set = 0xFF
-        blob.write(b'msb\x00')  # Null-terminated string
-        blob.write(b'\x00')     # byte 0 of header
-        blob.write(struct.pack('>H', 8))  # 2-byte BE field = 8
-        blob.write(b'\xff')     # Bitmap: all 8 bits set = 0xFF
+        blob.write(b'msb\x00')               # Null-terminated string
+        blob.write(struct.pack('>H', 1))       # tag_type (platform)
+        blob.write(b'\xff')                    # Bitmap: all 8 bits set
 
         blob.seek(0)
-        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1)
+        tags = parser.parse_tag_entries(blob.getvalue(), tag_count=1, entry_count=8)
 
         assert len(tags) == 1
         tag = tags[0]

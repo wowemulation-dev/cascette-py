@@ -29,24 +29,24 @@ class TestInstallParser:
         assert not is_install(b'')
 
     def test_install_tag_has_file(self):
-        """Test InstallTag.has_file method."""
-        # Create tag with bitmask: files 0, 2, 5 have the tag
-        # Byte 0: bits 0 and 2 set = 0b00000101 = 0x05
-        # Byte 1: bit 5 set (bit 5 - 8 = -3, so bit 5 in second byte is bit 5-8 = bit 5 in byte 0)
-        # Actually bit 5 is in byte 0, bit position 5
+        """Test InstallTag.has_file method with MSB bit ordering.
+
+        MSB ordering: file index 0 = bit 7 (0x80), index 1 = bit 6 (0x40), etc.
+        So files 0, 2, 5 = 0x80 | 0x20 | 0x04 = 0xA4 = 0b10100100
+        """
         bitmask = bytearray(1)
-        bitmask[0] = 0b00100101  # bits 0, 2, 5 set
+        bitmask[0] = 0x80 | 0x20 | 0x04  # files 0, 2, 5 in MSB ordering
 
         tag = InstallTag(name="test", tag_type=1, bit_mask=bytes(bitmask))
 
-        assert tag.has_file(0) is True   # bit 0
-        assert tag.has_file(1) is False  # bit 1
-        assert tag.has_file(2) is True   # bit 2
-        assert tag.has_file(3) is False  # bit 3
-        assert tag.has_file(4) is False  # bit 4
-        assert tag.has_file(5) is True   # bit 5
-        assert tag.has_file(6) is False  # bit 6
-        assert tag.has_file(7) is False  # bit 7
+        assert tag.has_file(0) is True   # 0x80
+        assert tag.has_file(1) is False
+        assert tag.has_file(2) is True   # 0x20
+        assert tag.has_file(3) is False
+        assert tag.has_file(4) is False
+        assert tag.has_file(5) is True   # 0x04
+        assert tag.has_file(6) is False
+        assert tag.has_file(7) is False
         assert tag.has_file(8) is False  # out of range
 
     def test_parse_minimal_install(self):
@@ -100,14 +100,14 @@ class TestInstallParser:
         # Tag 1: "Windows" type=1, applies to files 0,2
         data.write(b'Windows\x00')  # tag name
         data.write(struct.pack('>H', 1))  # tag type (big-endian)
-        # Bitmask for 3 files = 1 byte: bits 0,2 set = 0b00000101
-        data.write(b'\x05')
+        # Bitmask for 3 files = 1 byte, MSB ordering: files 0,2 = 0x80|0x20 = 0xA0
+        data.write(b'\xA0')
 
         # Tag 2: "enUS" type=4, applies to files 1,2
         data.write(b'enUS\x00')  # tag name
         data.write(struct.pack('>H', 4))  # tag type (big-endian)
-        # Bitmask for 3 files = 1 byte: bits 1,2 set = 0b00000110
-        data.write(b'\x06')
+        # Bitmask for 3 files = 1 byte, MSB ordering: files 1,2 = 0x40|0x20 = 0x60
+        data.write(b'\x60')
 
         # File entries
         for i, name in enumerate(['file1.exe', 'file2.txt', 'file3.dll']):
@@ -165,8 +165,8 @@ class TestInstallParser:
             version=1,
             hash_size=16,
             tags=[
-                InstallTag(name="Windows", tag_type=1, bit_mask=b'\x05'),  # files 0,2
-                InstallTag(name="x64", tag_type=2, bit_mask=b'\x03'),      # files 0,1
+                InstallTag(name="Windows", tag_type=1, bit_mask=b'\xA0'),  # files 0,2 (MSB)
+                InstallTag(name="x64", tag_type=2, bit_mask=b'\xC0'),      # files 0,1 (MSB)
             ],
             entries=[
                 InstallEntry(
@@ -264,7 +264,7 @@ class TestInstallParser:
         for name in tag_names:
             data.write(name.encode('utf-8') + b'\x00')
             data.write(struct.pack('>H', 1))  # tag type
-            data.write(b'\x01')  # bitmask: file 0 has this tag
+            data.write(b'\x80')  # bitmask: file 0 has this tag (MSB ordering)
 
         # One file
         data.write(b'game.exe\x00')
@@ -477,12 +477,12 @@ class TestInstallParser:
                 tags=["Base"] if i % 2 == 0 else []  # Every other file has Base tag
             ))
 
-        # Create bitmask: every even-indexed file has the tag
+        # Create bitmask: every even-indexed file has the tag (MSB ordering)
         mask = bytearray(3)  # (20 + 7) // 8 = 3 bytes
         for i in range(0, 20, 2):  # 0, 2, 4, 6, 8, 10, 12, 14, 16, 18
             byte_index = i // 8
             bit_offset = i % 8
-            mask[byte_index] |= (1 << bit_offset)
+            mask[byte_index] |= (0x80 >> bit_offset)
 
         install = InstallFile(
             version=1,
