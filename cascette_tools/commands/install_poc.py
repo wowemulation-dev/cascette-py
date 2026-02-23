@@ -26,6 +26,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from cascette_tools.core.build_update import (
+    classify_files,
+    compare_configs,
+)
 from cascette_tools.core.cdn import CDNClient
 from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
@@ -36,7 +40,11 @@ from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
 from cascette_tools.core.encoding_cache import EncodingCache
 from cascette_tools.core.install_state import InstallState
 from cascette_tools.core.integrity import IntegrityError
-from cascette_tools.core.local_storage import LocalStorage
+from cascette_tools.core.local_storage import (
+    LocalIndexEntry,
+    LocalStorage,
+    compute_bucket,
+)
 from cascette_tools.core.product_state import (
     ProductInfo,
     generate_all_state_files,
@@ -850,6 +858,206 @@ def filter_entries_by_tags(
     return filtered
 
 
+async def _load_archive_indices(
+    cdn_client: CDNClient,
+    cdn_config_archives: list[str],
+    storage: LocalStorage,
+    console: Console,
+    max_archives: int = 0,
+) -> tuple[CdnArchiveFetcher, int]:
+    """Fetch archive indices from CDN and populate index map.
+
+    Extracted from install_to_casc Step 5 so that both install and update
+    commands can reuse the same archive-loading logic.
+
+    Args:
+        cdn_client: CDN client for fetching data
+        cdn_config_archives: List of archive hashes from CDN config
+        storage: Local storage for saving index files
+        console: Rich console for output
+        max_archives: Limit archive count (0 = all)
+
+    Returns:
+        (CdnArchiveFetcher with loaded indices, count of loaded archives)
+    """
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
+
+    archives = cdn_config_archives
+    if max_archives > 0:
+        archives = archives[:max_archives]
+        console.print(f"  [yellow]Warning: Limited to {max_archives} archives[/yellow]")
+
+    fetcher = CdnArchiveFetcher(cdn_client=cdn_client)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Loading indices...", total=len(archives))
+
+        semaphore = asyncio.Semaphore(12)
+        lock = asyncio.Lock()
+        successful = 0
+
+        async def fetch_one(archive_hash: str) -> None:
+            nonlocal successful
+            async with semaphore:
+                index_data = await cdn_client.fetch_data_async(
+                    archive_hash, is_index=True
+                )
+
+            async with lock:
+                fetcher.load_index_from_bytes(archive_hash, index_data)
+                local_path = storage.indices_path / f"{archive_hash.lower()}.index"
+                if not local_path.exists():
+                    local_path.write_bytes(index_data)
+                successful += 1
+                progress.update(task, advance=1)
+
+        tasks = [fetch_one(h) for h in archives]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    console.print(f"  Index map: {fetcher.index_map.total_entries:,} entries")
+    console.print(f"  Archives: {successful}/{len(archives)} loaded")
+    return fetcher, successful
+
+
+async def _download_casc_files(
+    pending_entries: list[DownloadEntry],
+    fetcher: CdnArchiveFetcher,
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    install_state: InstallState,
+    console: Console,
+) -> tuple[int, int, int, int]:
+    """Download and install CASC files from the download manifest.
+
+    Extracted from install_to_casc Step 7 so that both install and update
+    commands can reuse the same download logic.
+
+    Args:
+        pending_entries: Download entries not yet installed
+        fetcher: Archive fetcher with loaded indices
+        cdn_client: CDN client for fetching data
+        storage: Local storage for writing content
+        install_state: State tracker for resume support
+        console: Rich console for output
+
+    Returns:
+        (installed, failed, integrity_errors, total_bytes)
+    """
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TransferSpeedColumn,
+    )
+
+    pending_total_size = sum(e.size for e in pending_entries)
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "Installing files...",
+            total=pending_total_size,
+        )
+
+        installed = 0
+        failed = 0
+        integrity_errors = 0
+        total_bytes = 0
+
+        queue = DownloadQueue(
+            max_concurrency=12, max_per_host=3, max_retries=3
+        )
+
+        entry_priority: dict[str, int] = {
+            e.ekey.hex(): e.priority for e in pending_entries
+        }
+
+        sorted_entries = sorted(pending_entries, key=lambda e: e.priority)
+
+        for dl_entry in sorted_entries:
+            ekey = dl_entry.ekey
+
+            async def make_factory(ek: bytes = ekey) -> DownloadResult:
+                data = await fetcher.fetch_file_via_cdn_async(
+                    cdn_client, ek, decompress=False, verify=True,
+                )
+                source = ""
+                loc = fetcher.index_map.find(ek)
+                if loc:
+                    source = loc.archive_hash
+                return DownloadResult(
+                    ekey=ek,
+                    data=data,
+                    error=None if data is not None else "Not found in archives",
+                    source=source,
+                )
+
+            await queue.submit(
+                priority=dl_entry.priority,
+                ekey=dl_entry.ekey,
+                coro_factory=make_factory,
+            )
+
+        async for result in queue.run(total=len(sorted_entries)):
+            ekey_hex = result.ekey.hex()
+            pri = entry_priority.get(ekey_hex, 0)
+
+            if result.data is None:
+                failed += 1
+                install_state.mark_failed(result.ekey, pri)
+                if install_state.should_save():
+                    install_state.save()
+                continue
+
+            try:
+                storage.write_content(result.ekey, result.data)
+            except IntegrityError as e:
+                integrity_errors += 1
+                logger.warning(
+                    "Integrity error writing content",
+                    ekey=ekey_hex,
+                    error=str(e),
+                )
+                install_state.mark_failed(result.ekey, pri)
+                if install_state.should_save():
+                    install_state.save()
+                continue
+
+            installed += 1
+            total_bytes += len(result.data)
+            install_state.mark_downloaded(
+                result.ekey, len(result.data), pri
+            )
+            progress.update(task, advance=len(result.data))
+
+            if install_state.should_save():
+                install_state.save()
+
+    return installed, failed, integrity_errors, total_bytes
+
+
 def _fmt_size(nbytes: int) -> str:
     """Format byte count as human-readable string."""
     if nbytes >= 1024 ** 3:
@@ -1021,14 +1229,6 @@ def install_to_casc(
     CDN_CONFIG_HASH is the CDN config hash from versions endpoint.
     INSTALL_PATH is the installation directory (e.g., /path/to/wow).
     """
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-    )
-
     _config, console, _verbose, _debug = _get_context_objects(ctx)
 
     try:
@@ -1397,52 +1597,13 @@ def install_to_casc(
         console.print("  (Required before extracting any files)")
 
         archives = cdn_config.archives
-        if max_archives > 0:
-            archives = archives[:max_archives]
-            console.print(f"  [yellow]Warning: Limited to {max_archives} archives[/yellow]")
 
-        # CdnArchiveFetcher uses cdn_client for fetching with fallback support
-        fetcher = CdnArchiveFetcher(cdn_client=cdn_client)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console
-        ) as progress:
-            task = progress.add_task("Loading indices...", total=len(archives))
-
-            async def _download_indices_concurrent() -> int:
-                """Download archive indices concurrently (12 at a time)."""
-                semaphore = asyncio.Semaphore(12)
-                lock = asyncio.Lock()
-                successful = 0
-
-                async def fetch_one(archive_hash: str) -> None:
-                    nonlocal successful
-                    async with semaphore:
-                        index_data = await cdn_client.fetch_data_async(
-                            archive_hash, is_index=True
-                        )
-
-                    # Index parsing and disk write under lock (CPU-bound, fast)
-                    async with lock:
-                        fetcher.load_index_from_bytes(archive_hash, index_data)
-                        local_path = storage.indices_path / f"{archive_hash.lower()}.index"
-                        if not local_path.exists():
-                            local_path.write_bytes(index_data)
-                        successful += 1
-                        progress.update(task, advance=1)
-
-                tasks = [fetch_one(h) for h in archives]
-                await asyncio.gather(*tasks, return_exceptions=True)
-                return successful
-
-            indices_loaded = asyncio.run(_download_indices_concurrent())
-
-        console.print(f"  Index map: {fetcher.index_map.total_entries:,} entries")
-        console.print(f"  Archives: {indices_loaded}/{len(archives)} loaded")
+        fetcher, _indices_loaded = asyncio.run(
+            _load_archive_indices(
+                cdn_client, archives, storage, console,
+                max_archives=max_archives,
+            )
+        )
 
         # Step 6: Process install manifest (executables and DLLs)
         # Now we can fetch files using the archive indices
@@ -1603,115 +1764,12 @@ def install_to_casc(
         console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC...")
         console.print("  Concurrent connections: 12 global, 3 per host")
 
-        installed = 0
-        failed = 0
-        integrity_errors = 0
-        total_bytes = 0
-
-        from rich.progress import (
-            DownloadColumn,
-            TransferSpeedColumn,
+        installed, failed, integrity_errors, total_bytes = asyncio.run(
+            _download_casc_files(
+                pending_entries, fetcher, cdn_client, storage,
+                install_state, console,
+            )
         )
-
-        pending_total_size = sum(e.size for e in pending_entries)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            DownloadColumn(),
-            TransferSpeedColumn(),
-            console=console
-        ) as progress:
-            task = progress.add_task(
-                "Installing files...",
-                total=pending_total_size,
-            )
-
-            async def _install_files_concurrent() -> tuple[int, int, int, int]:
-                """Download and install CASC files concurrently."""
-                _installed = 0
-                _failed = 0
-                _integrity_errors = 0
-                _total_bytes = 0
-
-                queue = DownloadQueue(
-                    max_concurrency=12, max_per_host=3, max_retries=3
-                )
-
-                # Build a priority lookup for state tracking
-                entry_priority: dict[str, int] = {
-                    e.ekey.hex(): e.priority for e in pending_entries
-                }
-
-                # Sort by priority and submit all entries
-                sorted_entries = sorted(pending_entries, key=lambda e: e.priority)
-
-                for dl_entry in sorted_entries:
-                    ekey = dl_entry.ekey
-
-                    async def make_factory(ek: bytes = ekey) -> DownloadResult:
-                        data = await fetcher.fetch_file_via_cdn_async(
-                            cdn_client, ek, decompress=False, verify=True,
-                        )
-                        source = ""
-                        loc = fetcher.index_map.find(ek)
-                        if loc:
-                            source = loc.archive_hash
-                        return DownloadResult(
-                            ekey=ek,
-                            data=data,
-                            error=None if data is not None else "Not found in archives",
-                            source=source,
-                        )
-
-                    await queue.submit(
-                        priority=dl_entry.priority,
-                        ekey=dl_entry.ekey,
-                        coro_factory=make_factory,
-                    )
-
-                async for result in queue.run(total=len(sorted_entries)):
-                    ekey_hex = result.ekey.hex()
-                    pri = entry_priority.get(ekey_hex, 0)
-
-                    if result.data is None:
-                        _failed += 1
-                        install_state.mark_failed(result.ekey, pri)
-                        if install_state.should_save():
-                            install_state.save()
-                        continue
-
-                    try:
-                        storage.write_content(result.ekey, result.data)
-                    except IntegrityError as e:
-                        _integrity_errors += 1
-                        logger.warning(
-                            "Integrity error writing content",
-                            ekey=ekey_hex,
-                            error=str(e),
-                        )
-                        install_state.mark_failed(result.ekey, pri)
-                        if install_state.should_save():
-                            install_state.save()
-                        continue
-
-                    _installed += 1
-                    _total_bytes += len(result.data)
-                    install_state.mark_downloaded(
-                        result.ekey, len(result.data), pri
-                    )
-                    progress.update(task, advance=len(result.data))
-
-                    if install_state.should_save():
-                        install_state.save()
-
-                return _installed, _failed, _integrity_errors, _total_bytes
-
-            installed, failed, integrity_errors, total_bytes = asyncio.run(
-                _install_files_concurrent()
-            )
 
         # Final state save after all downloads
         install_state.save()
@@ -1818,3 +1876,370 @@ def install_to_casc(
     except Exception as e:
         logger.error("Installation failed", error=str(e))
         raise click.ClickException(f"Installation failed: {e}") from e
+
+
+@install_poc.command()
+@click.argument("install_path", type=click.Path(path_type=Path))
+@click.option(
+    "--product", "-r",
+    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    default="wow_classic_era",
+    help="Product code for Ribbit lookup",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default="us",
+    help="CDN region",
+)
+@click.option(
+    "--build-config-hash",
+    type=str,
+    default=None,
+    help="New build config hash (default: query latest from Ribbit)",
+)
+@click.option(
+    "--cdn-config-hash",
+    type=str,
+    default=None,
+    help="New CDN config hash (default: query latest from Ribbit)",
+)
+@click.option(
+    "--priority", "-P",
+    type=int,
+    default=255,
+    help="Maximum priority level to install (0 = critical, 255 = all)",
+)
+@click.option(
+    "--max-files", "-f",
+    type=int,
+    default=0,
+    help="Maximum files to download (0 = all)",
+)
+@click.pass_context
+def update(
+    ctx: click.Context,
+    install_path: Path,
+    product: str,
+    region: str,
+    build_config_hash: str | None,
+    cdn_config_hash: str | None,
+    priority: int,
+    max_files: int,
+) -> None:
+    """Incrementally update an existing CASC installation to a new build.
+
+    Compares old ecache against new encoding file to determine which files
+    need downloading. Files that are unchanged are skipped; obsolete files
+    are marked non-resident.
+
+    INSTALL_PATH is the root of an existing installation (must contain .build.info).
+    """
+    _config, console, _verbose, _debug = _get_context_objects(ctx)
+
+    try:
+        # Step 1: Read existing .build.info
+        console.print("[cyan]Step 1:[/cyan] Reading existing installation...")
+        build_info_path = install_path / ".build.info"
+
+        if not build_info_path.exists():
+            raise click.ClickException(
+                f"No .build.info found at {install_path}. "
+                "Use install-to-casc for a fresh installation."
+            )
+
+        parser = BuildInfoParser()
+        existing_info = parser.parse_file(str(build_info_path))
+        old_build_key = existing_info.build_key
+        old_cdn_key = existing_info.cdn_key
+
+        console.print(f"  Current build: {old_build_key}")
+        console.print(f"  Current CDN: {old_cdn_key}")
+
+        # Extract platform/arch/locale from existing installation
+        platform = existing_info.platform or "Windows"
+        arch = existing_info.architecture or "x86_64"
+        locale = "enUS"
+        if existing_info.locale_configs:
+            locale = existing_info.locale_configs[0].code
+        if existing_info.region:
+            region = existing_info.region.lower()
+
+        console.print(f"  Platform: {platform}, Arch: {arch}, Locale: {locale}")
+
+        # Step 2: Resolve new build
+        console.print("\n[cyan]Step 2:[/cyan] Resolving new build...")
+        product_enum = get_product_enum(product)
+
+        if build_config_hash is None or cdn_config_hash is None:
+            from cascette_tools.core.tact import TACTClient
+
+            tact_client = TACTClient(region=region)
+            latest = tact_client.get_latest_build(product_enum)
+            if not latest:
+                raise click.ClickException(
+                    f"No version found for product '{product}' in region '{region}'"
+                )
+            if build_config_hash is None:
+                build_config_hash = latest.get("BuildConfig", "")
+            if cdn_config_hash is None:
+                cdn_config_hash = latest.get("CDNConfig", "")
+            console.print(f"  Latest build: {build_config_hash}")
+            console.print(f"  Latest CDN: {cdn_config_hash}")
+
+        if build_config_hash == old_build_key:
+            console.print("[green]Already up to date.[/green]")
+            return
+
+        console.print(f"  Old build: {old_build_key}")
+        console.print(f"  New build: {build_config_hash}")
+
+        # Step 3: Fetch new configs
+        console.print("\n[cyan]Step 3:[/cyan] Fetching new configs...")
+        cdn_client = CDNClient(product_enum, region=region)
+        storage = LocalStorage(install_path)
+        storage.initialize()
+
+        build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
+        storage.save_config(build_config_hash, build_config_data)
+        new_build_config = BuildConfigParser().parse(build_config_data)
+        console.print(f"  New build: {new_build_config.build_name}")
+
+        cdn_config_data = cdn_client.fetch_config(cdn_config_hash, config_type="cdn")
+        storage.save_config(cdn_config_hash, cdn_config_data)
+        new_cdn_config = CDNConfigParser().parse(cdn_config_data)
+        console.print(f"  Archives: {len(new_cdn_config.archives)}")
+
+        # Step 4: Compare configs (informational)
+        console.print("\n[cyan]Step 4:[/cyan] Comparing build configs...")
+        old_build_config_data = cdn_client.fetch_config(old_build_key, config_type="build")
+        old_build_config = BuildConfigParser().parse(old_build_config_data)
+        config_diff = compare_configs(old_build_config, new_build_config)
+
+        if config_diff:
+            diff_table = Table(title="Config Changes")
+            diff_table.add_column("Field", style="cyan")
+            diff_table.add_column("Old", style="red")
+            diff_table.add_column("New", style="green")
+            for field_name, (old_val, new_val) in config_diff.items():
+                diff_table.add_row(
+                    field_name,
+                    (old_val or "")[:32] + "..." if old_val and len(old_val) > 32 else old_val or "",
+                    (new_val or "")[:32] + "..." if new_val and len(new_val) > 32 else new_val or "",
+                )
+            console.print(diff_table)
+        else:
+            console.print("  No manifest field changes detected")
+
+        # Step 5: Load old ecache
+        console.print("\n[cyan]Step 5:[/cyan] Loading encoding cache...")
+        ecache_path = install_path / "Data" / "ecache"
+        old_ecache = EncodingCache.load(ecache_path)
+
+        if old_ecache is None or old_ecache.entry_count() == 0:
+            raise click.ClickException(
+                "No encoding cache found. Cannot compute delta without ecache. "
+                "Consider running a fresh install instead."
+            )
+
+        console.print(f"  Loaded {old_ecache.entry_count():,} cached entries")
+
+        # Step 6: Fetch new encoding file
+        console.print("\n[cyan]Step 6:[/cyan] Fetching new encoding file...")
+        encoding_info = new_build_config.get_encoding_info()
+
+        if not encoding_info or not encoding_info.encoding_key:
+            raise click.ClickException("No encoding key in new BuildConfig")
+
+        encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
+        encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
+        storage.write_content(encoding_ekey, encoding_data_raw)
+
+        encoding_data = encoding_data_raw
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
+
+        if not is_encoding(encoding_data):
+            raise click.ClickException("Downloaded data is not a valid encoding file")
+
+        encoding_parser = EncodingParser()
+        encoding_file = encoding_parser.parse(encoding_data)
+        console.print(f"  CKey pages: {encoding_file.header.ckey_page_count}")
+
+        # Step 7: Classify files
+        console.print("\n[cyan]Step 7:[/cyan] Classifying files...")
+        delta = classify_files(old_ecache, encoding_data, encoding_file, encoding_parser)
+
+        delta_table = Table(title="Build Delta Summary")
+        delta_table.add_column("Classification", style="cyan")
+        delta_table.add_column("Count", style="green", justify="right")
+        delta_table.add_row("Unchanged", f"{delta.unchanged_count:,}")
+        delta_table.add_row("Needs download", f"{delta.download_count:,}")
+        delta_table.add_row("Obsolete", f"{delta.obsolete_count:,}")
+        console.print(delta_table)
+
+        if delta.download_count == 0:
+            console.print("[green]No files need downloading. Update complete.[/green]")
+            # Still update ecache and .build.info even if nothing to download
+        else:
+            # Step 8: Fetch download manifest and filter
+            console.print("\n[cyan]Step 8:[/cyan] Resolving download manifest...")
+            download_info = new_build_config.get_download_info()
+
+            if not download_info:
+                raise click.ClickException("No download manifest in new BuildConfig")
+
+            download_ckey = bytes.fromhex(download_info.content_key)
+            download_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, download_ckey
+            )
+
+            if not download_ekeys:
+                raise click.ClickException("Download manifest not found in new encoding file")
+
+            download_ekey = download_ekeys[0]
+            download_data_raw = cdn_client.fetch_data(download_ekey.hex())
+            storage.write_content(download_ekey, download_data_raw)
+
+            download_data = download_data_raw
+            if is_blte(download_data):
+                download_data = decompress_blte(download_data)
+
+            download_parser = DownloadParser()
+            download_manifest = download_parser.parse(download_data)
+            console.print(f"  Total entries: {len(download_manifest.entries):,}")
+
+            # Filter by priority
+            download_entries: list[DownloadEntry] = [
+                e for e in download_manifest.entries if e.priority <= priority
+            ]
+
+            # Filter by tags
+            download_entries = filter_entries_by_tags(
+                download_entries,
+                download_manifest.tags,
+                platform=platform,
+                arch=arch,
+                locale=locale,
+            )
+            console.print(f"  After filtering: {len(download_entries):,}")
+
+            # Cross-reference: keep only entries whose CKey resolves to needs_download
+            # We need CKey→EKey from new encoding to match download entries (which have EKeys)
+            download_ekey_set = set(delta.new_ekeys.values())
+            update_entries = [
+                e for e in download_entries if e.ekey in download_ekey_set
+            ]
+            console.print(f"  Entries needing download: {len(update_entries):,}")
+
+            if max_files > 0:
+                update_entries = update_entries[:max_files]
+                console.print(f"  Limited to: {len(update_entries):,}")
+
+            # Step 9: Download changed files
+            if update_entries:
+                console.print("\n[cyan]Step 9:[/cyan] Downloading changed files...")
+
+                install_state = InstallState(install_path, build_config_hash)
+                install_state.init_priority_stats(update_entries)
+
+                fetcher, _indices_loaded = asyncio.run(
+                    _load_archive_indices(
+                        cdn_client, new_cdn_config.archives, storage, console,
+                    )
+                )
+
+                installed, failed, _integrity_errors, total_bytes = asyncio.run(
+                    _download_casc_files(
+                        update_entries, fetcher, cdn_client, storage,
+                        install_state, console,
+                    )
+                )
+                install_state.save()
+
+                console.print(f"  Installed: {installed:,}, Failed: {failed}, Bytes: {_fmt_size(total_bytes)}")
+            else:
+                console.print("\n[cyan]Step 9:[/cyan] No matching download entries to fetch")
+
+        # Step 10: Mark obsolete files as non-resident
+        if delta.obsolete_ekeys:
+            console.print(f"\n[cyan]Step 10:[/cyan] Marking {len(delta.obsolete_ekeys)} obsolete files...")
+            for _ckey, old_ekey in delta.obsolete_ekeys:
+                bucket = compute_bucket(old_ekey)
+                entry = LocalIndexEntry(
+                    key=old_ekey[:9], archive_id=0, archive_offset=0, size=0
+                )
+                storage.insert_entry(bucket, entry, status=7)  # data-nonres
+            console.print("  Obsolete files marked as non-resident")
+
+        # Step 11: Update ecache from new encoding file
+        console.print("\n[cyan]Step 11:[/cyan] Rebuilding encoding cache...")
+        ecache = EncodingCache(base_path=ecache_path)
+        ecache.initialize()
+
+        for page_idx in range(encoding_file.header.ckey_page_count):
+            page = encoding_parser.load_ckey_page_sequential(
+                encoding_data, encoding_file, page_idx
+            )
+            for entry in page.entries:
+                if entry.encoding_keys:
+                    ecache.write_entry(entry.content_key, entry.encoding_keys[0], 0)
+
+        ecache.flush()
+        console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
+
+        # Step 12: Update .build.info
+        console.print("\n[cyan]Step 12:[/cyan] Updating .build.info...")
+
+        import re
+        version_str = ""
+        if new_build_config.build_name:
+            match = re.search(r'(\d+)patch([\d.]+)', new_build_config.build_name)
+            if match:
+                build_id, version = match.groups()
+                version_str = f"{version}.{build_id}"
+
+        build_info = create_build_info(
+            branch=region,
+            build_config_hash=build_config_hash,
+            cdn_config_hash=cdn_config_hash,
+            cdn_path=cdn_client.cdn_path or "",
+            cdn_hosts=cdn_client.cdn_servers or [],
+            version=version_str,
+            product=new_build_config.build_product or product,
+            platform=platform,
+            architecture=arch,
+            locale=locale,
+            region=region,
+            has_speech=True,
+            has_text=True,
+            install_key="",
+            im_size=None,
+            keyring="",
+        )
+        build_info = update_last_activated(build_info)
+        build_info_parser = BuildInfoParser()
+        build_info_path.write_bytes(build_info_parser.build(build_info))
+        console.print(f"  Updated: {build_info_path}")
+
+        # Step 13: Flush indices
+        console.print("\n[cyan]Step 13:[/cyan] Flushing indices...")
+        storage.flush_indices()
+
+        console.print(Panel.fit(
+            f"[green]Update complete![/green]\n\n"
+            f"Old build: {old_build_key}\n"
+            f"New build: {build_config_hash}\n"
+            f"Unchanged: {delta.unchanged_count:,}\n"
+            f"Downloaded: {delta.download_count:,}\n"
+            f"Obsolete: {delta.obsolete_count:,}",
+            title="Success",
+        ))
+
+        cdn_client.close()
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("Update failed", error=str(e))
+        raise click.ClickException(f"Update failed: {e}") from e
