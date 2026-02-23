@@ -2012,24 +2012,28 @@ def update(
 
         # Step 4: Compare configs (informational)
         console.print("\n[cyan]Step 4:[/cyan] Comparing build configs...")
-        old_build_config_data = cdn_client.fetch_config(old_build_key, config_type="build")
-        old_build_config = BuildConfigParser().parse(old_build_config_data)
-        config_diff = compare_configs(old_build_config, new_build_config)
+        try:
+            old_build_config_data = cdn_client.fetch_config(old_build_key, config_type="build")
+            old_build_config = BuildConfigParser().parse(old_build_config_data)
+            config_diff = compare_configs(old_build_config, new_build_config)
 
-        if config_diff:
-            diff_table = Table(title="Config Changes")
-            diff_table.add_column("Field", style="cyan")
-            diff_table.add_column("Old", style="red")
-            diff_table.add_column("New", style="green")
-            for field_name, (old_val, new_val) in config_diff.items():
-                diff_table.add_row(
-                    field_name,
-                    (old_val or "")[:32] + "..." if old_val and len(old_val) > 32 else old_val or "",
-                    (new_val or "")[:32] + "..." if new_val and len(new_val) > 32 else new_val or "",
-                )
-            console.print(diff_table)
-        else:
-            console.print("  No manifest field changes detected")
+            if config_diff:
+                diff_table = Table(title="Config Changes")
+                diff_table.add_column("Field", style="cyan")
+                diff_table.add_column("Old", style="red")
+                diff_table.add_column("New", style="green")
+                for field_name, (old_val, new_val) in config_diff.items():
+                    diff_table.add_row(
+                        field_name,
+                        (old_val or "")[:32] + "..." if old_val and len(old_val) > 32 else old_val or "",
+                        (new_val or "")[:32] + "..." if new_val and len(new_val) > 32 else new_val or "",
+                    )
+                console.print(diff_table)
+            else:
+                console.print("  No manifest field changes detected")
+        except Exception as e:
+            console.print(f"  [dim]Could not fetch old build config for comparison: {e!s:.80}[/dim]")
+            console.print("  [dim]Skipping config diff (informational only)[/dim]")
 
         # Step 5: Load old ecache
         console.print("\n[cyan]Step 5:[/cyan] Loading encoding cache...")
