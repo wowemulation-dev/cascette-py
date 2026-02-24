@@ -54,7 +54,11 @@ def _build_entry(
     archive_index: int | None = None,
     key_bytes: int = 16,
 ) -> bytes:
-    """Build a single archive index entry."""
+    """Build a single archive index entry.
+
+    Binary layout: [key][size][offset] (size comes before offset).
+    For archive-groups: [key][size][archive_index(2) + offset(4)].
+    """
     entry = bytearray()
     # Pad or truncate key
     if len(key) < key_bytes:
@@ -62,10 +66,12 @@ def _build_entry(
     else:
         entry.extend(key[:key_bytes])
 
+    # Size comes before offset in the binary format
+    entry.extend(struct.pack(">I", size))
+
     if archive_index is not None:
         entry.extend(struct.pack(">H", archive_index))
     entry.extend(struct.pack(">I", offset))
-    entry.extend(struct.pack(">I", size))
     return bytes(entry)
 
 
@@ -75,29 +81,43 @@ def _build_archive_index(
     key_bytes: int = 16,
     offset_bytes: int = 4,
     page_size_kb: int = 4,
+    footer_hash_bytes: int = 8,
 ) -> bytes:
-    """Build a complete archive index with paged entries and footer."""
+    """Build a complete archive index with correct paged layout.
+
+    Layout: [Pages][TOC keys][TOC hashes][Footer]
+    Pages start at byte 0. TOC follows after all pages.
+    """
     page_size = page_size_kb * 1024
     entry_size = key_bytes + offset_bytes + 4  # 4 = size_bytes
     entries_per_page = page_size // entry_size
 
-    data = bytearray()
+    pages = bytearray()
+    toc_keys = bytearray()
+    toc_hashes = bytearray()
     for page_start in range(0, max(len(entries), 1), entries_per_page):
         page_entries = entries[page_start:page_start + entries_per_page]
         page_data = bytearray()
+        last_key = b'\x00' * key_bytes
         for key, offset, size in page_entries:
+            padded_key = (key + b'\x00' * key_bytes)[:key_bytes]
+            last_key = padded_key
             page_data.extend(_build_entry(key, offset, size, key_bytes=key_bytes))
-        # Zero-pad to page_size
         page_data.extend(b'\x00' * (page_size - len(page_data)))
-        # Append MD5 checksum
-        data.extend(page_data)
-        data.extend(hashlib.md5(bytes(page_data)).digest())
+        pages.extend(page_data)
+        toc_keys.extend(last_key)
+        toc_hashes.extend(hashlib.md5(bytes(page_data)).digest()[:footer_hash_bytes])
 
+    data = bytearray()
+    data.extend(pages)
+    data.extend(toc_keys)
+    data.extend(toc_hashes)
     data.extend(_build_footer(
         entry_count=len(entries),
         key_bytes=key_bytes,
         offset_bytes=offset_bytes,
         page_size_kb=page_size_kb,
+        footer_hash_bytes=footer_hash_bytes,
     ))
     return bytes(data)
 
@@ -107,29 +127,41 @@ def _build_archive_group(
     *,
     key_bytes: int = 16,
     page_size_kb: int = 4,
+    footer_hash_bytes: int = 8,
 ) -> bytes:
-    """Build archive-group with (key, archive_index, offset, size) paged entries."""
+    """Build archive-group with correct paged layout."""
     page_size = page_size_kb * 1024
     entry_size = key_bytes + 6 + 4  # 6 = offset_bytes, 4 = size_bytes
     entries_per_page = page_size // entry_size
 
-    data = bytearray()
+    pages = bytearray()
+    toc_keys = bytearray()
+    toc_hashes = bytearray()
     for page_start in range(0, max(len(entries), 1), entries_per_page):
         page_entries = entries[page_start:page_start + entries_per_page]
         page_data = bytearray()
+        last_key = b'\x00' * key_bytes
         for key, archive_idx, offset, size in page_entries:
+            padded_key = (key + b'\x00' * key_bytes)[:key_bytes]
+            last_key = padded_key
             page_data.extend(
                 _build_entry(key, offset, size, archive_index=archive_idx, key_bytes=key_bytes)
             )
         page_data.extend(b'\x00' * (page_size - len(page_data)))
-        data.extend(page_data)
-        data.extend(hashlib.md5(bytes(page_data)).digest())
+        pages.extend(page_data)
+        toc_keys.extend(last_key)
+        toc_hashes.extend(hashlib.md5(bytes(page_data)).digest()[:footer_hash_bytes])
 
+    data = bytearray()
+    data.extend(pages)
+    data.extend(toc_keys)
+    data.extend(toc_hashes)
     data.extend(_build_footer(
         entry_count=len(entries),
         key_bytes=key_bytes,
         offset_bytes=6,
         page_size_kb=page_size_kb,
+        footer_hash_bytes=footer_hash_bytes,
     ))
     return bytes(data)
 
@@ -505,7 +537,7 @@ class TestCdnArchivePageBoundaries:
         rebuilt = self.parser.build(index)
         reparsed = self.parser.parse(rebuilt)
         assert len(reparsed.entries) == 200
-        for orig, rebuilt_entry in zip(index.entries, reparsed.entries):
+        for orig, rebuilt_entry in zip(index.entries, reparsed.entries, strict=True):
             assert orig.encoding_key == rebuilt_entry.encoding_key
             assert orig.offset == rebuilt_entry.offset
             assert orig.size == rebuilt_entry.size

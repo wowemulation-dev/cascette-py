@@ -144,10 +144,12 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
     def _parse_entries(self, data: bytes, footer: CdnArchiveFooter) -> list[CdnArchiveEntry]:
         """Parse all entries from the archive index.
 
-        CDN archive indices organize entries into fixed-size pages. Each page
-        contains ``page_size`` bytes of entry data (zero-padded) followed by a
-        16-byte MD5 checksum. Entries must be read page-by-page to avoid
-        interpreting padding or checksum bytes as entry data.
+        CDN archive indices use the layout:
+        ``[Pages][TOC keys][TOC hashes][Footer]``.
+        Entry pages start at byte 0, each exactly ``page_size_kb * 1024``
+        bytes with zero-padding. The TOC (last key per page + page hash)
+        and footer follow after all pages. Entries must be read page-by-page
+        to avoid interpreting padding bytes as entry data.
         """
         entries: list[CdnArchiveEntry] = []
 
@@ -155,14 +157,11 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
         page_size = footer.page_size_kb * 1024
         entries_per_page = page_size // entry_size
 
-        # Each page block = page_size (entries + zero-padding) + 16 (MD5 checksum)
-        page_block_size = page_size + 16
-
         remaining = footer.entry_count
         page_idx = 0
 
         while remaining > 0:
-            page_offset = page_idx * page_block_size
+            page_offset = page_idx * page_size
             entries_this_page = min(entries_per_page, remaining)
 
             for i in range(entries_this_page):
@@ -172,7 +171,11 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
                 encoding_key = data[pos:pos + footer.key_bytes]
                 pos += footer.key_bytes
 
-                # Parse offset (4 or 6 bytes)
+                # Parse size (big-endian, always 4 bytes, comes BEFORE offset)
+                size = struct.unpack('>I', data[pos:pos + 4])[0]
+                pos += footer.size_bytes
+
+                # Parse offset (big-endian, 4 or 6 bytes)
                 if footer.is_archive_group:
                     archive_index = struct.unpack('>H', data[pos:pos + 2])[0]
                     offset = struct.unpack('>I', data[pos + 2:pos + 6])[0]
@@ -180,9 +183,6 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
                     archive_index = None
                     offset = struct.unpack('>I', data[pos:pos + 4])[0]
                 pos += footer.offset_bytes
-
-                # Parse size (always 4 bytes)
-                size = struct.unpack('>I', data[pos:pos + 4])[0]
 
                 # Skip zero entries
                 if encoding_key == b'\x00' * footer.key_bytes:
@@ -293,8 +293,9 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
     def build(self, obj: CdnArchiveIndex) -> bytes:
         """Build CDN archive index binary data from structure.
 
-        Entries are written into fixed-size pages. Each page is zero-padded
-        to ``page_size`` bytes and followed by a 16-byte MD5 checksum.
+        Produces the layout ``[Pages][TOC keys][TOC hashes][Footer]``.
+        Each page is zero-padded to ``page_size`` bytes. The TOC follows
+        all pages: first the last key of each page, then a hash per page.
 
         Args:
             obj: Archive index structure
@@ -302,22 +303,30 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
         Returns:
             Binary archive index data
         """
-        result = BytesIO()
-
         footer = obj.footer
         entry_size = footer.key_bytes + footer.offset_bytes + footer.size_bytes
         page_size = footer.page_size_kb * 1024
         entries_per_page = page_size // entry_size
 
         all_entries = list(obj.entries)
+
+        # Build pages, collect TOC data
+        pages: list[bytes] = []
+        toc_keys: list[bytes] = []
+        toc_hashes: list[bytes] = []
         idx = 0
 
         while idx < len(all_entries):
             page_entries = all_entries[idx:idx + entries_per_page]
             page_data = BytesIO()
 
+            last_key = b'\x00' * footer.key_bytes
             for entry in page_entries:
-                page_data.write(entry.encoding_key[:footer.key_bytes])
+                last_key = entry.encoding_key[:footer.key_bytes]
+                page_data.write(last_key)
+
+                # Size comes before offset in the binary format
+                page_data.write(struct.pack('>I', entry.size))
 
                 if footer.is_archive_group:
                     archive_idx = entry.archive_index if entry.archive_index is not None else 0
@@ -326,24 +335,36 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
                 else:
                     page_data.write(struct.pack('>I', entry.offset))
 
-                page_data.write(struct.pack('>I', entry.size))
-
             # Zero-pad to page_size
             written = page_data.tell()
             if written < page_size:
                 page_data.write(b'\x00' * (page_size - written))
 
             page_bytes = page_data.getvalue()
-            result.write(page_bytes)
-            result.write(hashlib.md5(page_bytes).digest())
+            pages.append(page_bytes)
+            toc_keys.append(last_key)
+            toc_hashes.append(hashlib.md5(page_bytes).digest()[:footer.footer_hash_bytes])
 
             idx += entries_per_page
 
-        # Empty index: write one empty page + checksum
+        # Handle empty index: one empty page
         if not all_entries:
             empty_page = b'\x00' * page_size
-            result.write(empty_page)
-            result.write(hashlib.md5(empty_page).digest())
+            pages.append(empty_page)
+            toc_keys.append(b'\x00' * footer.key_bytes)
+            toc_hashes.append(hashlib.md5(empty_page).digest()[:footer.footer_hash_bytes])
+
+        # Assemble: Pages + TOC keys + TOC hashes + Footer
+        result = BytesIO()
+
+        for page in pages:
+            result.write(page)
+
+        for key in toc_keys:
+            result.write(key)
+
+        for h in toc_hashes:
+            result.write(h)
 
         # Write footer
         result.write(footer.toc_hash)
