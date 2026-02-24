@@ -50,7 +50,7 @@ from cascette_tools.core.product_state import (
     generate_all_state_files,
 )
 from cascette_tools.core.types import Product
-from cascette_tools.formats.blte import decompress_blte, is_blte
+from cascette_tools.formats.blte import BLTEBuilder, decompress_blte, is_blte
 from cascette_tools.formats.build_info import (
     BuildInfoParser,
     LocalBuildInfo,
@@ -60,10 +60,12 @@ from cascette_tools.formats.build_info import (
 from cascette_tools.formats.config import (
     BuildConfigParser,
     CDNConfigParser,
+    PatchConfigParser,
 )
 from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
 from cascette_tools.formats.encoding import EncodingFile, EncodingParser, is_encoding
 from cascette_tools.formats.install import InstallEntry, InstallParser, InstallTag
+from cascette_tools.formats.patch_archive import PatchArchiveParser, PatchEntry
 from cascette_tools.formats.size import (
     SizeFile,
     SizeParser,
@@ -71,6 +73,7 @@ from cascette_tools.formats.size import (
     apply_tag_query,
     is_file_selected,
 )
+from cascette_tools.formats.zbsdiff import ZbsdiffParser
 
 logger = structlog.get_logger()
 
@@ -1115,6 +1118,214 @@ async def _download_casc_files(
     return installed, failed, integrity_errors, total_bytes
 
 
+def _fetch_patch_manifest(
+    cdn_client: CDNClient,
+    patch_config_hash: str,
+) -> dict[bytes, PatchEntry]:
+    """Fetch patch config and build new_ckey→PatchEntry lookup.
+
+    Steps:
+    1. Fetch and parse patch config from CDN
+    2. For each patch archive hash, fetch the PA file from CDN
+    3. BLTE-decode if needed, then parse with PatchArchiveParser
+    4. Return lookup keyed by new_content_key
+
+    Args:
+        cdn_client: CDN client for fetching data
+        patch_config_hash: Hash of the patch config file
+
+    Returns:
+        Dict mapping new_content_key → PatchEntry
+    """
+    # Fetch patch config
+    patch_config_data = cdn_client.fetch_config(patch_config_hash, config_type="patch")
+    patch_config = PatchConfigParser().parse(patch_config_data)
+
+    if not patch_config.patch_archives:
+        logger.info("Patch config has no patch archives")
+        return {}
+
+    # Fetch and parse all patch archives
+    lookup: dict[bytes, PatchEntry] = {}
+    pa_parser = PatchArchiveParser()
+
+    for pa_hash in patch_config.patch_archives:
+        try:
+            pa_data = cdn_client.fetch_patch(pa_hash)
+
+            # BLTE-decode if needed
+            if is_blte(pa_data):
+                pa_data = decompress_blte(pa_data)
+
+            pa_file = pa_parser.parse(pa_data)
+
+            for entry in pa_file.entries:
+                lookup[entry.new_content_key] = entry
+
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch/parse patch archive",
+                hash=pa_hash,
+                error=str(e),
+            )
+
+    logger.info("Loaded patch manifest", entries=len(lookup))
+    return lookup
+
+
+async def _patch_casc_files(
+    patchable: dict[bytes, tuple[bytes, bytes]],
+    patch_lookup: dict[bytes, PatchEntry],
+    fetcher: CdnArchiveFetcher,
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    console: Console,
+) -> tuple[int, int, int]:
+    """Apply binary patches to produce new file versions.
+
+    For each patchable file:
+    1. Fetch old content (CDN archive first, local storage fallback)
+    2. Fetch patch blob from CDN patch path
+    3. Apply ZBSDIFF patch
+    4. Verify MD5 of new content matches expected CKey
+    5. BLTE-wrap and write to local storage
+
+    Args:
+        patchable: CKey → (new_EKey, old_EKey) for patchable files
+        patch_lookup: new_content_key → PatchEntry from PA manifest
+        fetcher: Archive fetcher with loaded CDN indices
+        cdn_client: CDN client for fetching data
+        storage: Local storage for reading old / writing new content
+        console: Rich console for progress output
+
+    Returns:
+        (patched_count, failed_count, total_bytes_written)
+    """
+    import hashlib
+
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
+
+    from cascette_tools.core.types import CompressionMode
+
+    patched = 0
+    failed = 0
+    total_bytes = 0
+    semaphore = asyncio.Semaphore(8)
+
+    zbsdiff_parser = ZbsdiffParser()
+
+    async def patch_one(
+        ckey: bytes, new_ekey: bytes, old_ekey: bytes,
+    ) -> tuple[bool, int]:
+        """Patch a single file. Returns (success, bytes_written)."""
+        pa_entry = patch_lookup.get(ckey)
+        if pa_entry is None:
+            return False, 0
+
+        async with semaphore:
+            try:
+                # 1. Fetch old content (decompressed)
+                old_data = await fetcher.fetch_file_via_cdn_async(
+                    cdn_client, old_ekey, decompress=True,
+                )
+                if old_data is None:
+                    # Fallback: read from local storage
+                    local_entry = storage.find_entry(old_ekey)
+                    if local_entry is not None:
+                        raw = storage.read_content(local_entry)
+                        if is_blte(raw):
+                            old_data = decompress_blte(raw)
+                        else:
+                            old_data = raw
+
+                if old_data is None:
+                    logger.warning(
+                        "Cannot find old content for patching",
+                        ekey=old_ekey.hex(),
+                    )
+                    return False, 0
+
+                # 2. Fetch patch blob
+                patch_ekey_hex = pa_entry.patch_encoding_key.hex()
+                patch_data = await cdn_client.fetch_patch_async(
+                    patch_ekey_hex, quiet=True,
+                )
+
+                # BLTE-decode patch if needed
+                if is_blte(patch_data):
+                    patch_data = decompress_blte(patch_data)
+
+                # 3. Apply ZBSDIFF patch
+                patch_file = zbsdiff_parser.parse(patch_data)
+                new_content = zbsdiff_parser.apply_patch(old_data, patch_file)
+
+                # 4. Verify MD5
+                actual_md5 = hashlib.md5(new_content).digest()
+                if actual_md5 != pa_entry.new_content_key:
+                    logger.warning(
+                        "Patch result MD5 mismatch",
+                        expected=pa_entry.new_content_key.hex(),
+                        actual=actual_md5.hex(),
+                    )
+                    return False, 0
+
+                # 5. BLTE-wrap
+                blte_file = BLTEBuilder.create_single_chunk(
+                    new_content, CompressionMode.ZLIB,
+                )
+                blte_blob = BLTEBuilder().build(blte_file)
+
+                # 6. Write to storage
+                storage.write_content(new_ekey, blte_blob)
+
+                return True, len(blte_blob)
+
+            except Exception as e:
+                logger.warning(
+                    "Patch failed for file",
+                    ckey=ckey.hex(),
+                    error=str(e),
+                )
+                return False, 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "Applying patches...", total=len(patchable),
+        )
+
+        # Create all patch tasks
+        tasks: list[asyncio.Task[tuple[bool, int]]] = []
+        items = list(patchable.items())
+
+        for ckey, (new_ekey, old_ekey) in items:
+            t = asyncio.create_task(patch_one(ckey, new_ekey, old_ekey))
+            tasks.append(t)
+
+        # Collect results as they complete
+        for coro in asyncio.as_completed(tasks):
+            success, nbytes = await coro
+            if success:
+                patched += 1
+                total_bytes += nbytes
+            else:
+                failed += 1
+            progress.update(task, advance=1)
+
+    return patched, failed, total_bytes
+
+
 def _fmt_size(nbytes: int) -> str:
     """Format byte count as human-readable string."""
     if nbytes >= 1024 ** 3:
@@ -2114,19 +2325,94 @@ def update(
         encoding_file = encoding_parser.parse(encoding_data)
         console.print(f"  CKey pages: {encoding_file.header.ckey_page_count}")
 
-        # Step 7: Classify files
+        # Step 7: Classify files (initial pass without patch info)
         console.print("\n[cyan]Step 7:[/cyan] Classifying files...")
         delta = classify_files(old_ecache, encoding_data, encoding_file, encoding_parser)
+
+        # Step 7.5: Fetch patch manifest and reclassify with patch info
+        patch_lookup: dict[bytes, PatchEntry] = {}
+        if new_build_config.patch_config:
+            console.print("\n[cyan]Step 7.5:[/cyan] Fetching patch manifest...")
+            try:
+                patch_lookup = _fetch_patch_manifest(
+                    cdn_client, new_build_config.patch_config,
+                )
+                console.print(f"  Loaded {len(patch_lookup):,} patch entries")
+
+                if patch_lookup:
+                    # Reclassify with patch awareness
+                    delta = classify_files(
+                        old_ecache, encoding_data, encoding_file, encoding_parser,
+                        patch_lookup=patch_lookup,
+                    )
+                    console.print(
+                        f"  {delta.patch_count:,} files patchable, "
+                        f"{delta.download_count:,} need full download"
+                    )
+            except Exception as e:
+                logger.warning("Failed to load patch manifest", error=str(e))
+                console.print(f"  [yellow]Patch manifest unavailable: {e!s:.80}[/yellow]")
+                console.print("  [dim]Falling back to full download for changed files[/dim]")
+        else:
+            console.print("  [dim]No patch config in build config[/dim]")
 
         delta_table = Table(title="Build Delta Summary")
         delta_table.add_column("Classification", style="cyan")
         delta_table.add_column("Count", style="green", justify="right")
         delta_table.add_row("Unchanged", f"{delta.unchanged_count:,}")
+        delta_table.add_row("Needs patch", f"{delta.patch_count:,}")
         delta_table.add_row("Needs download", f"{delta.download_count:,}")
         delta_table.add_row("Obsolete", f"{delta.obsolete_count:,}")
         console.print(delta_table)
 
-        if delta.download_count == 0:
+        # Step 7.6: Apply patches
+        patched_count = 0
+        patch_failed = 0
+        patch_bytes = 0
+        fetcher: CdnArchiveFetcher | None = None
+        if delta.patch_count > 0 and patch_lookup:
+            console.print(f"\n[cyan]Step 7.6:[/cyan] Applying {delta.patch_count:,} patches...")
+
+            # Load archive indices (needed for fetching old content)
+            console.print("  Loading archive indices...")
+            fetcher, _indices_loaded = asyncio.run(
+                _load_archive_indices(
+                    cdn_client, new_cdn_config.archives, storage, console,
+                )
+            )
+
+            patched_count, patch_failed, patch_bytes = asyncio.run(
+                _patch_casc_files(
+                    delta.patchable_ekeys, patch_lookup, fetcher,
+                    cdn_client, storage, console,
+                )
+            )
+
+            console.print(
+                f"  Patched: {patched_count:,}, Failed: {patch_failed:,}, "
+                f"Bytes written: {_fmt_size(patch_bytes)}"
+            )
+
+            # Move failed patches into new_ekeys for download fallback
+            if patch_failed > 0:
+                patched_ckeys: set[bytes] = set()
+                for ckey in delta.patchable_ekeys:
+                    local_entry = storage.find_entry(
+                        delta.patchable_ekeys[ckey][0],  # new_ekey
+                    )
+                    if local_entry is not None:
+                        patched_ckeys.add(ckey)
+
+                for ckey, (new_ekey, _old_ekey) in delta.patchable_ekeys.items():
+                    if ckey not in patched_ckeys:
+                        delta.new_ekeys[ckey] = new_ekey
+                        delta.download_count += 1
+
+                console.print(
+                    f"  {patch_failed:,} failed patches queued for full download"
+                )
+
+        if delta.download_count == 0 and delta.patch_count == patched_count:
             console.print("[green]No files need downloading. Update complete.[/green]")
             # Still update ecache and .build.info even if nothing to download
         else:
@@ -2191,11 +2477,13 @@ def update(
                 install_state = InstallState(install_path, build_config_hash)
                 install_state.init_priority_stats(update_entries)
 
-                fetcher, _indices_loaded = asyncio.run(
-                    _load_archive_indices(
-                        cdn_client, new_cdn_config.archives, storage, console,
+                # Reuse fetcher from step 7.6 if already loaded
+                if fetcher is None:
+                    fetcher, _indices_loaded = asyncio.run(
+                        _load_archive_indices(
+                            cdn_client, new_cdn_config.archives, storage, console,
+                        )
                     )
-                )
 
                 installed, failed, _integrity_errors, total_bytes = asyncio.run(
                     _download_casc_files(
@@ -2268,6 +2556,7 @@ def update(
             f"Old build: {old_build_key}\n"
             f"New build: {build_config_hash}\n"
             f"Unchanged: {delta.unchanged_count:,}\n"
+            f"Patched: {patched_count:,}\n"
             f"Downloaded: {delta.download_count:,}\n"
             f"Obsolete: {delta.obsolete_count:,}",
             title="Success",

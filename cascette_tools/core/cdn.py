@@ -436,6 +436,52 @@ class CDNClient:
 
         return data
 
+    async def fetch_patch_async(
+        self, hash_str: str, is_index: bool = False, quiet: bool = False,
+    ) -> bytes:
+        """Fetch patch file asynchronously with caching.
+
+        Checks the local disk cache first (synchronously, since disk I/O
+        is fast), then fetches from CDN using the async client.
+
+        Args:
+            hash_str: Patch file hash
+            is_index: True if fetching a patch archive index
+            quiet: If True, log at debug level when all mirrors fail
+
+        Returns:
+            Patch data
+        """
+        self.ensure_initialized()
+        assert self.cdn_path is not None, "CDN path should be set after initialization"
+
+        file_type = "patch_index" if is_index else "patch"
+
+        # Check cache first (sync - local disk)
+        cached = self.cache.get_cdn(hash_str, file_type, self.cdn_path)
+        if cached is not None:
+            logger.debug(
+                "cache_hit",
+                hash=hash_str,
+                type=file_type,
+                path=self.cdn_path,
+            )
+            return cached
+
+        # Fetch from CDN with mirror fallback (async)
+        data = await self._fetch_from_cdn_async(hash_str, file_type, quiet=quiet)
+
+        # Store in cache (sync - local disk)
+        self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
+        logger.debug(
+            "cache_store",
+            hash=hash_str,
+            type=file_type,
+            size=len(data),
+        )
+
+        return data
+
     def fetch_patch(self, hash_str: str, is_index: bool = False) -> bytes:
         """Fetch patch file (manifest, archive, or index).
 

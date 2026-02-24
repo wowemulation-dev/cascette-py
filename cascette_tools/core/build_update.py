@@ -1,13 +1,15 @@
 """Build update delta logic for incremental CASC installations.
 
 Agent.exe's BuildUpdateInitState compares old and new encoding files to
-classify each file as unchanged (0), needs_download (1), or obsolete (6).
-Instead of loading two full encoding files, we compare the new encoding
-file against the ecache from the previous install which stores CKey→EKey
-mappings on disk.
+classify each file as unchanged (0), needs_download (1), needs_patch (2),
+or obsolete (6). Instead of loading two full encoding files, we compare
+the new encoding file against the ecache from the previous install which
+stores CKey→EKey mappings on disk.
 
-Patching (Agent.exe classification value 2) is deferred to Phase 8.
-Files that could be patched are classified as needs_download instead.
+When a patch archive manifest is available, files that changed between
+builds are checked against the PA entries. Files with matching patches
+are classified as needs_patch instead of needs_download, enabling delta
+updates via ZBSDIFF binary diffs.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import structlog
 from cascette_tools.core.encoding_cache import EncodingCache
 from cascette_tools.formats.config import BuildConfig
 from cascette_tools.formats.encoding import EncodingFile, EncodingParser
+from cascette_tools.formats.patch_archive import PatchEntry
 
 logger = structlog.get_logger()
 
@@ -30,11 +33,13 @@ class FileClassification(enum.Enum):
     Maps to Agent.exe entry+0x4e values:
     - 0 = unchanged (CKey exists in old ecache with same EKey)
     - 1 = needs_download (CKey missing from old ecache or EKey differs)
+    - 2 = needs_patch (CKey differs but patch archive entry exists)
     - 6 = obsolete (CKey in old ecache but not in new encoding)
     """
 
     unchanged = 0
     needs_download = 1
+    needs_patch = 2
     obsolete = 6
 
 
@@ -51,8 +56,12 @@ class BuildDelta:
     obsolete_ekeys: list[tuple[bytes, bytes]] = field(
         default_factory=lambda: list[tuple[bytes, bytes]]()
     )
+    patchable_ekeys: dict[bytes, tuple[bytes, bytes]] = field(
+        default_factory=lambda: dict[bytes, tuple[bytes, bytes]]()
+    )
     unchanged_count: int = 0
     download_count: int = 0
+    patch_count: int = 0
     obsolete_count: int = 0
 
 
@@ -86,6 +95,8 @@ def classify_files(
     new_encoding_data: bytes,
     new_encoding_file: EncodingFile,
     encoding_parser: EncodingParser,
+    *,
+    patch_lookup: dict[bytes, PatchEntry] | None = None,
 ) -> BuildDelta:
     """Classify files by comparing old ecache against new encoding file.
 
@@ -93,14 +104,20 @@ def classify_files(
     1. Iterate all CKey pages of new encoding → build new_ckeys dict
     2. For each CKey, check old_ecache.lookup():
        - Match with same EKey → unchanged
-       - No match or EKey differs → needs_download
+       - No match or EKey differs → needs_download (or needs_patch if patchable)
     3. Find CKeys in old_ecache not in new encoding → obsolete
+
+    When patch_lookup is provided (keyed by new CKey), files that would be
+    needs_download are checked: if the CKey is in the lookup and the old
+    ecache has a previous EKey, the file is classified as needs_patch instead.
 
     Args:
         old_ecache: Encoding cache from previous install
         new_encoding_data: Raw bytes of new encoding file
         new_encoding_file: Parsed new encoding file structure
         encoding_parser: Parser instance for loading CKey pages
+        patch_lookup: Optional dict mapping new_content_key → PatchEntry
+            from the patch archive manifest
 
     Returns:
         BuildDelta with all classifications
@@ -127,6 +144,15 @@ def classify_files(
             if old_entry is not None and old_entry.encoding_key == new_ekey:
                 delta.classifications[ckey] = FileClassification.unchanged
                 delta.unchanged_count += 1
+            elif (
+                patch_lookup is not None
+                and old_entry is not None
+                and ckey in patch_lookup
+            ):
+                # Patchable: old content exists locally and PA has a diff
+                delta.classifications[ckey] = FileClassification.needs_patch
+                delta.patchable_ekeys[ckey] = (new_ekey, old_entry.encoding_key)
+                delta.patch_count += 1
             else:
                 delta.classifications[ckey] = FileClassification.needs_download
                 delta.new_ekeys[ckey] = new_ekey
@@ -148,6 +174,7 @@ def classify_files(
         "Build delta computed",
         unchanged=delta.unchanged_count,
         download=delta.download_count,
+        patch=delta.patch_count,
         obsolete=delta.obsolete_count,
     )
     return delta

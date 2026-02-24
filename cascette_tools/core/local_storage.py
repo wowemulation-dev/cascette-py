@@ -769,6 +769,48 @@ class LocalStorage:
         path.write_bytes(data)
         return path
 
+    def find_entry(self, encoding_key: bytes) -> LocalIndexEntry | None:
+        """Find an index entry by encoding key (9-byte prefix match).
+
+        Searches in-memory bucket_entries for an entry whose truncated key
+        matches the first 9 bytes of encoding_key.
+
+        Args:
+            encoding_key: Full encoding key (at least 9 bytes)
+
+        Returns:
+            Matching LocalIndexEntry, or None if not found
+        """
+        truncated = encoding_key[:9]
+        bucket = compute_bucket(encoding_key)
+        for entry in self.bucket_entries[bucket]:
+            if entry.key == truncated:
+                return entry
+        return None
+
+    def read_content(self, entry: LocalIndexEntry) -> bytes:
+        """Read raw content from a local data archive by index entry.
+
+        Args:
+            entry: Index entry specifying archive location and size
+
+        Returns:
+            Raw bytes (BLTE-encoded) from the archive
+
+        Raises:
+            FileNotFoundError: If the data archive does not exist
+            ValueError: If read returned fewer bytes than expected
+        """
+        data_path = self.data_path / format_data_filename(entry.archive_id)
+        with open(data_path, 'rb') as f:
+            f.seek(entry.archive_offset)
+            data = f.read(entry.size)
+        if len(data) != entry.size:
+            raise ValueError(
+                f"Short read from {data_path}: got {len(data)}, expected {entry.size}"
+            )
+        return data
+
     def get_statistics(self) -> dict[str, Any]:
         """Get storage statistics.
 
