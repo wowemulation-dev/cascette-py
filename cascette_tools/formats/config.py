@@ -103,6 +103,27 @@ class BuildConfig(BaseModel):
             return []
         return _parse_partial_priority(raw)
 
+    def get_file_db_info(self) -> ConfigFileInfo | None:
+        """Get file database info from build-file-db field.
+
+        Containerless builds use a SQLite file database instead of
+        encoding/install manifests. The build-file-db field follows the
+        same dual-hash format as other file references.
+        """
+        value = self.extra_fields.get("build-file-db")
+        if value is None:
+            return None
+        size_value = self.extra_fields.get("build-file-db-size")
+        return _parse_file_info(value, size_value)
+
+    def is_containerless(self) -> bool:
+        """Check if this build config uses containerless mode.
+
+        Containerless mode is indicated by the presence of a
+        build-file-db key in the config.
+        """
+        return "build-file-db" in self.extra_fields
+
     def get_vfs_entries(self) -> list[tuple[int, ConfigFileInfo]]:
         """Get VFS file entries from vfs-1, vfs-1-size, vfs-2, etc.
 

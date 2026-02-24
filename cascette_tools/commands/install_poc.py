@@ -36,6 +36,10 @@ from cascette_tools.core.cdn_archive_fetcher import (
     parse_cdn_config_archives,
 )
 from cascette_tools.core.config import AppConfig
+from cascette_tools.core.containerless_storage import ContainerlessStorage
+from cascette_tools.core.containerless_update import (
+    classify_containerless_files,
+)
 from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
 from cascette_tools.core.encoding_cache import EncodingCache
 from cascette_tools.core.install_state import InstallState
@@ -64,6 +68,7 @@ from cascette_tools.formats.config import (
 )
 from cascette_tools.formats.download import DownloadEntry, DownloadParser, DownloadTag
 from cascette_tools.formats.encoding import EncodingFile, EncodingParser, is_encoding
+from cascette_tools.formats.file_db import FileDatabase, FileDatabaseParser
 from cascette_tools.formats.install import InstallEntry, InstallParser, InstallTag
 from cascette_tools.formats.patch_archive import PatchArchiveParser, PatchEntry
 from cascette_tools.formats.size import (
@@ -76,6 +81,9 @@ from cascette_tools.formats.size import (
 from cascette_tools.formats.zbsdiff import ZbsdiffParser
 
 logger = structlog.get_logger()
+
+# Derive product choices from the Product enum so they stay in sync.
+PRODUCT_CHOICES = [p.value for p in Product]
 
 
 def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, bool]:
@@ -114,17 +122,14 @@ def _populate_ecache(
 
 
 def get_product_enum(product_code: str) -> Product:
-    """Map product code string to Product enum."""
-    mapping = {
-        "wow": Product.WOW,
-        "wow_classic": Product.WOW_CLASSIC,
-        "wow_classic_era": Product.WOW_CLASSIC_ERA,
-        "wow_classic_titan": Product.WOW_CLASSIC_TITAN,
-        "wow_anniversary": Product.WOW_ANNIVERSARY,
-    }
-    if product_code not in mapping:
-        raise ValueError(f"Unknown product code: {product_code}")
-    return mapping[product_code]
+    """Map product code string to Product enum.
+
+    Uses Product StrEnum directly — the enum value IS the product code.
+    """
+    try:
+        return Product(product_code)
+    except ValueError:
+        raise ValueError(f"Unknown product code: {product_code}") from None
 
 
 @click.group()
@@ -137,7 +142,7 @@ def install_poc() -> None:
 @click.argument("build_config_hash", type=str)
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -376,7 +381,7 @@ def resolve_manifests(
 @install_poc.command()
 @click.option(
     "--product", "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code"
 )
@@ -464,7 +469,7 @@ def discover_latest(
 @click.argument("output_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -608,7 +613,7 @@ def extract_from_archives(
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -1405,7 +1410,7 @@ def _resolve_ekey(
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup"
 )
@@ -2137,7 +2142,7 @@ def install_to_casc(
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup",
 )
@@ -2575,7 +2580,7 @@ def update(
 @click.argument("install_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--product", "-r",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]),
+    type=click.Choice(PRODUCT_CHOICES),
     required=True,
     help="Product code for CDN lookup",
 )
@@ -2674,3 +2679,727 @@ def build_ecache(
     except Exception as e:
         logger.error("build-ecache failed", error=str(e))
         raise click.ClickException(f"build-ecache failed: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Containerless mode commands
+# ---------------------------------------------------------------------------
+
+
+def _save_file_db(install_path: Path, data: bytes) -> Path:
+    """Save the raw file database blob for future delta updates.
+
+    Stores at {install_path}/.cascette/file_db.sqlite.
+    """
+    cascette_dir = install_path / ".cascette"
+    cascette_dir.mkdir(parents=True, exist_ok=True)
+    db_path = cascette_dir / "file_db.sqlite"
+    db_path.write_bytes(data)
+    return db_path
+
+
+def _load_saved_file_db(install_path: Path) -> FileDatabase | None:
+    """Load previously saved file database, if present."""
+    db_path = install_path / ".cascette" / "file_db.sqlite"
+    if not db_path.exists():
+        return None
+    try:
+        return FileDatabaseParser().parse(db_path.read_bytes())
+    except Exception:
+        return None
+
+
+async def _download_containerless_files(
+    entries: list[tuple[bytes, bytes | None, str]],
+    fetcher: CdnArchiveFetcher,
+    cdn_client: CDNClient,
+    storage: ContainerlessStorage,
+    console: Console,
+) -> tuple[int, int, int]:
+    """Download and write loose files for containerless installation.
+
+    Args:
+        entries: List of (ekey, ckey, relative_path) tuples
+        fetcher: Archive fetcher with loaded CDN indices
+        cdn_client: CDN client for fetching data
+        storage: Containerless storage backend
+        console: Rich console for output
+
+    Returns:
+        (installed, failed, total_bytes)
+    """
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TransferSpeedColumn,
+    )
+
+    installed = 0
+    failed = 0
+    total_bytes = 0
+
+    queue = DownloadQueue(max_concurrency=12, max_per_host=3, max_retries=3)
+
+    for ekey, _ckey, _rel_path in entries:
+        async def make_factory(ek: bytes = ekey) -> DownloadResult:
+            # Try archive first, then loose
+            data = await fetcher.fetch_file_via_cdn_async(
+                cdn_client, ek, decompress=False, verify=True,
+            )
+            if data is None:
+                # Fallback to loose file
+                try:
+                    data = await cdn_client.fetch_data_async(ek.hex())
+                except Exception:
+                    data = None
+            source = ""
+            loc = fetcher.index_map.find(ek)
+            if loc:
+                source = loc.archive_hash
+            return DownloadResult(
+                ekey=ek,
+                data=data,
+                error=None if data is not None else "Not found",
+                source=source,
+            )
+
+        await queue.submit(priority=0, ekey=ekey, coro_factory=make_factory)
+
+    # Build lookup for ckey verification
+    ckey_lookup: dict[bytes, bytes] = {}
+    for ekey, ckey, _rel_path in entries:
+        if ckey is not None:
+            ckey_lookup[ekey] = ckey
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Installing files...", total=len(entries))
+
+        async for result in queue.run(total=len(entries)):
+            if result.data is None:
+                failed += 1
+                progress.update(task, advance=1)
+                continue
+
+            try:
+                # BLTE-decode if needed
+                content = result.data
+                if is_blte(content):
+                    content = decompress_blte(content)
+
+                # Write to filesystem
+                expected_ckey = ckey_lookup.get(result.ekey)
+                storage.write_content(
+                    result.ekey, content, expected_ckey=expected_ckey,
+                )
+                installed += 1
+                total_bytes += len(content)
+            except (IntegrityError, KeyError) as e:
+                logger.warning(
+                    "Failed to write file",
+                    ekey=result.ekey.hex(),
+                    error=str(e),
+                )
+                failed += 1
+
+            progress.update(task, advance=1)
+
+    return installed, failed, total_bytes
+
+
+@install_poc.command("install-containerless")
+@click.argument("build_config_hash", type=str)
+@click.argument("cdn_config_hash", type=str)
+@click.argument("install_path", type=click.Path(path_type=Path))
+@click.option(
+    "--product", "-r",
+    type=click.Choice([
+        "wow", "wow_classic", "wow_classic_era",
+        "wow_classic_titan", "wow_anniversary",
+    ]),
+    default="wow_classic_era",
+    help="Product code for Ribbit lookup",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default="us",
+    help="CDN region",
+)
+@click.option(
+    "--platform",
+    type=click.Choice(["Windows", "OSX", "Android", "iOS"]),
+    default="Windows",
+    help="Target platform",
+)
+@click.option(
+    "--arch",
+    type=click.Choice(["x86_64", "x86_32", "arm64"]),
+    default="x86_64",
+    help="Target architecture",
+)
+@click.option(
+    "--locale",
+    type=click.Choice([
+        "enUS", "deDE", "esES", "esMX", "frFR",
+        "koKR", "ptBR", "ruRU", "zhCN", "zhTW",
+    ]),
+    default="enUS",
+    help="Target locale",
+)
+@click.option(
+    "--max-archives", "-m",
+    type=int,
+    default=0,
+    help="Maximum archives to download indices for (0 = all)",
+)
+@click.option(
+    "--max-files", "-f",
+    type=int,
+    default=0,
+    help="Maximum files to install (0 = all)",
+)
+@click.pass_context
+def install_containerless(
+    ctx: click.Context,
+    build_config_hash: str,
+    cdn_config_hash: str,
+    install_path: Path,
+    product: str,
+    region: str,
+    platform: str,
+    arch: str,
+    locale: str,
+    max_archives: int,
+    max_files: int,
+) -> None:
+    """Install files in containerless mode (loose files on disk).
+
+    Containerless builds use a SQLite file database instead of CASC
+    archives. Files are written directly to their final filesystem paths.
+
+    BUILD_CONFIG_HASH is the build config hash from versions endpoint.
+    CDN_CONFIG_HASH is the CDN config hash from versions endpoint.
+    INSTALL_PATH is the installation directory.
+    """
+    _config, console, _verbose, _debug = _get_context_objects(ctx)
+
+    try:
+        # Step 1: Fetch and parse configs
+        console.print("[cyan]Step 1:[/cyan] Fetching configs...")
+
+        product_enum = get_product_enum(product)
+        cdn_client = CDNClient(product_enum, region=region)
+
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build",
+        )
+        build_config = BuildConfigParser().parse(build_config_data)
+        console.print(f"  Build: {build_config.build_name}")
+
+        # Verify this is a containerless build
+        file_db_info = build_config.get_file_db_info()
+        if file_db_info is None:
+            raise click.ClickException(
+                "Build config does not have build-file-db field. "
+                "This is not a containerless build."
+            )
+
+        cdn_config_data = cdn_client.fetch_config(
+            cdn_config_hash, config_type="cdn",
+        )
+        cdn_config = CDNConfigParser().parse(cdn_config_data)
+        console.print(f"  Archives: {len(cdn_config.archives)}")
+
+        # Step 2: Fetch encoding file (needed to resolve file DB ekey)
+        console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
+        encoding_info = build_config.get_encoding_info()
+        if not encoding_info or not encoding_info.encoding_key:
+            raise click.ClickException("No encoding key in BuildConfig")
+
+        encoding_data = cdn_client.fetch_data(encoding_info.encoding_key)
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
+
+        encoding_parser = EncodingParser()
+        encoding_file = encoding_parser.parse(encoding_data)
+        console.print(f"  CKey pages: {encoding_file.header.ckey_page_count}")
+
+        # Step 3: Resolve and fetch file database
+        console.print("\n[cyan]Step 3:[/cyan] Fetching file database...")
+        file_db_ckey = bytes.fromhex(file_db_info.content_key)
+
+        # Try encoding key first (if available), then resolve via encoding
+        file_db_raw: bytes | None = None
+        if file_db_info.encoding_key:
+            try:
+                file_db_raw = cdn_client.fetch_data(file_db_info.encoding_key)
+            except Exception:
+                pass
+
+        if file_db_raw is None:
+            # Resolve via encoding file
+            file_db_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, file_db_ckey,
+            )
+            if not file_db_ekeys:
+                raise click.ClickException(
+                    "File database not found in encoding file"
+                )
+            file_db_raw = cdn_client.fetch_data(file_db_ekeys[0].hex())
+
+        # BLTE-decode if needed
+        file_db_decoded = file_db_raw
+        if is_blte(file_db_decoded):
+            file_db_decoded = decompress_blte(file_db_decoded)
+
+        console.print(f"  Downloaded: {len(file_db_decoded):,} bytes")
+
+        # Parse file database
+        file_db = FileDatabaseParser().parse(file_db_decoded)
+        console.print(f"  Entries: {len(file_db.entries):,}")
+        console.print(f"  Tags: {len(file_db.tags)}")
+
+        # Step 4: Filter by tags
+        console.print("\n[cyan]Step 4:[/cyan] Filtering by tags...")
+        filtered_entries = file_db.filter_by_tags(
+            platform=platform, arch=arch, locale=locale,
+        )
+        console.print(f"  After filtering: {len(filtered_entries):,} entries")
+
+        if max_files > 0:
+            filtered_entries = filtered_entries[:max_files]
+            console.print(f"  Limited to {max_files} files")
+
+        # Step 5: Initialize storage
+        console.print(f"\n[cyan]Step 5:[/cyan] Initializing storage at {install_path}...")
+        storage = ContainerlessStorage(install_path)
+        storage.set_file_database(file_db)
+        storage.initialize()
+
+        # Step 6: Load archive indices
+        console.print("\n[cyan]Step 6:[/cyan] Loading archive indices...")
+        # Use a temporary LocalStorage just for index caching
+        temp_storage = LocalStorage(install_path)
+        temp_storage.indices_path.mkdir(parents=True, exist_ok=True)
+        fetcher, _loaded = asyncio.run(
+            _load_archive_indices(
+                cdn_client, cdn_config.archives, temp_storage,
+                console, max_archives,
+            )
+        )
+
+        # Step 7: Download files
+        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(filtered_entries)} files...")
+
+        download_list: list[tuple[bytes, bytes | None, str]] = [
+            (entry.ekey, entry.ckey, entry.relative_path)
+            for entry in filtered_entries
+        ]
+
+        installed, failed, total_bytes = asyncio.run(
+            _download_containerless_files(
+                download_list, fetcher, cdn_client, storage, console,
+            )
+        )
+
+        # Step 8: Save file database for future updates
+        console.print("\n[cyan]Step 8:[/cyan] Saving file database...")
+        db_path = _save_file_db(install_path, file_db_decoded)
+        console.print(f"  Saved to: {db_path}")
+
+        # Step 9: Create .build.info
+        console.print("\n[cyan]Step 9:[/cyan] Creating .build.info...")
+        import re
+        version_str = ""
+        if build_config.build_name:
+            match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
+            if match:
+                build_id, version = match.groups()
+                version_str = f"{version}.{build_id}"
+
+        build_info = create_build_info(
+            branch=region,
+            build_config_hash=build_config_hash,
+            cdn_config_hash=cdn_config_hash,
+            cdn_path=cdn_client.cdn_path or "",
+            cdn_hosts=cdn_client.cdn_servers or [],
+            version=version_str,
+            product=build_config.build_product or product,
+            platform=platform,
+            architecture=arch,
+            locale=locale,
+            region=region,
+        )
+        build_info = update_last_activated(build_info)
+
+        build_info_path = install_path / ".build.info"
+        build_info_parser = BuildInfoParser()
+        build_info_path.write_bytes(build_info_parser.build(build_info))
+        console.print(f"  Created: {build_info_path}")
+
+        # Step 10: Generate product state files
+        console.print("\n[cyan]Step 10:[/cyan] Generating product state files...")
+        product_code = build_config.build_product or product
+        product_info = ProductInfo(
+            product_code=product_code,
+            version=version_str or "1.0.0.00000",
+            build_config=build_config_hash,
+            region=region,
+            locale=locale,
+            install_path=install_path,
+        )
+        state_files = generate_all_state_files(product_info, install_path)
+        for file_name in state_files:
+            console.print(f"  Created: {file_name}")
+
+        # Summary
+        summary = Table(title="Containerless Installation Summary")
+        summary.add_column("Metric", style="cyan")
+        summary.add_column("Value", style="green")
+        summary.add_row("Install path", str(install_path))
+        summary.add_row("Build", build_config.build_name or "N/A")
+        summary.add_row("Platform", platform)
+        summary.add_row("Locale", locale)
+        summary.add_row("File DB entries", f"{len(file_db.entries):,}")
+        summary.add_row("Filtered entries", f"{len(filtered_entries):,}")
+        summary.add_row("Files installed", f"{installed:,}")
+        summary.add_row("Files failed", str(failed))
+        summary.add_row("Total data written", _fmt_size(total_bytes))
+        console.print(summary)
+
+        console.print(Panel.fit(
+            f"[green]Containerless installation complete![/green]\n\n"
+            f"Files are stored directly at:\n"
+            f"  {install_path}/\n"
+            f"File database saved to:\n"
+            f"  {install_path}/.cascette/file_db.sqlite",
+            title="Success",
+        ))
+
+        cdn_client.close()
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("Containerless install failed", error=str(e))
+        raise click.ClickException(
+            f"Containerless install failed: {e}"
+        ) from e
+
+
+@install_poc.command("update-containerless")
+@click.argument("install_path", type=click.Path(path_type=Path))
+@click.option(
+    "--product", "-r",
+    type=click.Choice([
+        "wow", "wow_classic", "wow_classic_era",
+        "wow_classic_titan", "wow_anniversary",
+    ]),
+    default="wow_classic_era",
+    help="Product code for Ribbit lookup",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default="us",
+    help="CDN region",
+)
+@click.option(
+    "--build-config-hash",
+    type=str,
+    default=None,
+    help="New build config hash (default: query latest from Ribbit)",
+)
+@click.option(
+    "--cdn-config-hash",
+    type=str,
+    default=None,
+    help="New CDN config hash (default: query latest from Ribbit)",
+)
+@click.option(
+    "--max-archives", "-m",
+    type=int,
+    default=0,
+    help="Maximum archives to download indices for (0 = all)",
+)
+@click.option(
+    "--delete-obsolete/--no-delete-obsolete",
+    default=False,
+    help="Delete files that are obsolete in the new build",
+)
+@click.pass_context
+def update_containerless(
+    ctx: click.Context,
+    install_path: Path,
+    product: str,
+    region: str,
+    build_config_hash: str | None,
+    cdn_config_hash: str | None,
+    max_archives: int,
+    delete_obsolete: bool,
+) -> None:
+    """Update a containerless installation to a new build.
+
+    Compares on-disk files against the new file database to determine
+    which files need downloading. Unchanged files are skipped.
+
+    INSTALL_PATH is the root of an existing containerless installation.
+    """
+    _config, console, _verbose, _debug = _get_context_objects(ctx)
+
+    try:
+        # Step 1: Read existing .build.info
+        console.print("[cyan]Step 1:[/cyan] Reading existing installation...")
+        build_info_path = install_path / ".build.info"
+
+        if not build_info_path.exists():
+            raise click.ClickException(
+                f"No .build.info found at {install_path}. "
+                "Is this a valid installation?"
+            )
+
+        existing_info = BuildInfoParser().parse_file(str(build_info_path))
+        old_build_key = existing_info.build_key
+        console.print(f"  Current build: {old_build_key}")
+
+        # Get platform/locale from existing install
+        platform = existing_info.platform or "Windows"
+        arch = existing_info.architecture or "x86_64"
+        locale = "enUS"
+        if existing_info.locale_configs:
+            locale = existing_info.locale_configs[0].code
+
+        # Step 2: Determine new build
+        if build_config_hash is None or cdn_config_hash is None:
+            console.print("\n[cyan]Step 2:[/cyan] Querying latest build from Ribbit...")
+            from cascette_tools.core.tact import TACTClient
+
+            tact_client = TACTClient(region=region)
+            product_enum = get_product_enum(product)
+            latest = tact_client.get_latest_build(product_enum)
+            if not latest:
+                raise click.ClickException("No version found for product")
+
+            build_config_hash = build_config_hash or latest.get("BuildConfig", "")
+            cdn_config_hash = cdn_config_hash or latest.get("CDNConfig", "")
+            console.print(f"  New build: {build_config_hash}")
+        else:
+            console.print(f"\n[cyan]Step 2:[/cyan] Using provided build: {build_config_hash}")
+
+        if build_config_hash == old_build_key:
+            console.print("[green]Already up to date.[/green]")
+            return
+
+        # Step 3: Fetch new configs
+        console.print("\n[cyan]Step 3:[/cyan] Fetching new configs...")
+        product_enum = get_product_enum(product)
+        cdn_client = CDNClient(product_enum, region=region)
+
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build",
+        )
+        build_config = BuildConfigParser().parse(build_config_data)
+        console.print(f"  New build: {build_config.build_name}")
+
+        file_db_info = build_config.get_file_db_info()
+        if file_db_info is None:
+            raise click.ClickException(
+                "New build config does not have build-file-db field."
+            )
+
+        cdn_config_data = cdn_client.fetch_config(
+            cdn_config_hash, config_type="cdn",
+        )
+        cdn_config = CDNConfigParser().parse(cdn_config_data)
+
+        # Step 4: Fetch new file database
+        console.print("\n[cyan]Step 4:[/cyan] Fetching new file database...")
+        encoding_info = build_config.get_encoding_info()
+        if not encoding_info or not encoding_info.encoding_key:
+            raise click.ClickException("No encoding key in BuildConfig")
+
+        encoding_data = cdn_client.fetch_data(encoding_info.encoding_key)
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
+
+        encoding_parser = EncodingParser()
+        encoding_file = encoding_parser.parse(encoding_data)
+
+        file_db_ckey = bytes.fromhex(file_db_info.content_key)
+
+        file_db_raw: bytes | None = None
+        if file_db_info.encoding_key:
+            try:
+                file_db_raw = cdn_client.fetch_data(file_db_info.encoding_key)
+            except Exception:
+                pass
+
+        if file_db_raw is None:
+            file_db_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, file_db_ckey,
+            )
+            if not file_db_ekeys:
+                raise click.ClickException(
+                    "File database not found in encoding file"
+                )
+            file_db_raw = cdn_client.fetch_data(file_db_ekeys[0].hex())
+
+        file_db_decoded = file_db_raw
+        if is_blte(file_db_decoded):
+            file_db_decoded = decompress_blte(file_db_decoded)
+
+        new_file_db = FileDatabaseParser().parse(file_db_decoded)
+        console.print(f"  New file DB: {len(new_file_db.entries):,} entries")
+
+        # Step 5: Load old file database
+        console.print("\n[cyan]Step 5:[/cyan] Loading old file database...")
+        old_file_db = _load_saved_file_db(install_path)
+        if old_file_db is not None:
+            console.print(f"  Old file DB: {len(old_file_db.entries):,} entries")
+        else:
+            console.print("  No saved file DB found (full comparison)")
+
+        # Step 6: Compute delta
+        console.print("\n[cyan]Step 6:[/cyan] Computing delta...")
+        delta = classify_containerless_files(
+            install_path, old_file_db, new_file_db, console,
+        )
+        console.print(f"  Unchanged: {delta.unchanged_count:,}")
+        console.print(f"  Need download: {delta.download_count:,}")
+        console.print(f"  Obsolete: {delta.obsolete_count:,}")
+
+        installed = 0
+        failed = 0
+        total_bytes = 0
+
+        if delta.download_count == 0:
+            console.print("[green]No files need downloading.[/green]")
+        else:
+            # Step 7: Initialize storage and load indices
+            console.print("\n[cyan]Step 7:[/cyan] Loading archive indices...")
+            storage = ContainerlessStorage(install_path)
+            storage.set_file_database(new_file_db)
+
+            temp_storage = LocalStorage(install_path)
+            temp_storage.indices_path.mkdir(parents=True, exist_ok=True)
+            fetcher, _loaded = asyncio.run(
+                _load_archive_indices(
+                    cdn_client, cdn_config.archives, temp_storage,
+                    console, max_archives,
+                )
+            )
+
+            # Step 8: Download changed files
+            console.print(f"\n[cyan]Step 8:[/cyan] Downloading {delta.download_count} files...")
+            download_list: list[tuple[bytes, bytes | None, str]] = [
+                (entry.ekey, entry.ckey, entry.relative_path)
+                for entry in delta.download_entries
+            ]
+
+            installed, failed, total_bytes = asyncio.run(
+                _download_containerless_files(
+                    download_list, fetcher, cdn_client, storage, console,
+                )
+            )
+
+        # Step 9: Handle obsolete files
+        deleted_count = 0
+        if delete_obsolete and delta.obsolete_paths:
+            console.print(f"\n[cyan]Step 9:[/cyan] Deleting {len(delta.obsolete_paths)} obsolete files...")
+            for rel_path in delta.obsolete_paths:
+                full_path = install_path / rel_path
+                if full_path.exists():
+                    full_path.unlink()
+                    deleted_count += 1
+            console.print(f"  Deleted: {deleted_count}")
+        elif delta.obsolete_paths:
+            console.print(
+                f"\n[dim]  {len(delta.obsolete_paths)} obsolete files "
+                f"(use --delete-obsolete to remove)[/dim]"
+            )
+
+        # Step 10: Save new file database
+        console.print("\n[cyan]Step 10:[/cyan] Saving new file database...")
+        db_path = _save_file_db(install_path, file_db_decoded)
+        console.print(f"  Saved to: {db_path}")
+
+        # Step 11: Update .build.info
+        console.print("\n[cyan]Step 11:[/cyan] Updating .build.info...")
+        import re
+        version_str = ""
+        if build_config.build_name:
+            match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
+            if match:
+                build_id, version = match.groups()
+                version_str = f"{version}.{build_id}"
+
+        build_info = create_build_info(
+            branch=region,
+            build_config_hash=build_config_hash,
+            cdn_config_hash=cdn_config_hash,
+            cdn_path=cdn_client.cdn_path or "",
+            cdn_hosts=cdn_client.cdn_servers or [],
+            version=version_str,
+            product=build_config.build_product or product,
+            platform=platform,
+            architecture=arch,
+            locale=locale,
+            region=region,
+        )
+        build_info = update_last_activated(build_info)
+
+        build_info_parser = BuildInfoParser()
+        build_info_path.write_bytes(build_info_parser.build(build_info))
+        console.print(f"  Updated: {build_info_path}")
+
+        # Summary
+        summary = Table(title="Containerless Update Summary")
+        summary.add_column("Metric", style="cyan")
+        summary.add_column("Value", style="green")
+        summary.add_row("Install path", str(install_path))
+        summary.add_row("Old build", old_build_key)
+        summary.add_row("New build", build_config_hash)
+        summary.add_row("Unchanged", f"{delta.unchanged_count:,}")
+        summary.add_row(
+            "Downloaded",
+            f"{installed:,}" if delta.download_count > 0 else "0",
+        )
+        if delta.download_count > 0:
+            summary.add_row("Failed", str(failed))
+            summary.add_row("Data written", _fmt_size(total_bytes))
+        summary.add_row("Obsolete", f"{delta.obsolete_count:,}")
+        if deleted_count:
+            summary.add_row("Deleted", str(deleted_count))
+        console.print(summary)
+
+        console.print(Panel.fit(
+            f"[green]Containerless update complete![/green]\n\n"
+            f"Old build: {old_build_key}\n"
+            f"New build: {build_config_hash}\n"
+            f"Unchanged: {delta.unchanged_count:,}\n"
+            f"Downloaded: {delta.download_count:,}\n"
+            f"Obsolete: {delta.obsolete_count:,}",
+            title="Success",
+        ))
+
+        cdn_client.close()
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("Containerless update failed", error=str(e))
+        raise click.ClickException(
+            f"Containerless update failed: {e}"
+        ) from e
