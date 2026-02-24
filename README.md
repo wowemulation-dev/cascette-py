@@ -28,7 +28,7 @@ and parsing game data files.
 - **Async Support**: Efficient concurrent operations for network requests
 - **Caching**: Multi-layer caching for improved performance
 - **CLI Interface**: Rich command-line interface with comprehensive subcommands
-- **Test Coverage**: 1136 tests across 35 test files (80% minimum coverage enforced)
+- **Test Coverage**: 1358 tests across 48 test files (80% minimum coverage target)
 
 ## Installation
 
@@ -131,8 +131,16 @@ cascette_tools/
 │   ├── cdn.py               # CDN client (Ribbit primary, community mirror fallback)
 │   ├── cdn_archive_fetcher.py  # Archive index downloading, HTTP range extraction
 │   ├── cache.py             # Multi-layer disk caching
+│   ├── build_update.py      # Build update orchestration
+│   ├── containerless_storage.py  # Containerless CASC storage mode
+│   ├── containerless_update.py   # Containerless update logic
+│   ├── download_queue.py    # Prioritized download queue management
+│   ├── encoding_cache.py    # Encoding file caching layer
+│   ├── install_state.py     # Installation state tracking
+│   ├── integrity.py         # Data integrity verification
 │   ├── local_storage.py     # Local CASC directory structure
 │   ├── product_state.py     # Battle.net agent state files
+│   ├── shmem.py             # Shared memory segment handling
 │   ├── tact.py              # TACT encryption key handling
 │   └── utils.py             # Hex conversion, MD5, Jenkins96 hash
 ├── formats/                 # Binary format parsers
@@ -145,9 +153,11 @@ cascette_tools/
 │   ├── build_info.py        # .build.info file parser
 │   ├── archive.py           # CDN archive index
 │   ├── cdn_archive.py       # CDN archive format
+│   ├── file_db.py           # File database format
 │   ├── install.py           # Install manifest
 │   ├── download.py          # Download manifest
 │   ├── patch_archive.py     # Patch archive (PA) format
+│   ├── size.py              # Size-related format parsing
 │   ├── zbsdiff.py           # ZBSDIFF binary diff
 │   └── tvfs.py              # TVFS virtual file system
 ├── commands/                # Click CLI command groups (11 groups)
@@ -169,11 +179,11 @@ cascette_tools/
 └── crypto/                  # Cryptographic utilities
     └── jenkins.py           # Bob Jenkins lookup3 hash
 
-tests/                       # Test suite (35 test files, 1136 tests)
+tests/                       # Test suite (48 test files, 1358 tests)
 ├── conftest.py              # Shared fixtures for CLI mocking and CDN responses
 ├── test_cli.py              # Main CLI integration tests
-├── test_core/               # Core module tests (7 files)
-├── test_formats/            # Format parser tests (14 files)
+├── test_core/               # Core module tests (18 files)
+├── test_formats/            # Format parser tests (16 files)
 ├── test_commands/           # CLI command tests (7 files)
 ├── test_database/           # Database tests (3 files)
 ├── test_crypto/             # Cryptographic utility tests (1 file)
@@ -957,6 +967,7 @@ The examination methodology follows a systematic discovery process:
 
 - [Battle.net Installation Process Analysis](docs/battlenet-install-process.md)
 - [Full Installation POC Plan](docs/full-install-poc-plan.md)
+- [Full Installation Execution Plan](docs/full-installation-execution-plan.md)
 
 ## Support the Project
 
