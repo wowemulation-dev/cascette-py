@@ -16,6 +16,7 @@ Note: This is different from the legacy chunked archive format in archive.py.
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from io import BytesIO
 from typing import Any, BinaryIO
@@ -141,59 +142,66 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
         )
 
     def _parse_entries(self, data: bytes, footer: CdnArchiveFooter) -> list[CdnArchiveEntry]:
-        """Parse all entries from the archive index."""
+        """Parse all entries from the archive index.
+
+        CDN archive indices use the layout:
+        ``[Pages][TOC keys][TOC hashes][Footer]``.
+        Entry pages start at byte 0, each exactly ``page_size_kb * 1024``
+        bytes with zero-padding. The TOC (last key per page + page hash)
+        and footer follow after all pages. Entries must be read page-by-page
+        to avoid interpreting padding bytes as entry data.
+        """
         entries: list[CdnArchiveEntry] = []
 
-        # Calculate entry size
         entry_size = footer.key_bytes + footer.offset_bytes + footer.size_bytes
+        page_size = footer.page_size_kb * 1024
+        entries_per_page = page_size // entry_size
 
-        # Data section is everything except footer
-        data_section_size = len(data) - self.FOOTER_SIZE
+        remaining = footer.entry_count
+        page_idx = 0
 
-        # Start parsing from beginning
-        pos = 0
+        while remaining > 0:
+            page_offset = page_idx * page_size
+            entries_this_page = min(entries_per_page, remaining)
 
-        for i in range(footer.entry_count):
-            if pos + entry_size > data_section_size:
-                logger.warning(f"Entry {i} would exceed data section, stopping")
-                break
+            for i in range(entries_this_page):
+                pos = page_offset + (i * entry_size)
 
-            # Parse encoding key
-            encoding_key = data[pos:pos + footer.key_bytes]
-            pos += footer.key_bytes
+                # Parse encoding key
+                encoding_key = data[pos:pos + footer.key_bytes]
+                pos += footer.key_bytes
 
-            # Parse offset (4 or 6 bytes)
-            if footer.is_archive_group:
-                # Archive-group: 2 bytes archive index + 4 bytes offset
-                archive_index = struct.unpack('>H', data[pos:pos + 2])[0]
-                offset = struct.unpack('>I', data[pos + 2:pos + 6])[0]
-                pos += 6
-            else:
-                # Regular archive: 4 bytes offset
-                archive_index = None
-                offset = struct.unpack('>I', data[pos:pos + 4])[0]
-                pos += 4
+                # Parse size (big-endian, always 4 bytes, comes BEFORE offset)
+                size = struct.unpack('>I', data[pos:pos + 4])[0]
+                pos += footer.size_bytes
 
-            # Parse size (always 4 bytes)
-            size = struct.unpack('>I', data[pos:pos + 4])[0]
-            pos += 4
+                # Parse offset (big-endian, 4 or 6 bytes)
+                if footer.is_archive_group:
+                    archive_index = struct.unpack('>H', data[pos:pos + 2])[0]
+                    offset = struct.unpack('>I', data[pos + 2:pos + 6])[0]
+                else:
+                    archive_index = None
+                    offset = struct.unpack('>I', data[pos:pos + 4])[0]
+                pos += footer.offset_bytes
 
-            # Skip any zero entries
-            if encoding_key == b'\x00' * footer.key_bytes:
-                continue
+                # Skip zero entries
+                if encoding_key == b'\x00' * footer.key_bytes:
+                    continue
 
-            entry = CdnArchiveEntry(
-                encoding_key=encoding_key,
-                archive_index=archive_index,
-                offset=offset,
-                size=size
-            )
-            entries.append(entry)
+                entries.append(CdnArchiveEntry(
+                    encoding_key=encoding_key,
+                    archive_index=archive_index,
+                    offset=offset,
+                    size=size,
+                ))
+
+            remaining -= entries_this_page
+            page_idx += 1
 
         logger.info(
             f"Parsed {'archive-group' if footer.is_archive_group else 'archive index'}",
             total_entries=len(entries),
-            expected_entries=footer.entry_count
+            expected_entries=footer.entry_count,
         )
 
         return entries
@@ -285,40 +293,78 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
     def build(self, obj: CdnArchiveIndex) -> bytes:
         """Build CDN archive index binary data from structure.
 
+        Produces the layout ``[Pages][TOC keys][TOC hashes][Footer]``.
+        Each page is zero-padded to ``page_size`` bytes. The TOC follows
+        all pages: first the last key of each page, then a hash per page.
+
         Args:
             obj: Archive index structure
 
         Returns:
             Binary archive index data
         """
-        result = BytesIO()
-
         footer = obj.footer
         entry_size = footer.key_bytes + footer.offset_bytes + footer.size_bytes
+        page_size = footer.page_size_kb * 1024
+        entries_per_page = page_size // entry_size
 
-        # Write entries
-        for entry in obj.entries:
-            # Write encoding key
-            result.write(entry.encoding_key[:footer.key_bytes])
+        all_entries = list(obj.entries)
 
-            # Write offset
-            if footer.is_archive_group:
-                # Archive-group: 2 bytes archive index + 4 bytes offset
-                archive_idx = entry.archive_index if entry.archive_index is not None else 0
-                result.write(struct.pack('>H', archive_idx))
-                result.write(struct.pack('>I', entry.offset))
-            else:
-                # Regular archive: 4 bytes offset
-                result.write(struct.pack('>I', entry.offset))
+        # Build pages, collect TOC data
+        pages: list[bytes] = []
+        toc_keys: list[bytes] = []
+        toc_hashes: list[bytes] = []
+        idx = 0
 
-            # Write size
-            result.write(struct.pack('>I', entry.size))
+        while idx < len(all_entries):
+            page_entries = all_entries[idx:idx + entries_per_page]
+            page_data = BytesIO()
 
-        # Pad if necessary (some indices have padding)
-        current_size = result.tell()
-        expected_size = len(obj.entries) * entry_size
-        if current_size < expected_size:
-            result.write(b'\x00' * (expected_size - current_size))
+            last_key = b'\x00' * footer.key_bytes
+            for entry in page_entries:
+                last_key = entry.encoding_key[:footer.key_bytes]
+                page_data.write(last_key)
+
+                # Size comes before offset in the binary format
+                page_data.write(struct.pack('>I', entry.size))
+
+                if footer.is_archive_group:
+                    archive_idx = entry.archive_index if entry.archive_index is not None else 0
+                    page_data.write(struct.pack('>H', archive_idx))
+                    page_data.write(struct.pack('>I', entry.offset))
+                else:
+                    page_data.write(struct.pack('>I', entry.offset))
+
+            # Zero-pad to page_size
+            written = page_data.tell()
+            if written < page_size:
+                page_data.write(b'\x00' * (page_size - written))
+
+            page_bytes = page_data.getvalue()
+            pages.append(page_bytes)
+            toc_keys.append(last_key)
+            toc_hashes.append(hashlib.md5(page_bytes).digest()[:footer.footer_hash_bytes])
+
+            idx += entries_per_page
+
+        # Handle empty index: one empty page
+        if not all_entries:
+            empty_page = b'\x00' * page_size
+            pages.append(empty_page)
+            toc_keys.append(b'\x00' * footer.key_bytes)
+            toc_hashes.append(hashlib.md5(empty_page).digest()[:footer.footer_hash_bytes])
+
+        # Assemble: Pages + TOC keys + TOC hashes + Footer
+        result = BytesIO()
+
+        for page in pages:
+            result.write(page)
+
+        for key in toc_keys:
+            result.write(key)
+
+        for h in toc_hashes:
+            result.write(h)
 
         # Write footer
         result.write(footer.toc_hash)

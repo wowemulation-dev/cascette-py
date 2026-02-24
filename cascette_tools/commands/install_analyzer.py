@@ -104,6 +104,7 @@ class InstallationState(BaseModel):
     local_data_size: int = Field(default=0, description="Total size of local .data files")
     local_entry_count: int = Field(default=0, description="Total number of local entries")
     tags: BuildInfoTags = Field(default_factory=BuildInfoTags, description="Tags from .build.info")
+    shmem_version: int | None = Field(default=None, description="Detected shmem protocol version")
 
 
 class InstallationProgress(BaseModel):
@@ -206,6 +207,23 @@ def scan_local_installation(install_path: Path, product_code: str) -> Installati
         for data_file in data_dir.glob("data.*"):
             if data_file.is_file():
                 state.local_data_size += data_file.stat().st_size
+
+    # Detect shmem protocol version
+    shmem_locations = [
+        data_path / "shmem",
+        data_path / "data" / "shmem",
+        install_path / "Data" / "data" / "shmem",
+    ]
+    for shmem_path in shmem_locations:
+        if shmem_path.exists() and shmem_path.is_file():
+            try:
+                shmem_data = shmem_path.read_bytes()
+                if len(shmem_data) >= 1:
+                    state.shmem_version = shmem_data[0]
+                    logger.debug(f"Detected shmem protocol version: {state.shmem_version}")
+            except Exception as e:
+                logger.warning(f"Failed to read shmem file: {e}")
+            break
 
     logger.info(f"Found {state.local_entry_count} local entries, {format_size(state.local_data_size)} data")
 
@@ -415,6 +433,11 @@ def scan(ctx: click.Context, install_path: Path, product: str) -> None:
         table.add_row("Build Config", state.build_config_hash or "Not found")
         table.add_row("Local Entries", f"{state.local_entry_count:,}")
         table.add_row("Local Data Size", format_size(state.local_data_size))
+
+        if state.shmem_version is not None:
+            table.add_row("Shmem Protocol", f"V{state.shmem_version}")
+        else:
+            table.add_row("Shmem Protocol", "Not found")
 
         # Display tags from .build.info
         if state.tags.platform:

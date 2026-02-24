@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 import httpx
 import structlog
 
+from cascette_tools.core.integrity import IntegrityError, verify_ekey_size
 from cascette_tools.formats.blte import decompress_blte, is_blte
 from cascette_tools.formats.cdn_archive import CdnArchiveEntry, CdnArchiveParser
 
@@ -365,7 +366,8 @@ class CdnArchiveFetcher:
         self,
         client: httpx.Client,
         encoding_key: bytes,
-        decompress: bool = True
+        decompress: bool = True,
+        verify: bool = True,
     ) -> bytes | None:
         """Fetch a file from CDN archives by encoding key.
 
@@ -373,6 +375,7 @@ class CdnArchiveFetcher:
             client: HTTP client
             encoding_key: Encoding key (16 bytes)
             decompress: Whether to decompress BLTE data
+            verify: Whether to verify extracted size against index entry
 
         Returns:
             File data or None if not found
@@ -401,6 +404,20 @@ class CdnArchiveFetcher:
                 return None
 
             data = response.content
+
+            # Verify extracted size matches index entry
+            if verify:
+                try:
+                    verify_ekey_size(data, location.size)
+                except IntegrityError as e:
+                    logger.warning(
+                        "Archive range size mismatch",
+                        ekey=encoding_key.hex(),
+                        expected=location.size,
+                        actual=len(data),
+                        error=str(e),
+                    )
+                    return None
 
             # Decompress BLTE if requested
             if decompress and is_blte(data):
@@ -452,7 +469,8 @@ class CdnArchiveFetcher:
         self,
         cdn_client: CDNClient,
         encoding_key: bytes,
-        decompress: bool = True
+        decompress: bool = True,
+        verify: bool = True,
     ) -> bytes | None:
         """Fetch a file from CDN archives using CDNClient with fallback support.
 
@@ -463,6 +481,7 @@ class CdnArchiveFetcher:
             cdn_client: CDNClient instance with initialized CDN servers
             encoding_key: Encoding key (16 bytes)
             decompress: Whether to decompress BLTE data
+            verify: Whether to verify extracted size against index entry
 
         Returns:
             File data or None if not found
@@ -500,7 +519,108 @@ class CdnArchiveFetcher:
                 if response.status_code in [200, 206]:
                     data = response.content
 
+                    # Verify extracted size matches index entry
+                    if verify:
+                        try:
+                            verify_ekey_size(data, location.size)
+                        except IntegrityError as e:
+                            logger.warning(
+                                "Archive range size mismatch",
+                                ekey=encoding_key.hex(),
+                                archive=location.archive_hash,
+                                expected=location.size,
+                                actual=len(data),
+                                error=str(e),
+                            )
+                            # Try next mirror in case of partial response
+                            continue
+
                     # Decompress BLTE if requested
+                    if decompress and is_blte(data):
+                        try:
+                            data = decompress_blte(data)
+                        except Exception as e:
+                            logger.warning(f"BLTE decompression failed: {e}")
+                            return None
+
+                    return data
+                else:
+                    logger.debug(
+                        f"Mirror {mirror} returned {response.status_code} for range request"
+                    )
+            except Exception as e:
+                last_error = e
+                logger.debug(f"Mirror {mirror} failed: {e}")
+                continue
+
+        if last_error:
+            logger.warning(f"All mirrors failed for range request: {last_error}")
+        return None
+
+
+    async def fetch_file_via_cdn_async(
+        self,
+        cdn_client: CDNClient,
+        encoding_key: bytes,
+        decompress: bool = True,
+        verify: bool = True,
+    ) -> bytes | None:
+        """Fetch a file from CDN archives using CDNClient async with fallback.
+
+        Same logic as fetch_file_via_cdn but uses the async HTTP client
+        for concurrent downloading.
+
+        Args:
+            cdn_client: CDNClient instance with initialized CDN servers
+            encoding_key: Encoding key (16 bytes)
+            decompress: Whether to decompress BLTE data
+            verify: Whether to verify extracted size against index entry
+
+        Returns:
+            File data or None if not found
+        """
+        location = self.index_map.find(encoding_key)
+        if not location:
+            logger.debug(f"Encoding key not found in index map: {encoding_key.hex()}")
+            return None
+
+        cdn_client.ensure_initialized()
+
+        mirrors = cdn_client.cdn_servers + cdn_client.config.fallback_mirrors
+
+        if not mirrors:
+            logger.error("No CDN mirrors available")
+            return None
+
+        h = location.archive_hash.lower()
+        url_path = f"/{cdn_client.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
+
+        headers = {
+            "Range": f"bytes={location.offset}-{location.offset + location.size - 1}"
+        }
+
+        last_error = None
+        for mirror in mirrors:
+            url = f"{mirror}{url_path}"
+            try:
+                response = await cdn_client.async_client.get(url, headers=headers)
+                if response.status_code in [200, 206]:
+                    data = response.content
+
+                    if verify:
+                        try:
+                            verify_ekey_size(data, location.size)
+                        except IntegrityError as e:
+                            logger.warning(
+                                "Archive range size mismatch",
+                                ekey=encoding_key.hex(),
+                                archive=location.archive_hash,
+                                expected=location.size,
+                                actual=len(data),
+                                error=str(e),
+                            )
+                            continue
+
                     if decompress and is_blte(data):
                         try:
                             data = decompress_blte(data)
