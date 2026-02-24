@@ -1,16 +1,12 @@
 """Tests for file database parser."""
 
-import hashlib
 import sqlite3
 
 import pytest
 
 from cascette_tools.formats.file_db import (
-    FileDatabase,
-    FileDbEntry,
-    FileDbMeta,
-    FileDbTag,
     FileDatabaseParser,
+    FileDbTag,
     _build_tags_blob,
     _parse_tags_blob,
     is_file_db,
@@ -121,7 +117,7 @@ class TestFileDatabaseParser:
 
         assert db2.meta.entry_count == db1.meta.entry_count
         assert len(db2.entries) == len(db1.entries)
-        for e1, e2 in zip(db1.entries, db2.entries):
+        for e1, e2 in zip(db1.entries, db2.entries, strict=True):
             assert e1.file_index == e2.file_index
             assert e1.ekey == e2.ekey
             assert e1.ckey == e2.ckey

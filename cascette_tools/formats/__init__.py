@@ -85,15 +85,6 @@ from cascette_tools.formats.install import (
     InstallTag,
     is_install,
 )
-from cascette_tools.formats.size import (
-    SizeBuilder,
-    SizeEntry,
-    SizeFile,
-    SizeHeader,
-    SizeParser,
-    SizeTag,
-    is_size,
-)
 from cascette_tools.formats.patch_archive import (
     CompressionSpec,
     PatchArchiveBuilder,
@@ -114,6 +105,15 @@ from cascette_tools.formats.root import (
     format_content_flags,
     format_locale_flags,
     is_root,
+)
+from cascette_tools.formats.size import (
+    SizeBuilder,
+    SizeEntry,
+    SizeFile,
+    SizeHeader,
+    SizeParser,
+    SizeTag,
+    is_size,
 )
 from cascette_tools.formats.tvfs import (
     TVFSBuilder,

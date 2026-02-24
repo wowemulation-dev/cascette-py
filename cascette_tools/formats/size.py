@@ -68,7 +68,7 @@ class SizeFile(BaseModel):
 
     header: SizeHeader = Field(description="Manifest header")
     entries: list[SizeEntry] = Field(description="File entries")
-    tags: list[SizeTag] = Field(default_factory=list, description="Tag definitions")
+    tags: list[SizeTag] = Field(default_factory=lambda: list[SizeTag](), description="Tag definitions")
 
 
 class SizeParser(FormatParser[SizeFile]):
@@ -144,9 +144,6 @@ class SizeParser(FormatParser[SizeFile]):
             esize_bytes=esize_bytes
         )
 
-        # Calculate key size in bytes
-        key_size_bytes = (key_size_bits + 7) >> 3
-
         # Parse entries
         entries: list[SizeEntry] = []
         for i in range(entry_count):
@@ -171,6 +168,8 @@ class SizeParser(FormatParser[SizeFile]):
                 raise ValueError(f"Invalid key hash 0x{key_hash:04X} at entry {i}")
 
             # Read eSize data
+            if esize_bytes is None:
+                raise ValueError("eSize byte width not set in header")
             esize_data = stream.read(esize_bytes)
             if len(esize_data) < esize_bytes:
                 raise ValueError(f"Insufficient data for eSize at entry {i}")
@@ -266,7 +265,7 @@ class SizeParser(FormatParser[SizeFile]):
             bitmap = stream.read(bitmap_size)
 
             # 5. Decode file indices from bitmap (MSB bit ordering)
-            file_indices = []
+            file_indices: list[int] = []
             for byte_idx, byte_val in enumerate(bitmap):
                 if byte_val == 0:
                     continue
@@ -319,9 +318,6 @@ class SizeParser(FormatParser[SizeFile]):
                 raise ValueError(f"Total size too large: {total_size}")
             size_bytes = struct.pack('>Q', total_size)[3:]  # Take last 5 bytes
             result.write(size_bytes)
-
-        # Calculate key size in bytes
-        key_size_bytes = (obj.header.key_size_bits + 7) >> 3
 
         # Write entries
         for entry in obj.entries:
@@ -457,8 +453,8 @@ def parse_tag_query(query: str) -> list[tuple[str, bool]]:
         return []
 
     # Split on delimiters: ',', '?', ':'
-    tokens = []
-    current = []
+    tokens: list[str] = []
+    current: list[str] = []
 
     for char in query:
         if char in (',', '?', ':'):
@@ -472,7 +468,7 @@ def parse_tag_query(query: str) -> list[tuple[str, bool]]:
         tokens.append(''.join(current))
 
     # Parse each token
-    result = []
+    result: list[tuple[str, bool]] = []
     for token in tokens:
         token = token.strip()
         if not token:

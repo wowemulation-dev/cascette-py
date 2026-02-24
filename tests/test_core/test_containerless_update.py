@@ -5,7 +5,6 @@ from pathlib import Path
 
 from cascette_tools.core.containerless_update import (
     ContainerlessClassification,
-    ContainerlessDelta,
     classify_containerless_files,
     identify_existing_files,
 )
