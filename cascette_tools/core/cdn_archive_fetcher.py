@@ -105,7 +105,12 @@ class IndexMap:
 
 
 class CdnArchiveFetcher:
-    """Fetches files from CDN archives using indices."""
+    """Fetches files from CDN archives using indices.
+
+    Supports both data archives (content_type="data") and patch archives
+    (content_type="patch"). The index format is identical; only the CDN
+    URL path differs.
+    """
 
     def __init__(
         self,
@@ -113,7 +118,8 @@ class CdnArchiveFetcher:
         cdn_path: str | None = None,
         cdn_client: CDNClient | None = None,
         timeout: float = 30.0,
-        max_concurrent: int = 10
+        max_concurrent: int = 10,
+        content_type: str = "data",
     ):
         """Initialize fetcher.
 
@@ -123,6 +129,7 @@ class CdnArchiveFetcher:
             cdn_client: CDNClient instance for fetching with fallback support
             timeout: Request timeout in seconds
             max_concurrent: Maximum concurrent requests
+            content_type: CDN content type ("data" or "patch")
         """
         # Prefer cdn_client if provided
         if cdn_client is not None:
@@ -135,6 +142,9 @@ class CdnArchiveFetcher:
             self.cdn_base = cdn_base or "http://us.cdn.blizzard.com"
             self.cdn_path = cdn_path or "tpr/wow"
 
+        if content_type not in ("data", "patch"):
+            raise ValueError(f"content_type must be 'data' or 'patch', got {content_type!r}")
+        self.content_type = content_type
         self.timeout = timeout
         self.max_concurrent = max_concurrent
         self.index_map = IndexMap()
@@ -143,12 +153,12 @@ class CdnArchiveFetcher:
     def _make_index_url(self, archive_hash: str) -> str:
         """Make URL for archive index file."""
         h = archive_hash.lower()
-        return f"{self.cdn_base}/{self.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}.index"
+        return f"{self.cdn_base}/{self.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}.index"
 
     def _make_data_url(self, archive_hash: str) -> str:
         """Make URL for archive data file."""
         h = archive_hash.lower()
-        return f"{self.cdn_base}/{self.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
+        return f"{self.cdn_base}/{self.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}"
 
     def load_index_from_bytes(self, archive_hash: str, data: bytes) -> bool:
         """Load an index from raw bytes and add to index map.
@@ -504,7 +514,7 @@ class CdnArchiveFetcher:
 
         # Build the URL path portion
         h = location.archive_hash.lower()
-        url_path = f"/{cdn_client.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
+        url_path = f"/{cdn_client.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}"
 
         headers = {
             "Range": f"bytes={location.offset}-{location.offset + location.size - 1}"
@@ -593,7 +603,7 @@ class CdnArchiveFetcher:
             return None
 
         h = location.archive_hash.lower()
-        url_path = f"/{cdn_client.cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
+        url_path = f"/{cdn_client.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}"
 
         headers = {
             "Range": f"bytes={location.offset}-{location.offset + location.size - 1}"
@@ -641,6 +651,35 @@ class CdnArchiveFetcher:
         if last_error:
             logger.warning(f"All mirrors failed for range request: {last_error}")
         return None
+
+
+def create_patch_archive_fetcher(
+    cdn_client: CDNClient | None = None,
+    cdn_base: str | None = None,
+    cdn_path: str | None = None,
+    timeout: float = 30.0,
+    max_concurrent: int = 10,
+) -> CdnArchiveFetcher:
+    """Create a CdnArchiveFetcher configured for patch archives.
+
+    Args:
+        cdn_client: CDNClient instance for fetching with fallback support
+        cdn_base: CDN base URL (legacy mode)
+        cdn_path: CDN product path (legacy mode)
+        timeout: Request timeout in seconds
+        max_concurrent: Maximum concurrent requests
+
+    Returns:
+        CdnArchiveFetcher configured for the patch/ CDN subtree
+    """
+    return CdnArchiveFetcher(
+        cdn_base=cdn_base,
+        cdn_path=cdn_path,
+        cdn_client=cdn_client,
+        timeout=timeout,
+        max_concurrent=max_concurrent,
+        content_type="patch",
+    )
 
 
 def parse_cdn_config_archives(content: str) -> list[str]:

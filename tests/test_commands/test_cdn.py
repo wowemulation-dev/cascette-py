@@ -1,4 +1,4 @@
-"""Tests for fetch command module."""
+"""Tests for cdn command module."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from cascette_tools.commands.fetch import (
+from cascette_tools.commands.cdn import (
     _get_context_objects,
     _save_file,
     _show_config_metadata,
-    fetch,
+    cdn,
 )
 from cascette_tools.core.config import AppConfig
 
 
-class TestFetchCommands:
-    """Test fetch command functionality."""
+class TestCdnCommands:
+    """Test cdn command functionality."""
 
     @pytest.fixture
     def runner(self):
@@ -57,13 +57,13 @@ class TestFetchCommands:
         client.fetch_encoding.return_value = b"encoding data"
         return client
 
-    def test_fetch_group_help(self, runner):
+    def test_cdn_group_help(self, runner):
         """Test fetch group shows help when invoked without subcommand."""
-        result = runner.invoke(fetch, [])
+        result = runner.invoke(cdn, [])
 
         # Click returns exit code 2 when group is invoked without subcommand
         assert result.exit_code in (0, 2)
-        assert "Fetch data from CDN sources" in result.output
+        assert "Download data from Blizzard's NGDP CDN infrastructure." in result.output
         assert "config" in result.output
         assert "data" in result.output
         assert "build" in result.output
@@ -72,15 +72,15 @@ class TestFetchCommands:
         assert "patch" in result.output
         assert "manifests" in result.output
 
-    def test_fetch_group_help_flag(self, runner):
+    def test_cdn_group_help_flag(self, runner):
         """Test fetch group shows help when invoked with --help."""
-        result = runner.invoke(fetch, ["--help"])
+        result = runner.invoke(cdn, ["--help"])
 
         assert result.exit_code == 0
-        assert "Fetch data from CDN sources" in result.output
+        assert "Download data from Blizzard's NGDP CDN infrastructure." in result.output
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_config_fetch_build_config(
         self,
         mock_cdn_class,
@@ -98,7 +98,7 @@ class TestFetchCommands:
 
         output_file = tmp_path / "test_config.build"
 
-        result = runner.invoke(fetch, [
+        result = runner.invoke(cdn, [
             "config",
             "abcdef1234567890abcdef1234567890",
             "--type", "build",
@@ -113,8 +113,8 @@ class TestFetchCommands:
         assert output_file.read_bytes() == sample_config_data
         mock_cdn_client.fetch_config.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_config_fetch_without_output(
         self,
         mock_cdn_class,
@@ -129,8 +129,8 @@ class TestFetchCommands:
         mock_cdn_class.return_value.__enter__.return_value = mock_cdn_client
         mock_cdn_client.fetch_config.return_value = sample_config_data
 
-        with patch("cascette_tools.commands.fetch._save_file") as mock_save:
-            result = runner.invoke(fetch, [
+        with patch("cascette_tools.commands.cdn._save_file") as mock_save:
+            result = runner.invoke(cdn, [
                 "config",
                 "abcdef1234567890abcdef1234567890",
                 "--type", "build"
@@ -139,8 +139,8 @@ class TestFetchCommands:
             assert result.exit_code == 0
             mock_save.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_config_with_metadata(
         self,
         mock_cdn_class,
@@ -155,8 +155,8 @@ class TestFetchCommands:
         mock_cdn_class.return_value.__enter__.return_value = mock_cdn_client
         mock_cdn_client.fetch_config.return_value = sample_config_data
 
-        with patch("cascette_tools.commands.fetch._show_config_metadata") as mock_metadata:
-            result = runner.invoke(fetch, [
+        with patch("cascette_tools.commands.cdn._show_config_metadata") as mock_metadata:
+            result = runner.invoke(cdn, [
                 "config",
                 "abcdef1234567890abcdef1234567890",
                 "--show-metadata"
@@ -165,8 +165,8 @@ class TestFetchCommands:
             assert result.exit_code == 0
             mock_metadata.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_data_fetch(
         self,
         mock_cdn_class,
@@ -184,7 +184,7 @@ class TestFetchCommands:
 
         output_file = tmp_path / "test_data.bin"
 
-        result = runner.invoke(fetch, [
+        result = runner.invoke(cdn, [
             "data",
             "abcdef1234567890abcdef1234567890",
             "--output", str(output_file)
@@ -194,8 +194,8 @@ class TestFetchCommands:
         assert output_file.exists()
         assert output_file.read_bytes() == sample_data_file
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_data_with_range(
         self,
         mock_cdn_class,
@@ -212,8 +212,8 @@ class TestFetchCommands:
         # Note: data command doesn't actually have --range option in current implementation
         # This test is based on incorrect assumption, so it should be removed or modified
         # For now, test basic data fetch without range
-        with patch("cascette_tools.commands.fetch._save_file"):
-            result = runner.invoke(fetch, [
+        with patch("cascette_tools.commands.cdn._save_file"):
+            result = runner.invoke(cdn, [
                 "data",
                 "abcdef1234567890abcdef1234567890"
             ])
@@ -221,8 +221,8 @@ class TestFetchCommands:
             assert result.exit_code == 0
             mock_cdn_client.fetch_data.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.TACTClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.TACTClient")
     def test_build_fetch_latest(
         self,
         mock_tact_class,
@@ -244,10 +244,10 @@ class TestFetchCommands:
         mock_tact.fetch_versions.return_value = b"versions data"
         mock_tact.parse_versions.return_value = versions
 
-        with patch("cascette_tools.commands.fetch.CDNClient") as mock_cdn_class:
-            with patch("cascette_tools.commands.fetch.BuildConfigParser") as mock_parser_class:
-                with patch("cascette_tools.commands.fetch.Progress") as mock_progress_class:
-                    with patch("cascette_tools.commands.fetch._save_file"):
+        with patch("cascette_tools.commands.cdn.CDNClient") as mock_cdn_class:
+            with patch("cascette_tools.commands.cdn.BuildConfigParser") as mock_parser_class:
+                with patch("cascette_tools.commands.cdn.Progress") as mock_progress_class:
+                    with patch("cascette_tools.commands.cdn._save_file"):
                         with patch("pathlib.Path.mkdir"):
                           with patch("cascette_tools.database.wago.WagoClient") as mock_wago_class:
                               # Setup WagoClient context manager
@@ -289,7 +289,7 @@ class TestFetchCommands:
                               mock_build_config.extra_fields = {}
                               mock_parser.parse.return_value = mock_build_config
 
-                              result = runner.invoke(fetch, ["build", "11.0.2.56461", "--output-dir", "/tmp"])
+                              result = runner.invoke(cdn, ["build", "11.0.2.56461", "--output-dir", "/tmp"])
 
                               # Debug output on failure
                               if result.exit_code != 0:
@@ -302,8 +302,8 @@ class TestFetchCommands:
                               # When searching Wago succeeds, TACT isn't used
                               mock_wago.search_builds.assert_called_once_with("11.0.2.56461", field="build")
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_encoding_fetch(
         self,
         mock_cdn_class,
@@ -318,8 +318,8 @@ class TestFetchCommands:
         mock_cdn_class.return_value.__enter__.return_value = mock_cdn_client
         mock_cdn_client.fetch_data.return_value = sample_encoding_data
 
-        with patch("cascette_tools.commands.fetch._save_file"):
-            result = runner.invoke(fetch, [
+        with patch("cascette_tools.commands.cdn._save_file"):
+            result = runner.invoke(cdn, [
                 "encoding",
                 "abcdef1234567890abcdef1234567890"
             ])
@@ -327,7 +327,7 @@ class TestFetchCommands:
             assert result.exit_code == 0
             mock_cdn_client.fetch_data.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_fetch(
         self,
         mock_get_context,
@@ -344,9 +344,9 @@ class TestFetchCommands:
 
         output_dir = tmp_path / "output"
 
-        with patch("cascette_tools.commands.fetch.CDNClient") as mock_cdn_class:
-            with patch("cascette_tools.commands.fetch.ThreadPoolExecutor") as mock_executor_class:
-                with patch("cascette_tools.commands.fetch.Progress") as mock_progress_class:
+        with patch("cascette_tools.commands.cdn.CDNClient") as mock_cdn_class:
+            with patch("cascette_tools.commands.cdn.ThreadPoolExecutor") as mock_executor_class:
+                with patch("cascette_tools.commands.cdn.Progress") as mock_progress_class:
                     mock_cdn = Mock()
                     # Setup context manager properly for CDN client
                     mock_cdn_instance = Mock()
@@ -378,10 +378,10 @@ class TestFetchCommands:
                     future2.result.return_value = ("hash2", True, "Success")
                     mock_executor.submit.side_effect = [future1, future2]
 
-                    with patch("cascette_tools.commands.fetch.as_completed") as mock_as_completed:
+                    with patch("cascette_tools.commands.cdn.as_completed") as mock_as_completed:
                         mock_as_completed.return_value = [future1, future2]
 
-                        result = runner.invoke(fetch, [
+                        result = runner.invoke(cdn, [
                             "batch",
                             str(hash_list),
                             "--output-dir", str(output_dir)
@@ -391,8 +391,8 @@ class TestFetchCommands:
                         # Should submit 2 tasks
                         assert mock_executor.submit.call_count == 2
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.CDNClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.CDNClient")
     def test_patch_fetch(
         self,
         mock_cdn_class,
@@ -406,8 +406,8 @@ class TestFetchCommands:
         mock_cdn_class.return_value.__enter__.return_value = mock_cdn_client
         mock_cdn_client.fetch_patch.return_value = b"patch data"
 
-        with patch("cascette_tools.commands.fetch._save_file"):
-            result = runner.invoke(fetch, [
+        with patch("cascette_tools.commands.cdn._save_file"):
+            result = runner.invoke(cdn, [
                 "patch",
                 "abcdef1234567890abcdef1234567890"
             ])
@@ -415,8 +415,8 @@ class TestFetchCommands:
             assert result.exit_code == 0
             mock_cdn_client.fetch_patch.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.TACTClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.TACTClient")
     def test_manifests_fetch(
         self,
         mock_tact_class,
@@ -434,8 +434,8 @@ class TestFetchCommands:
         mock_tact.parse_versions.return_value = []
         mock_tact.parse_cdns.return_value = []
 
-        with patch("cascette_tools.commands.fetch._save_file"):
-            with patch("cascette_tools.commands.fetch.Progress") as mock_progress_class:
+        with patch("cascette_tools.commands.cdn._save_file"):
+            with patch("cascette_tools.commands.cdn.Progress") as mock_progress_class:
                 # Setup context manager properly for Progress
                 mock_progress = Mock()
                 mock_progress_instance = Mock()
@@ -446,7 +446,7 @@ class TestFetchCommands:
                 mock_progress.update = Mock()
                 mock_progress.advance = Mock()
 
-                result = runner.invoke(fetch, ["manifests"])
+                result = runner.invoke(cdn, ["manifests"])
 
                 assert result.exit_code == 0
                 mock_tact.fetch_versions.assert_called_once()
@@ -459,8 +459,8 @@ class TestFetchCommands:
         console = setup['console']
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.fetch.validate_hash_string', return_value=False):
-            result = runner.invoke(fetch, ["config", "invalid_hash"])
+        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
+            result = runner.invoke(cdn, ["config", "invalid_hash"])
 
             assert result.exit_code != 0
             # Check if error message was printed to console
@@ -474,8 +474,8 @@ class TestFetchCommands:
         console = setup['console']
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.fetch.validate_hash_string', return_value=False):
-            result = runner.invoke(fetch, ["data", "invalid_hash"])
+        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
+            result = runner.invoke(cdn, ["data", "invalid_hash"])
 
             assert result.exit_code != 0
             # Check if error message was printed to console
@@ -489,10 +489,10 @@ class TestFetchCommands:
         cdn_client = setup['cdn_client']
 
         # Mock hash validation to return True, but CDN fetch to fail
-        with patch('cascette_tools.commands.fetch.validate_hash_string', return_value=True):
+        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=True):
             cdn_client.fetch_config.side_effect = Exception("Network error")
 
-            result = runner.invoke(fetch, [
+            result = runner.invoke(cdn, [
                 "config",
                 "abcdef1234567890abcdef1234567890"
             ])
@@ -507,10 +507,10 @@ class TestFetchCommands:
         cdn_client = setup['cdn_client']
 
         # Mock hash validation to return True, but CDN fetch to fail
-        with patch('cascette_tools.commands.fetch.validate_hash_string', return_value=True):
+        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=True):
             cdn_client.fetch_data.side_effect = Exception("Network error")
 
-            result = runner.invoke(fetch, [
+            result = runner.invoke(cdn, [
                 "data",
                 "abcdef1234567890abcdef1234567890"
             ])
@@ -520,7 +520,7 @@ class TestFetchCommands:
 
     def test_batch_nonexistent_file(self, runner):
         """Test batch command with nonexistent hash file."""
-        result = runner.invoke(fetch, [
+        result = runner.invoke(cdn, [
             "batch",
             "nonexistent_file.txt"
         ])
@@ -529,49 +529,49 @@ class TestFetchCommands:
 
     def test_config_help(self, runner):
         """Test config subcommand shows help."""
-        result = runner.invoke(fetch, ["config", "--help"])
+        result = runner.invoke(cdn, ["config", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch configuration files from CDN" in result.output
 
     def test_data_help(self, runner):
         """Test data subcommand shows help."""
-        result = runner.invoke(fetch, ["data", "--help"])
+        result = runner.invoke(cdn, ["data", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch data archives from CDN" in result.output
 
     def test_build_help(self, runner):
         """Test build subcommand shows help."""
-        result = runner.invoke(fetch, ["build", "--help"])
+        result = runner.invoke(cdn, ["build", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch complete build information" in result.output
 
     def test_encoding_help(self, runner):
         """Test encoding subcommand shows help."""
-        result = runner.invoke(fetch, ["encoding", "--help"])
+        result = runner.invoke(cdn, ["encoding", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch encoding file" in result.output
 
     def test_batch_help(self, runner):
         """Test batch subcommand shows help."""
-        result = runner.invoke(fetch, ["batch", "--help"])
+        result = runner.invoke(cdn, ["batch", "--help"])
 
         assert result.exit_code == 0
         assert "Batch fetch from a list of hashes" in result.output
 
     def test_patch_help(self, runner):
         """Test patch subcommand shows help."""
-        result = runner.invoke(fetch, ["patch", "--help"])
+        result = runner.invoke(cdn, ["patch", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch patch file" in result.output
 
     def test_manifests_help(self, runner):
         """Test manifests subcommand shows help."""
-        result = runner.invoke(fetch, ["manifests", "--help"])
+        result = runner.invoke(cdn, ["manifests", "--help"])
 
         assert result.exit_code == 0
         assert "Fetch TACT manifests" in result.output
@@ -583,16 +583,16 @@ class TestFetchCommands:
         console = setup['console']
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.fetch.validate_hash_string', return_value=False):
-            result = runner.invoke(fetch, ["data", "toolong1234567890abcdef1234567890abcdef"])
+        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
+            result = runner.invoke(cdn, ["data", "toolong1234567890abcdef1234567890abcdef"])
 
             assert result.exit_code != 0
             # Check if error message was printed to console
             printed_text = ' '.join(console.printed_lines)
             assert "Invalid hash format" in printed_text or "Invalid hash format" in result.output
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
-    @patch("cascette_tools.commands.fetch.TACTClient")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
+    @patch("cascette_tools.commands.cdn.TACTClient")
     def test_build_network_error(
         self,
         mock_tact_class,
@@ -606,12 +606,12 @@ class TestFetchCommands:
         mock_tact_class.return_value = mock_tact
         mock_tact.fetch_versions.side_effect = Exception("Network error")
 
-        result = runner.invoke(fetch, ["build", "invalidversion"])
+        result = runner.invoke(cdn, ["build", "invalidversion"])
 
         assert result.exit_code != 0
         assert "Error" in result.output
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_empty_hash_file(
         self,
         mock_get_context,
@@ -626,13 +626,13 @@ class TestFetchCommands:
         hash_list = tmp_path / "empty.txt"
         hash_list.write_text("")
 
-        result = runner.invoke(fetch, ["batch", str(hash_list)])
+        result = runner.invoke(cdn, ["batch", str(hash_list)])
 
         # Should handle empty file by showing error
         assert result.exit_code != 0
         assert "No valid hashes found" in result.output
 
-    @patch("cascette_tools.commands.fetch._get_context_objects")
+    @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_invalid_hashes(
         self,
         mock_get_context,
@@ -647,14 +647,14 @@ class TestFetchCommands:
         hash_list = tmp_path / "invalid.txt"
         hash_list.write_text("invalid_hash\nshort\n")
 
-        result = runner.invoke(fetch, ["batch", str(hash_list)])
+        result = runner.invoke(cdn, ["batch", str(hash_list)])
 
         # Should skip invalid hashes and show error if no valid hashes
         assert result.exit_code != 0
         assert "No valid hashes found" in result.output
 
 
-class TestFetchUtilityFunctions:
+class TestCdnUtilityFunctions:
     """Test utility functions used by fetch commands."""
 
     def test_get_context_objects(self):
@@ -704,7 +704,7 @@ class TestFetchUtilityFunctions:
         assert output_path.read_bytes() == data
         mock_console.print.assert_not_called()
 
-    @patch("cascette_tools.commands.fetch.BuildConfigParser")
+    @patch("cascette_tools.commands.cdn.BuildConfigParser")
     def test_show_config_metadata_build(self, mock_parser_class):
         """Test _show_config_metadata for build config."""
         mock_console = Mock(spec=Console)
@@ -725,7 +725,7 @@ class TestFetchUtilityFunctions:
         mock_console.print.assert_called()
         mock_parser.parse.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch.CDNConfigParser")
+    @patch("cascette_tools.commands.cdn.CDNConfigParser")
     def test_show_config_metadata_cdn(self, mock_parser_class):
         """Test _show_config_metadata for CDN config."""
         mock_console = Mock(spec=Console)
@@ -744,7 +744,7 @@ class TestFetchUtilityFunctions:
         mock_console.print.assert_called()
         mock_parser.parse.assert_called_once()
 
-    @patch("cascette_tools.commands.fetch.ProductConfigParser")
+    @patch("cascette_tools.commands.cdn.ProductConfigParser")
     def test_show_config_metadata_product(self, mock_parser_class):
         """Test _show_config_metadata for product config."""
         mock_console = Mock(spec=Console)

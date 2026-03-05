@@ -5,7 +5,7 @@ used by NGDP/TACT for efficient file updates. Based on the bsdiff algorithm
 by Colin Percival, with zlib compression applied to all data blocks.
 
 Format Structure:
-- 32-byte header (big-endian) with format signature and block sizes
+- 32-byte header (little-endian) with format signature and block sizes
 - Control block (zlib-compressed): patch instructions
 - Diff block (zlib-compressed): data differences
 - Extra block (zlib-compressed): new data insertions
@@ -13,7 +13,7 @@ Format Structure:
 Key Features:
 - Memory-efficient streaming application without loading entire files
 - Zlib compression on all data blocks for minimal patch size
-- Big-endian header format, little-endian control entries
+- Little-endian header and control entries (verified against Agent.exe)
 - Size validation (1GB limit for safety)
 """
 
@@ -37,7 +37,7 @@ MAX_CONTROL_ENTRIES = 100000  # Reasonable limit for control entries
 
 
 class ZbsdiffHeader(BaseModel):
-    """ZBSDIFF1 format header (32 bytes, big-endian)."""
+    """ZBSDIFF1 format header (32 bytes, little-endian)."""
 
     magic: bytes = Field(description="Magic bytes (ZBSDIFF1)")
     control_length: int = Field(description="Control block compressed size (8 bytes)")
@@ -272,11 +272,11 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
         if len(header_data) != self.HEADER_SIZE:
             raise ValueError(f"Header too short: {len(header_data)} < {self.HEADER_SIZE}")
 
-        # Parse header fields (all big-endian)
+        # Parse header fields (all little-endian signed, matching Agent.exe)
         magic = header_data[0:8]
-        control_length = struct.unpack(">Q", header_data[8:16])[0]
-        diff_length = struct.unpack(">Q", header_data[16:24])[0]
-        new_size = struct.unpack(">Q", header_data[24:32])[0]
+        control_length = struct.unpack("<q", header_data[8:16])[0]
+        diff_length = struct.unpack("<q", header_data[16:24])[0]
+        new_size = struct.unpack("<q", header_data[24:32])[0]
 
         return ZbsdiffHeader(
             magic=magic,
@@ -286,27 +286,42 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
         )
 
     def _build_header(self, header: ZbsdiffHeader) -> bytes:
-        """Build ZBSDIFF1 header."""
+        """Build ZBSDIFF1 header (little-endian, matching Agent.exe)."""
         return (
             header.magic +
-            struct.pack(">Q", header.control_length) +
-            struct.pack(">Q", header.diff_length) +
-            struct.pack(">Q", header.new_size)
+            struct.pack("<q", header.control_length) +
+            struct.pack("<q", header.diff_length) +
+            struct.pack("<q", header.new_size)
         )
+
+    @staticmethod
+    def _offtin(buf: bytes) -> int:
+        """Decode a sign-magnitude encoded 64-bit integer (bsdiff offtin).
+
+        The bsdiff format stores signed 64-bit values using sign-magnitude
+        encoding: bit 63 is the sign bit, bits 0-62 hold the absolute value,
+        stored in little-endian byte order.
+        """
+        y = buf[7] & 0x7F
+        for i in range(6, -1, -1):
+            y = y * 256 + buf[i]
+        if buf[7] & 0x80:
+            y = -y
+        return y
 
     def _parse_control_entries(self, control_data: bytes) -> list[ZbsdiffControlEntry]:
         """Parse control block into entries."""
         entries: list[ZbsdiffControlEntry] = []
         offset = 0
-        entry_size = 24  # 3 signed 64-bit integers
+        entry_size = 24  # 3 sign-magnitude 64-bit integers
 
         while offset + entry_size <= len(control_data):
-            # Read three signed 64-bit little-endian integers
-            add_length = struct.unpack("<q", control_data[offset:offset+8])[0]
-            copy_length = struct.unpack("<q", control_data[offset+8:offset+16])[0]
-            seek_offset = struct.unpack("<q", control_data[offset+16:offset+24])[0]
+            # Read three sign-magnitude encoded 64-bit integers (bsdiff offtin)
+            add_length = self._offtin(control_data[offset:offset+8])
+            copy_length = self._offtin(control_data[offset+8:offset+16])
+            seek_offset = self._offtin(control_data[offset+16:offset+24])
 
-            # Convert to unsigned lengths, keep signed offset
+            # Sizes should be non-negative
             if add_length < 0:
                 add_length = 0
             if copy_length < 0:
@@ -327,15 +342,25 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
 
         return entries
 
+    @staticmethod
+    def _offtout(value: int) -> bytes:
+        """Encode a signed 64-bit integer using sign-magnitude (bsdiff offtout)."""
+        if value < 0:
+            magnitude = -value
+            buf = bytearray(struct.pack("<Q", magnitude))
+            buf[7] |= 0x80
+            return bytes(buf)
+        return struct.pack("<Q", value)
+
     def _build_control_entries(self, entries: list[ZbsdiffControlEntry]) -> bytes:
         """Build control block from entries."""
         data = bytearray()
 
         for entry in entries:
-            # Write three signed 64-bit little-endian integers
-            data.extend(struct.pack("<q", entry.add_length))
-            data.extend(struct.pack("<q", entry.copy_length))
-            data.extend(struct.pack("<q", entry.offset))
+            # Write three sign-magnitude encoded 64-bit integers (bsdiff offtout)
+            data.extend(self._offtout(entry.add_length))
+            data.extend(self._offtout(entry.copy_length))
+            data.extend(self._offtout(entry.offset))
 
         return bytes(data)
 

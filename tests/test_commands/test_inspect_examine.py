@@ -1,4 +1,4 @@
-"""Tests for examine command module."""
+"""Tests for inspect command module (examine subcommands)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
-from cascette_tools.commands.examine import examine
+from cascette_tools.commands.inspect import inspect as examine
 from cascette_tools.core.config import AppConfig
 from cascette_tools.core.types import CompressionMode
 from cascette_tools.formats import (
@@ -26,7 +26,7 @@ from cascette_tools.formats import (
 )
 
 
-class TestExamineCommands:
+class TestInspectExamineCommands:
     """Test examine command functionality."""
 
     @pytest.fixture
@@ -137,13 +137,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.blte"
         test_file.write_bytes(sample_blte_data)
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.BLTEParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.BLTEParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_blte_file
                 mock_parser_class.return_value = mock_parser
@@ -157,7 +157,7 @@ class TestExamineCommands:
         test_file = tmp_path / "test.blte"
         test_file.write_bytes(sample_blte_data)
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_config.cdn_timeout = 30
@@ -167,15 +167,15 @@ class TestExamineCommands:
             mock_console.__exit__ = Mock(return_value=None)
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.decompress_blte") as mock_decompress:
+            with patch("cascette_tools.commands.inspect.decompress_blte") as mock_decompress:
                 mock_decompress.return_value = b"Hello BLTE!"
 
-                with patch("cascette_tools.commands.examine.BLTEParser") as mock_parser_class:
+                with patch("cascette_tools.commands.inspect.BLTEParser") as mock_parser_class:
                     mock_parser = Mock()
                     mock_parser.parse.return_value = sample_blte_file
                     mock_parser_class.return_value = mock_parser
 
-                    with patch("cascette_tools.commands.examine.Progress") as mock_progress_class:
+                    with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
                         mock_progress = Mock()
                         mock_progress.__enter__ = Mock(return_value=mock_progress)
                         mock_progress.__exit__ = Mock(return_value=None)
@@ -190,13 +190,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.blte"
         test_file.write_bytes(sample_blte_data)
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "json"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.BLTEParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.BLTEParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_blte_file
                 mock_parser_class.return_value = mock_parser
@@ -217,7 +217,7 @@ class TestExamineCommands:
         output_file = tmp_path / "output.dat"
         test_file.write_bytes(sample_blte_data)
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_config.cdn_timeout = 30
@@ -227,15 +227,15 @@ class TestExamineCommands:
             mock_console.__exit__ = Mock(return_value=None)
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.decompress_blte") as mock_decompress:
+            with patch("cascette_tools.commands.inspect.decompress_blte") as mock_decompress:
                 mock_decompress.return_value = b"Hello BLTE!"
 
-                with patch("cascette_tools.commands.examine.BLTEParser") as mock_parser_class:
+                with patch("cascette_tools.commands.inspect.BLTEParser") as mock_parser_class:
                     mock_parser = Mock()
                     mock_parser.parse.return_value = sample_blte_file
                     mock_parser_class.return_value = mock_parser
 
-                    with patch("cascette_tools.commands.examine.Progress") as mock_progress_class:
+                    with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
                         mock_progress = Mock()
                         mock_progress.__enter__ = Mock(return_value=mock_progress)
                         mock_progress.__exit__ = Mock(return_value=None)
@@ -251,13 +251,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.encoding"
         test_file.write_bytes(b"dummy encoding data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.EncodingParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
                 mock_parser_class.return_value = mock_parser
@@ -271,13 +271,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.encoding"
         test_file.write_bytes(b"dummy encoding data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.EncodingParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
                 mock_parser_class.return_value = mock_parser
@@ -290,13 +290,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.encoding"
         test_file.write_bytes(b"dummy encoding data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "json"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.EncodingParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
                 mock_parser_class.return_value = mock_parser
@@ -317,15 +317,15 @@ class TestExamineCommands:
 
         mock_build_config = BuildConfig(build_name="test", extra_fields={"version": "1.0"})
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.is_config_file", return_value=True):
-                with patch("cascette_tools.commands.examine.detect_config_type", return_value="build"):
-                    with patch("cascette_tools.commands.examine.BuildConfigParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.is_config_file", return_value=True):
+                with patch("cascette_tools.commands.inspect.detect_config_type", return_value="build"):
+                    with patch("cascette_tools.commands.inspect.BuildConfigParser") as mock_parser_class:
                         mock_parser = Mock()
                         mock_parser.parse.return_value = mock_build_config
                         mock_parser_class.return_value = mock_parser
@@ -338,13 +338,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.index"
         test_file.write_bytes(b"dummy archive data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.ArchiveIndexParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.ArchiveIndexParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_archive_index
                 mock_parser_class.return_value = mock_parser
@@ -358,13 +358,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.index"
         test_file.write_bytes(b"dummy archive data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "json"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.ArchiveIndexParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.ArchiveIndexParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_archive_index
                 mock_parser_class.return_value = mock_parser
@@ -379,7 +379,7 @@ class TestExamineCommands:
 
     def test_fetch_from_cdn_or_path_file(self, tmp_path):
         """Test _fetch_from_cdn_or_path with local file."""
-        from cascette_tools.commands.examine import _fetch_from_cdn_or_path
+        from cascette_tools.commands.inspect import _fetch_from_cdn_or_path
 
         test_file = tmp_path / "test.dat"
         test_data = b"test data"
@@ -393,7 +393,7 @@ class TestExamineCommands:
 
     def test_fetch_from_cdn_or_path_hash(self, tmp_path):
         """Test _fetch_from_cdn_or_path with CDN hash."""
-        from cascette_tools.commands.examine import _fetch_from_cdn_or_path
+        from cascette_tools.commands.inspect import _fetch_from_cdn_or_path
 
         test_hash = "1234567890abcdef1234567890abcdef"
         test_data = b"cdn data"
@@ -404,15 +404,15 @@ class TestExamineCommands:
         mock_config.cdn_timeout = 30
         mock_config.cdn_max_retries = 3
 
-        with patch("cascette_tools.commands.examine.validate_hash_string", return_value=True):
-            with patch("cascette_tools.commands.examine.CDNClient") as mock_cdn_class:
+        with patch("cascette_tools.commands.inspect.validate_hash_string", return_value=True):
+            with patch("cascette_tools.commands.inspect.CDNClient") as mock_cdn_class:
                 mock_cdn = Mock()
                 mock_cdn.fetch_data.return_value = test_data
                 mock_cdn_class.return_value = mock_cdn
 
-                with patch("cascette_tools.commands.examine.CDNConfig") as mock_cdn_config_class:
-                    with patch("cascette_tools.commands.examine.Product"):
-                        with patch("cascette_tools.commands.examine.Progress") as mock_progress_class:
+                with patch("cascette_tools.commands.inspect.CDNConfig") as mock_cdn_config_class:
+                    with patch("cascette_tools.commands.inspect.Product"):
+                        with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
                             mock_cdn_config = Mock()
                             mock_cdn_config_class.return_value = mock_cdn_config
 
@@ -433,12 +433,12 @@ class TestExamineCommands:
         """Test _fetch_from_cdn_or_path with invalid input."""
         import click
 
-        from cascette_tools.commands.examine import _fetch_from_cdn_or_path
+        from cascette_tools.commands.inspect import _fetch_from_cdn_or_path
 
         mock_console = Mock()
         mock_config = Mock()
 
-        with patch("cascette_tools.commands.examine.validate_hash_string", return_value=False):
+        with patch("cascette_tools.commands.inspect.validate_hash_string", return_value=False):
             with pytest.raises(click.ClickException, match="Invalid input"):
                 _fetch_from_cdn_or_path("invalid", mock_console, mock_config)
 
@@ -446,7 +446,7 @@ class TestExamineCommands:
         """Test _fetch_from_cdn_or_path with missing file."""
         import click
 
-        from cascette_tools.commands.examine import _fetch_from_cdn_or_path
+        from cascette_tools.commands.inspect import _fetch_from_cdn_or_path
 
         missing_file = tmp_path / "missing.dat"
         mock_console = Mock()
@@ -461,7 +461,7 @@ class TestExamineCommands:
         """Test _fetch_from_cdn_or_path with CDN error."""
         import click
 
-        from cascette_tools.commands.examine import _fetch_from_cdn_or_path
+        from cascette_tools.commands.inspect import _fetch_from_cdn_or_path
 
         test_hash = "1234567890abcdef1234567890abcdef"
         mock_console = Mock()
@@ -469,15 +469,15 @@ class TestExamineCommands:
         mock_config.cdn_timeout = 30
         mock_config.cdn_max_retries = 3
 
-        with patch("cascette_tools.commands.examine.validate_hash_string", return_value=True):
-            with patch("cascette_tools.commands.examine.CDNClient") as mock_cdn_class:
+        with patch("cascette_tools.commands.inspect.validate_hash_string", return_value=True):
+            with patch("cascette_tools.commands.inspect.CDNClient") as mock_cdn_class:
                 mock_cdn = Mock()
                 mock_cdn.fetch_data.side_effect = Exception("CDN error")
                 mock_cdn_class.return_value = mock_cdn
 
-                with patch("cascette_tools.commands.examine.CDNConfig") as mock_cdn_config_class:
-                    with patch("cascette_tools.commands.examine.Product"):
-                        with patch("cascette_tools.commands.examine.Progress") as mock_progress_class:
+                with patch("cascette_tools.commands.inspect.CDNConfig") as mock_cdn_config_class:
+                    with patch("cascette_tools.commands.inspect.Product"):
+                        with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
                             mock_cdn_config = Mock()
                             mock_cdn_config_class.return_value = mock_cdn_config
 
@@ -491,7 +491,7 @@ class TestExamineCommands:
 
     def test_output_json(self):
         """Test _output_json function."""
-        from cascette_tools.commands.examine import _output_json
+        from cascette_tools.commands.inspect import _output_json
 
         test_data = {"key": "value", "number": 42}
         mock_console = Mock()
@@ -515,7 +515,7 @@ class TestExamineCommands:
         """Test _output_table function."""
         from rich.table import Table
 
-        from cascette_tools.commands.examine import _output_table
+        from cascette_tools.commands.inspect import _output_table
 
         mock_console = Mock()
         test_table = Table(title="Test Table")
@@ -529,7 +529,7 @@ class TestExamineCommands:
         """Test _get_context_objects function."""
         import click
 
-        from cascette_tools.commands.examine import _get_context_objects
+        from cascette_tools.commands.inspect import _get_context_objects
 
         mock_config = Mock()
         mock_console = Mock()
@@ -553,13 +553,13 @@ class TestExamineCommands:
         test_file = tmp_path / "invalid.blte"
         test_file.write_bytes(b"not a blte file")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.BLTEParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.BLTEParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.side_effect = ValueError("Invalid BLTE format")
                 mock_parser_class.return_value = mock_parser
@@ -573,13 +573,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.encoding"
         test_file.write_bytes(b"dummy encoding data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.EncodingParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
                 mock_parser_class.return_value = mock_parser
@@ -592,14 +592,14 @@ class TestExamineCommands:
         test_file = tmp_path / "unknown.config"
         test_file.write_bytes(b"unknown config")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.is_config_file", return_value=True):
-                with patch("cascette_tools.commands.examine.detect_config_type", return_value="unknown"):
+            with patch("cascette_tools.commands.inspect.is_config_file", return_value=True):
+                with patch("cascette_tools.commands.inspect.detect_config_type", return_value="unknown"):
                     result = runner.invoke(examine, ["config", str(test_file)])
                     assert result.exit_code == 1
                     assert "Unknown config type" in result.output
@@ -609,13 +609,13 @@ class TestExamineCommands:
         test_file = tmp_path / "notconfig.dat"
         test_file.write_bytes(b"not a config file")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, False, False)
 
-            with patch("cascette_tools.commands.examine.is_config_file", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
                 result = runner.invoke(examine, ["config", str(test_file)])
                 assert result.exit_code == 1
                 assert "not a valid config file" in result.output
@@ -625,13 +625,13 @@ class TestExamineCommands:
         test_file = tmp_path / "test.index"
         test_file.write_bytes(b"dummy archive data")
 
-        with patch("cascette_tools.commands.examine._get_context_objects") as mock_context:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_context:
             mock_config = Mock()
             mock_config.output_format = "rich"
             mock_console = Mock()
             mock_context.return_value = (mock_config, mock_console, True, False)  # verbose=True
 
-            with patch("cascette_tools.commands.examine.ArchiveIndexParser") as mock_parser_class:
+            with patch("cascette_tools.commands.inspect.ArchiveIndexParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_archive_index
                 mock_parser_class.return_value = mock_parser
@@ -643,7 +643,7 @@ class TestExamineCommands:
         """Test examine command help output."""
         result = runner.invoke(examine, ["--help"])
         assert result.exit_code == 0
-        assert "Examine NGDP/CASC format files" in result.output
+        assert "Inspect and analyze NGDP/CASC format files." in result.output
 
         # Test subcommand help
         for cmd in ["blte", "encoding", "config", "archive"]:

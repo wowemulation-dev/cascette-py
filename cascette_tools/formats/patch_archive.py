@@ -1,30 +1,41 @@
 """Patch Archive (PA) format parser for NGDP/CASC.
 
 The Patch Archive format is used by NGDP/TACT to describe differential patches
-between different versions of content. PA files contain manifest files that map
-old content keys to new content keys and patch data, enabling incremental
-updates through differential patches.
+between different versions of content. PA files contain patch manifests that map
+old content keys to new content keys via patch data, enabling incremental
+updates through ZBSDIFF1 patches.
 
-Format Structure:
-- Magic: 'PA' (2 bytes)
-- Version: 1 byte (typically 2)
-- File key size: 1 byte (16 for MD5)
-- Old key size: 1 byte (16 for MD5)
-- Patch key size: 1 byte (16 for MD5)
-- Block size bits: 1 byte (16 for 64KB blocks)
-- Block count: 2 bytes (big-endian)
-- Flags: 1 byte
-- For each entry:
-  - Old content key: old_key_size bytes
-  - New content key: file_key_size bytes
-  - Patch encoding key: patch_key_size bytes
-  - Compression info: null-terminated string
-
-Key Features:
-- MD5-based content addressing (16-byte keys)
-- Variable-length compression specifications
-- Support for patch chains and complex update scenarios
-- Big-endian header format
+Format Structure (verified against BuildBackup and Agent.exe):
+- Header (10 bytes, big-endian):
+  - Magic: 'PA' (2 bytes)
+  - Version: 1 byte (1 or 2)
+  - File key size: 1 byte (16 for MD5)
+  - Old key size: 1 byte (16 for MD5)
+  - Patch key size: 1 byte (16 for MD5)
+  - Block size bits: 1 byte (block_size = 1 << bits)
+  - Block count: 2 bytes (big-endian)
+  - Flags: 1 byte (bit 0: plain data, bit 1: encoding info present)
+- Encoding info (when flags bit 1 set):
+  - Encoding CKey: file_key_size bytes
+  - Encoding EKey: file_key_size bytes
+  - Decoded size: 4 bytes (big-endian)
+  - Encoded size: 4 bytes (big-endian)
+  - ESpec length: 1 byte
+  - ESpec string: espec_length bytes (length-prefixed, NOT null-terminated)
+- Block table (block_count entries):
+  - Last file CKey: file_key_size bytes
+  - Block MD5: 16 bytes
+  - Block offset: 4 bytes (big-endian, absolute offset in file)
+- File entries per block (at block_offset):
+  - num_patches: 1 byte (0 = end of block)
+  - Target file CKey: file_key_size bytes
+  - Decoded size: 5 bytes (uint40, big-endian)
+  - Per source patch (num_patches times):
+    - Source file EKey: old_key_size bytes
+    - Decoded size: 5 bytes (uint40, big-endian)
+    - Patch EKey: patch_key_size bytes
+    - Patch size: 4 bytes (big-endian)
+    - Patch index: 1 byte
 """
 
 from __future__ import annotations
@@ -49,11 +60,11 @@ class PatchArchiveHeader(BaseModel):
     """PA format header (10 bytes, big-endian)."""
 
     magic: bytes = Field(description="Magic bytes 'PA'")
-    version: int = Field(description="Version (typically 2)")
+    version: int = Field(description="Version (1 or 2)")
     file_key_size: int = Field(description="File key size (16 for MD5)")
     old_key_size: int = Field(description="Old key size (16 for MD5)")
     patch_key_size: int = Field(description="Patch key size (16 for MD5)")
-    block_size_bits: int = Field(description="Block size bits (16 for 64KB blocks)")
+    block_size_bits: int = Field(description="Block size bits (block_size = 1 << bits)")
     block_count: int = Field(description="Block count")
     flags: int = Field(description="Flags")
 
@@ -64,17 +75,65 @@ class PatchArchiveHeader(BaseModel):
         return (self.flags & 0x01) != 0
 
     def has_extended_header(self) -> bool:
-        """Check if flag bit 1 (extended header) is set."""
+        """Check if flag bit 1 (encoding info) is set."""
         return (self.flags & 0x02) != 0
 
 
-class PatchEntry(BaseModel):
-    """Single patch entry from PA file."""
+class PatchEncodingInfo(BaseModel):
+    """Encoding file information from extended header."""
 
-    old_content_key: bytes = Field(description="MD5 hash of old content")
-    new_content_key: bytes = Field(description="MD5 hash of new content")
-    patch_encoding_key: bytes = Field(description="MD5 hash of patch data")
-    compression_info: str = Field(description="Compression specification")
+    encoding_ckey: bytes = Field(description="Encoding file content key")
+    encoding_ekey: bytes = Field(description="Encoding file encoding key")
+    decoded_size: int = Field(description="Encoding file decoded size")
+    encoded_size: int = Field(description="Encoding file encoded size")
+    encoding_spec: str = Field(description="Encoding format specification")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class FilePatch(BaseModel):
+    """A single source patch within a file entry."""
+
+    source_ekey: bytes = Field(description="Source file encoding key")
+    source_decoded_size: int = Field(description="Source file decoded size")
+    patch_ekey: bytes = Field(description="Patch encoding key")
+    patch_size: int = Field(description="Patch data size in bytes")
+    patch_index: int = Field(description="Patch application order index")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class FileEntry(BaseModel):
+    """A file entry within a block, containing one or more patches."""
+
+    target_ckey: bytes = Field(description="Target file content key")
+    decoded_size: int = Field(description="Target file decoded size")
+    patches: list[FilePatch] = Field(description="Source patches for this file")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class BlockEntry(BaseModel):
+    """A block table entry."""
+
+    last_file_ckey: bytes = Field(description="Last file content key in this block")
+    block_md5: bytes = Field(description="MD5 hash of block data")
+    block_offset: int = Field(description="Absolute byte offset of block data")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class PatchEntry(BaseModel):
+    """Flattened patch entry for backward compatibility.
+
+    Each PatchEntry maps one source file to its patch. A FileEntry
+    with multiple patches produces multiple PatchEntry objects.
+    """
+
+    old_content_key: bytes = Field(description="Source file encoding key")
+    new_content_key: bytes = Field(description="Target file content key")
+    patch_encoding_key: bytes = Field(description="Patch encoding key")
+    compression_info: str = Field(default="", description="Compression specification (unused in block format)")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -83,7 +142,10 @@ class PatchArchiveFile(BaseModel):
     """Complete patch archive file representation."""
 
     header: PatchArchiveHeader = Field(description="PA file header")
-    entries: list[PatchEntry] = Field(description="Patch entries")
+    entries: list[PatchEntry] = Field(description="Flattened patch entries")
+    encoding_info: PatchEncodingInfo | None = Field(default=None, description="Encoding file info (from extended header)")
+    blocks: list[BlockEntry] = Field(default_factory=list, description="Block table entries")
+    file_entries: list[FileEntry] = Field(default_factory=list, description="Structured file entries")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -181,28 +243,43 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             raise ValueError(f"Data too short for PA header: {len(raw_data)} < {PA_HEADER_SIZE}")
 
         # Parse header
-        header = self._parse_header(raw_data)
+        header, offset = self._parse_header(raw_data)
 
-        # Parse entries
-        entries = self._parse_entries(raw_data, header)
+        # Parse encoding info if extended header flag is set
+        encoding_info = None
+        if header.has_extended_header():
+            encoding_info, offset = self._parse_encoding_info(raw_data, offset, header)
 
-        return PatchArchiveFile(header=header, entries=entries)
+        # Parse block table
+        blocks, offset = self._parse_block_table(raw_data, offset, header)
 
-    def _parse_header(self, data: bytes) -> PatchArchiveHeader:
+        # Parse file entries from blocks
+        file_entries = self._parse_file_entries(raw_data, blocks, header)
+
+        # Flatten file entries into PatchEntry objects for backward compatibility
+        entries = self._flatten_entries(file_entries)
+
+        logger.debug("Parsed patch archive",
+                     blocks=len(blocks),
+                     file_entries=len(file_entries),
+                     total_patches=len(entries))
+
+        return PatchArchiveFile(
+            header=header,
+            entries=entries,
+            encoding_info=encoding_info,
+            blocks=blocks,
+            file_entries=file_entries,
+        )
+
+    def _parse_header(self, data: bytes) -> tuple[PatchArchiveHeader, int]:
         """Parse PA format header.
 
-        Args:
-            data: Raw binary data
-
         Returns:
-            Parsed header
-
-        Raises:
-            ValueError: If header is invalid
+            Tuple of (header, offset after header)
         """
         header_data = data[:PA_HEADER_SIZE]
 
-        # Parse header fields (all big-endian)
         magic = header_data[0:2]
         if magic != PA_MAGIC:
             raise ValueError(f"Invalid PA magic: {magic!r}, expected {PA_MAGIC!r}")
@@ -212,18 +289,11 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         old_key_size = header_data[4]
         patch_key_size = header_data[5]
         block_size_bits = header_data[6]
-        block_count = struct.unpack('>H', header_data[7:9])[0]  # Big-endian 16-bit
+        block_count = struct.unpack('>H', header_data[7:9])[0]
         flags = header_data[9]
 
-        # Validate common values
         if version not in [1, 2]:
             logger.warning("Unexpected PA version", version=version)
-        if file_key_size != DEFAULT_KEY_SIZE:
-            logger.warning("Unexpected file key size", size=file_key_size)
-        if old_key_size != DEFAULT_KEY_SIZE:
-            logger.warning("Unexpected old key size", size=old_key_size)
-        if patch_key_size != DEFAULT_KEY_SIZE:
-            logger.warning("Unexpected patch key size", size=patch_key_size)
 
         header = PatchArchiveHeader(
             magic=magic,
@@ -236,120 +306,168 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             flags=flags
         )
 
-        # Reject extended header flag (bit 1) - parser does not support
-        # the extra data Agent.exe would read for this flag
-        if header.has_extended_header():
-            raise ValueError(
-                f"Unsupported patch archive flags: extended header (flags=0x{flags:02x})"
-            )
+        return header, PA_HEADER_SIZE
 
-        return header
+    def _parse_encoding_info(
+        self, data: bytes, offset: int, header: PatchArchiveHeader
+    ) -> tuple[PatchEncodingInfo, int]:
+        """Parse encoding info from extended header."""
+        fks = header.file_key_size
 
-    def _parse_entries(self, data: bytes, header: PatchArchiveHeader, max_entries: int = 1000) -> list[PatchEntry]:
-        """Parse patch entries from PA data.
+        enc_ckey = data[offset:offset + fks]
+        offset += fks
+        enc_ekey = data[offset:offset + fks]
+        offset += fks
 
-        Args:
-            data: Raw binary data
-            header: Parsed header
-            max_entries: Maximum number of entries to parse (for safety)
+        decoded_size = struct.unpack('>I', data[offset:offset + 4])[0]
+        offset += 4
+        encoded_size = struct.unpack('>I', data[offset:offset + 4])[0]
+        offset += 4
 
-        Returns:
-            List of parsed patch entries
+        espec_len = data[offset]
+        offset += 1
+        espec = data[offset:offset + espec_len].decode('utf-8')
+        offset += espec_len
 
-        Raises:
-            ValueError: If entry data is invalid
+        info = PatchEncodingInfo(
+            encoding_ckey=enc_ckey,
+            encoding_ekey=enc_ekey,
+            decoded_size=decoded_size,
+            encoded_size=encoded_size,
+            encoding_spec=espec,
+        )
+
+        logger.debug("Parsed encoding info",
+                     decoded_size=decoded_size,
+                     encoded_size=encoded_size,
+                     espec_len=espec_len)
+
+        return info, offset
+
+    def _parse_block_table(
+        self, data: bytes, offset: int, header: PatchArchiveHeader
+    ) -> tuple[list[BlockEntry], int]:
+        """Parse block table entries."""
+        blocks: list[BlockEntry] = []
+        fks = header.file_key_size
+
+        for _ in range(header.block_count):
+            last_ckey = data[offset:offset + fks]
+            offset += fks
+            block_md5 = data[offset:offset + 16]
+            offset += 16
+            block_offset = struct.unpack('>I', data[offset:offset + 4])[0]
+            offset += 4
+
+            blocks.append(BlockEntry(
+                last_file_ckey=last_ckey,
+                block_md5=block_md5,
+                block_offset=block_offset,
+            ))
+
+        return blocks, offset
+
+    def _parse_file_entries(
+        self, data: bytes, blocks: list[BlockEntry], header: PatchArchiveHeader
+    ) -> list[FileEntry]:
+        """Parse file entries from block data."""
+        file_entries: list[FileEntry] = []
+        fks = header.file_key_size
+        oks = header.old_key_size
+        pks = header.patch_key_size
+
+        for block in blocks:
+            pos = block.block_offset
+
+            while pos < len(data):
+                if pos >= len(data):
+                    break
+
+                num_patches = data[pos]
+                pos += 1
+
+                if num_patches == 0:
+                    break
+
+                # Target file CKey
+                target_ckey = data[pos:pos + fks]
+                pos += fks
+
+                # Decoded size (uint40 big-endian)
+                decoded_size = int.from_bytes(data[pos:pos + 5], 'big')
+                pos += 5
+
+                patches: list[FilePatch] = []
+                for _ in range(num_patches):
+                    src_ekey = data[pos:pos + oks]
+                    pos += oks
+                    src_dec_size = int.from_bytes(data[pos:pos + 5], 'big')
+                    pos += 5
+                    patch_ekey = data[pos:pos + pks]
+                    pos += pks
+                    patch_size = struct.unpack('>I', data[pos:pos + 4])[0]
+                    pos += 4
+                    patch_idx = data[pos]
+                    pos += 1
+
+                    patches.append(FilePatch(
+                        source_ekey=src_ekey,
+                        source_decoded_size=src_dec_size,
+                        patch_ekey=patch_ekey,
+                        patch_size=patch_size,
+                        patch_index=patch_idx,
+                    ))
+
+                file_entries.append(FileEntry(
+                    target_ckey=target_ckey,
+                    decoded_size=decoded_size,
+                    patches=patches,
+                ))
+
+        return file_entries
+
+    def _flatten_entries(self, file_entries: list[FileEntry]) -> list[PatchEntry]:
+        """Flatten structured file entries into PatchEntry objects.
+
+        Each FileEntry with N patches produces N PatchEntry objects.
         """
         entries: list[PatchEntry] = []
-        offset = PA_HEADER_SIZE
-        entry_index = 0
-
-        while offset < len(data) and entry_index < max_entries:
-            # Check if we have enough data for minimum entry
-            min_entry_size = header.old_key_size + header.file_key_size + header.patch_key_size + 1  # +1 for null terminator
-            if offset + min_entry_size > len(data):
-                break
-
-            try:
-                # Read old content key
-                old_key_end = offset + header.old_key_size
-                old_content_key = data[offset:old_key_end]
-                offset = old_key_end
-
-                # Read new content key
-                new_key_end = offset + header.file_key_size
-                new_content_key = data[offset:new_key_end]
-                offset = new_key_end
-
-                # Read patch encoding key
-                patch_key_end = offset + header.patch_key_size
-                patch_encoding_key = data[offset:patch_key_end]
-                offset = patch_key_end
-
-                # Read compression info (null-terminated string)
-                compression_start = offset
-                null_pos = data.find(0, offset)
-                if null_pos == -1:
-                    # No null terminator found, take rest of data or reasonable limit
-                    compression_end = min(offset + 256, len(data))  # Reasonable limit
-                    compression_info = data[compression_start:compression_end].decode('utf-8', errors='replace')
-                    offset = compression_end
-                else:
-                    compression_info = data[compression_start:null_pos].decode('utf-8', errors='replace')
-                    offset = null_pos + 1  # Skip null terminator
-
-                entry = PatchEntry(
-                    old_content_key=old_content_key,
-                    new_content_key=new_content_key,
-                    patch_encoding_key=patch_encoding_key,
-                    compression_info=compression_info
-                )
-
-                entries.append(entry)
-                entry_index += 1
-
-            except (struct.error, UnicodeDecodeError, IndexError) as e:
-                logger.warning("Error parsing entry", index=entry_index, offset=offset, error=str(e))
-                break
-
-        logger.debug("Parsed patch entries", count=len(entries))
+        for fe in file_entries:
+            for patch in fe.patches:
+                entries.append(PatchEntry(
+                    old_content_key=patch.source_ekey,
+                    new_content_key=fe.target_ckey,
+                    patch_encoding_key=patch.patch_ekey,
+                ))
         return entries
 
     def build(self, obj: PatchArchiveFile) -> bytes:
         """Build binary data from patch archive object.
 
-        Args:
-            obj: Patch archive file object
-
-        Returns:
-            Binary data representing the patch archive
-
-        Raises:
-            ValueError: If object data is invalid
+        Builds a simplified PA file without encoding info or block structure.
+        For creating test data only.
         """
         result = bytearray()
 
-        # Build header
         header = obj.header
 
-        # Validate header values
         if header.magic != PA_MAGIC:
             raise ValueError(f"Invalid magic: {header.magic!r}")
         if header.file_key_size <= 0 or header.old_key_size <= 0 or header.patch_key_size <= 0:
             raise ValueError("Key sizes must be positive")
 
-        # Pack header (big-endian)
-        result.extend(header.magic)  # 2 bytes
-        result.append(header.version)  # 1 byte
-        result.append(header.file_key_size)  # 1 byte
-        result.append(header.old_key_size)  # 1 byte
-        result.append(header.patch_key_size)  # 1 byte
-        result.append(header.block_size_bits)  # 1 byte
-        result.extend(struct.pack('>H', header.block_count))  # 2 bytes, big-endian
-        result.append(header.flags)  # 1 byte
+        # Pack header
+        result.extend(header.magic)
+        result.append(header.version)
+        result.append(header.file_key_size)
+        result.append(header.old_key_size)
+        result.append(header.patch_key_size)
+        result.append(header.block_size_bits)
+        result.extend(struct.pack('>H', header.block_count))
+        result.append(header.flags)
 
-        # Build entries
+        # Build flattened entries (simplified format for tests)
         for entry in obj.entries:
-            # Validate key sizes
             if len(entry.old_content_key) != header.old_key_size:
                 raise ValueError(f"Old key size mismatch: {len(entry.old_content_key)} != {header.old_key_size}")
             if len(entry.new_content_key) != header.file_key_size:
@@ -357,15 +475,13 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             if len(entry.patch_encoding_key) != header.patch_key_size:
                 raise ValueError(f"Patch key size mismatch: {len(entry.patch_encoding_key)} != {header.patch_key_size}")
 
-            # Add keys
             result.extend(entry.old_content_key)
             result.extend(entry.new_content_key)
             result.extend(entry.patch_encoding_key)
 
-            # Add compression info with null terminator
             compression_bytes = entry.compression_info.encode('utf-8')
             result.extend(compression_bytes)
-            result.append(0)  # Null terminator
+            result.append(0)
 
         return bytes(result)
 
@@ -393,48 +509,25 @@ class PatchArchiveBuilder:
         pass
 
     def build(self, obj: PatchArchiveFile) -> bytes:
-        """Build patch archive file from object.
-
-        Args:
-            obj: Patch archive file object to build
-
-        Returns:
-            Binary patch archive data
-        """
+        """Build patch archive file from object."""
         parser = PatchArchiveParser()
         return parser.build(obj)
 
     @classmethod
     def create_empty(cls, version: int = 2, key_size: int = 16) -> PatchArchiveFile:
-        """Create an empty patch archive file.
-
-        Args:
-            version: PA format version
-            key_size: Size of content keys
-
-        Returns:
-            Empty patch archive file
-        """
+        """Create an empty patch archive file."""
         return create_empty_patch_archive(version, key_size)
 
     @classmethod
     def create_with_entries(cls, entries: list[PatchEntry], version: int = 2) -> PatchArchiveFile:
-        """Create patch archive with given entries.
-
-        Args:
-            entries: List of patch entries
-            version: PA format version
-
-        Returns:
-            Patch archive file object
-        """
+        """Create patch archive with given entries."""
         header = PatchArchiveHeader(
             magic=b'PA',
             version=version,
             file_key_size=16,
             old_key_size=16,
             patch_key_size=16,
-            block_size_bits=16,  # 64KB blocks
+            block_size_bits=16,
             block_count=len(entries),
             flags=0
         )
@@ -443,22 +536,14 @@ class PatchArchiveBuilder:
 
 
 def create_empty_patch_archive(version: int = 2, key_size: int = DEFAULT_KEY_SIZE) -> PatchArchiveFile:
-    """Create an empty patch archive file.
-
-    Args:
-        version: PA format version
-        key_size: Size of content keys
-
-    Returns:
-        Empty patch archive file
-    """
+    """Create an empty patch archive file."""
     header = PatchArchiveHeader(
         magic=PA_MAGIC,
         version=version,
         file_key_size=key_size,
         old_key_size=key_size,
         patch_key_size=key_size,
-        block_size_bits=16,  # 64KB blocks
+        block_size_bits=16,
         block_count=0,
         flags=0
     )

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- BlizzTrack API client (`BlizzTrackClient`) for fetching historical and current
+  NGDP manifest data across all TACT products
+- Consolidated CLI command structure:
+  - `cdn` command: Download data from Blizzard's NGDP CDN infrastructure
+  - `inspect` command: Examine and analyze NGDP/CASC format files
+  - `install` command: Install and manage game content via the NGDP/CASC pipeline
+- ZBSDIFF patch triplet downloader script (`scripts/download_zbsdiff_triplets.py`)
+  for Rust verification
 - Product codes `wow_classic_titan` and `wow_anniversary` across all modules
 - mise hint in README.md Prerequisites section
 - `.markdownlint-cli2.jsonc` and `.markdownlintignore` for markdown linting config
@@ -29,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING**: CLI commands restructured into agent.exe workflow:
+  - Deleted: `analyze`, `examine`, `fetch`, `install_analyzer`, `install_poc`, `archive_search`
+  - New consolidated commands: `cdn`, `inspect`, `install`
+  - `archive` and `builds` commands updated to match new structure
+- Patch archive parser now correctly handles extended header with encoding info
+- ZBSDIFF parser fixed to use little-endian signed integers (was incorrectly using big-endian)
 - TACT key sync uses batched `executemany` instead of per-key transactions
 - Listfile sync drops FTS triggers during bulk load, rebuilds index once at the end
 - Listfile sync now downloads from GitHub release asset instead of raw repo content
@@ -51,6 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Patch archive parser incorrectly rejecting extended header flag (now properly parses encoding info)
+- ZBSDIFF parser using wrong byte order for size fields (changed from big-endian >Q to little-endian <q)
+- ZBSDIFF control entry parsing using two's complement instead of sign-magnitude encoding
 - TACT key sync returning 0 keys due to semicolon-split parser on space-separated data
 - Tag parsing now correctly extracts all locales from colon-separated groups
 - Pyright type errors in `install_analyzer.py` resolved

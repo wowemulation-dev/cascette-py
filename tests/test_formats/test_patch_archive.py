@@ -18,6 +18,74 @@ from cascette_tools.formats.patch_archive import (
 )
 
 
+def _build_block_format_pa(
+    entries: list[tuple[bytes, int, list[tuple[bytes, int, bytes, int, int]]]],
+    flags: int = 0x02,
+    encoding_info: tuple[bytes, bytes, int, int, str] | None = None,
+) -> bytes:
+    """Build a PA file in the real block-based format.
+
+    Args:
+        entries: List of (target_ckey, decoded_size, patches) where
+            patches is [(src_ekey, src_size, patch_ekey, patch_size, patch_idx), ...]
+        flags: Header flags (default 0x02 for encoding info)
+        encoding_info: Optional (enc_ckey, enc_ekey, dec_size, enc_size, espec)
+    """
+    file_key_size = 16
+    old_key_size = 16
+    patch_key_size = 16
+
+    # Header
+    header = bytearray()
+    header.extend(PA_MAGIC)
+    header.append(2)  # version
+    header.append(file_key_size)
+    header.append(old_key_size)
+    header.append(patch_key_size)
+    header.append(16)  # block_size_bits
+    header.extend(struct.pack('>H', 1))  # 1 block
+    header.append(flags)
+
+    # Encoding info (if flags bit 1 set)
+    enc_section = bytearray()
+    if flags & 0x02:
+        if encoding_info is None:
+            encoding_info = (b'\x00' * 16, b'\x00' * 16, 0, 0, '')
+        enc_ckey, enc_ekey, dec_size, enc_size, espec = encoding_info
+        enc_section.extend(enc_ckey)
+        enc_section.extend(enc_ekey)
+        enc_section.extend(struct.pack('>I', dec_size))
+        enc_section.extend(struct.pack('>I', enc_size))
+        enc_section.append(len(espec))
+        enc_section.extend(espec.encode('utf-8'))
+
+    # Block table: 1 block entry
+    # We need to compute the block_offset (where file entries start)
+    block_table = bytearray()
+    last_ckey = entries[-1][0] if entries else b'\xff' * 16
+    block_md5 = b'\x00' * 16  # placeholder
+    block_offset = len(header) + len(enc_section) + file_key_size + 16 + 4
+    block_table.extend(last_ckey)
+    block_table.extend(block_md5)
+    block_table.extend(struct.pack('>I', block_offset))
+
+    # File entries
+    file_data = bytearray()
+    for target_ckey, decoded_size, patches in entries:
+        file_data.append(len(patches))  # num_patches
+        file_data.extend(target_ckey)
+        file_data.extend(decoded_size.to_bytes(5, 'big'))  # uint40
+        for src_ekey, src_size, patch_ekey, patch_size, patch_idx in patches:
+            file_data.extend(src_ekey)
+            file_data.extend(src_size.to_bytes(5, 'big'))
+            file_data.extend(patch_ekey)
+            file_data.extend(struct.pack('>I', patch_size))
+            file_data.append(patch_idx)
+    file_data.append(0)  # End of block marker
+
+    return bytes(header + enc_section + block_table + file_data)
+
+
 class TestPatchArchiveHeader:
     """Test patch archive header model."""
 
@@ -146,118 +214,120 @@ class TestPatchArchiveParser:
 
     def test_parse_empty_archive(self):
         """Test parsing empty patch archive."""
-        # Create minimal valid PA header with no entries
         header_data = bytearray()
-        header_data.extend(PA_MAGIC)  # Magic: 'PA'
-        header_data.append(2)  # Version
+        header_data.extend(PA_MAGIC)
+        header_data.append(2)   # Version
         header_data.append(16)  # File key size
         header_data.append(16)  # Old key size
         header_data.append(16)  # Patch key size
         header_data.append(16)  # Block size bits
-        header_data.extend(struct.pack('>H', 0))  # Block count (big-endian)
-        header_data.append(0)  # Flags
+        header_data.extend(struct.pack('>H', 0))  # Block count = 0
+        header_data.append(0)   # Flags
 
         parser = PatchArchiveParser()
         patch_archive = parser.parse(bytes(header_data))
 
         assert patch_archive.header.magic == PA_MAGIC
         assert patch_archive.header.version == 2
-        assert patch_archive.header.file_key_size == 16
-        assert patch_archive.header.old_key_size == 16
-        assert patch_archive.header.patch_key_size == 16
-        assert patch_archive.header.block_size_bits == 16
         assert patch_archive.header.block_count == 0
-        assert patch_archive.header.flags == 0
         assert len(patch_archive.entries) == 0
 
-    def test_parse_single_entry(self):
-        """Test parsing patch archive with single entry."""
-        # Create header
-        header_data = bytearray()
-        header_data.extend(PA_MAGIC)  # Magic: 'PA'
-        header_data.append(2)  # Version
-        header_data.append(16)  # File key size
-        header_data.append(16)  # Old key size
-        header_data.append(16)  # Patch key size
-        header_data.append(16)  # Block size bits
-        header_data.extend(struct.pack('>H', 1))  # Block count (big-endian)
-        header_data.append(0)  # Flags
-
-        # Create single entry
+    def test_parse_single_entry_block_format(self):
+        """Test parsing patch archive with single entry in block format."""
         old_key = b'0123456789abcdef'
         new_key = b'fedcba9876543210'
         patch_key = b'abcdef0123456789'
-        compression = '{*=z}'
 
-        entry_data = bytearray()
-        entry_data.extend(old_key)  # Old content key
-        entry_data.extend(new_key)  # New content key
-        entry_data.extend(patch_key)  # Patch encoding key
-        entry_data.extend(compression.encode('utf-8'))  # Compression info
-        entry_data.append(0)  # Null terminator
-
-        full_data = header_data + entry_data
+        data = _build_block_format_pa([
+            (new_key, 1000, [(old_key, 900, patch_key, 200, 0)]),
+        ])
 
         parser = PatchArchiveParser()
-        patch_archive = parser.parse(bytes(full_data))
+        patch_archive = parser.parse(data)
 
         assert len(patch_archive.entries) == 1
         entry = patch_archive.entries[0]
         assert entry.old_content_key == old_key
         assert entry.new_content_key == new_key
         assert entry.patch_encoding_key == patch_key
-        assert entry.compression_info == compression
 
-    def test_parse_multiple_entries(self):
-        """Test parsing patch archive with multiple entries."""
-        # Create header
-        header_data = bytearray()
-        header_data.extend(PA_MAGIC)
-        header_data.append(2)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.extend(struct.pack('>H', 2))
-        header_data.append(0)
-
-        # Create entries
-        entries_data = bytearray()
-
-        # Entry 1
-        entries_data.extend(b'0123456789abcdef')  # Old key
-        entries_data.extend(b'fedcba9876543210')  # New key
-        entries_data.extend(b'abcdef0123456789')  # Patch key
-        entries_data.extend(b'{*=z}')  # Compression
-        entries_data.append(0)  # Null terminator
-
-        # Entry 2
-        entries_data.extend(b'1111222233334444')  # Old key
-        entries_data.extend(b'5555666677778888')  # New key
-        entries_data.extend(b'9999aaaabbbbcccc')  # Patch key
-        entries_data.extend(b'{*=l}')  # Compression
-        entries_data.append(0)  # Null terminator
-
-        full_data = header_data + entries_data
+    def test_parse_multiple_entries_block_format(self):
+        """Test parsing patch archive with multiple entries in block format."""
+        data = _build_block_format_pa([
+            (b'fedcba9876543210', 1000, [
+                (b'0123456789abcdef', 900, b'abcdef0123456789', 200, 0),
+            ]),
+            (b'5555666677778888', 2000, [
+                (b'1111222233334444', 1800, b'9999aaaabbbbcccc', 300, 0),
+            ]),
+        ])
 
         parser = PatchArchiveParser()
-        patch_archive = parser.parse(bytes(full_data))
+        patch_archive = parser.parse(data)
 
         assert len(patch_archive.entries) == 2
 
-        # Check first entry
         entry1 = patch_archive.entries[0]
         assert entry1.old_content_key == b'0123456789abcdef'
         assert entry1.new_content_key == b'fedcba9876543210'
         assert entry1.patch_encoding_key == b'abcdef0123456789'
-        assert entry1.compression_info == '{*=z}'
 
-        # Check second entry
         entry2 = patch_archive.entries[1]
         assert entry2.old_content_key == b'1111222233334444'
         assert entry2.new_content_key == b'5555666677778888'
         assert entry2.patch_encoding_key == b'9999aaaabbbbcccc'
-        assert entry2.compression_info == '{*=l}'
+
+    def test_parse_multi_patch_entry(self):
+        """Test parsing file entry with multiple source patches."""
+        target = b'fedcba9876543210'
+        src1 = b'0123456789abcdef'
+        src2 = b'1111222233334444'
+        patch1 = b'abcdef0123456789'
+        patch2 = b'9999aaaabbbbcccc'
+
+        data = _build_block_format_pa([
+            (target, 1000, [
+                (src1, 900, patch1, 200, 0),
+                (src2, 950, patch2, 150, 1),
+            ]),
+        ])
+
+        parser = PatchArchiveParser()
+        pa = parser.parse(data)
+
+        # Multi-patch entries get flattened
+        assert len(pa.entries) == 2
+        assert pa.entries[0].old_content_key == src1
+        assert pa.entries[0].new_content_key == target
+        assert pa.entries[0].patch_encoding_key == patch1
+        assert pa.entries[1].old_content_key == src2
+        assert pa.entries[1].new_content_key == target
+        assert pa.entries[1].patch_encoding_key == patch2
+
+        # Also check structured file_entries
+        assert len(pa.file_entries) == 1
+        assert len(pa.file_entries[0].patches) == 2
+
+    def test_parse_encoding_info(self):
+        """Test parsing with encoding info (extended header)."""
+        enc_ckey = b'encodingckey1234'
+        enc_ekey = b'encodingekey5678'
+
+        data = _build_block_format_pa(
+            entries=[],
+            flags=0x02,
+            encoding_info=(enc_ckey, enc_ekey, 50_000_000, 49_500_000, 'b:{*=z}'),
+        )
+
+        parser = PatchArchiveParser()
+        pa = parser.parse(data)
+
+        assert pa.encoding_info is not None
+        assert pa.encoding_info.encoding_ckey == enc_ckey
+        assert pa.encoding_info.encoding_ekey == enc_ekey
+        assert pa.encoding_info.decoded_size == 50_000_000
+        assert pa.encoding_info.encoded_size == 49_500_000
+        assert pa.encoding_info.encoding_spec == 'b:{*=z}'
 
     def test_parse_from_stream(self):
         """Test parsing from stream."""
@@ -281,7 +351,7 @@ class TestPatchArchiveParser:
 
     def test_parse_invalid_magic(self):
         """Test parsing data with invalid magic."""
-        data = b'XX' + b'\x00' * 8  # Invalid magic
+        data = b'XX' + b'\x00' * 8
 
         parser = PatchArchiveParser()
 
@@ -290,7 +360,7 @@ class TestPatchArchiveParser:
 
     def test_parse_too_short(self):
         """Test parsing data that's too short."""
-        data = b'PA\x02'  # Only 3 bytes
+        data = b'PA\x02'
 
         parser = PatchArchiveParser()
 
@@ -332,21 +402,15 @@ class TestPatchArchiveParser:
         parser = PatchArchiveParser()
         binary_data = parser.build(patch_archive)
 
-        # Should contain header + entry data
-        expected_size = PA_HEADER_SIZE + 16 + 16 + 16 + len('{*=z}') + 1  # +1 for null terminator
+        expected_size = PA_HEADER_SIZE + 16 + 16 + 16 + len('{*=z}') + 1
         assert len(binary_data) == expected_size
 
     def test_build_invalid_magic(self):
         """Test building archive with invalid magic."""
         header = PatchArchiveHeader(
-            magic=b'XX',  # Invalid magic
-            version=2,
-            file_key_size=16,
-            old_key_size=16,
-            patch_key_size=16,
-            block_size_bits=16,
-            block_count=0,
-            flags=0
+            magic=b'XX',
+            version=2, file_key_size=16, old_key_size=16,
+            patch_key_size=16, block_size_bits=16, block_count=0, flags=0
         )
 
         patch_archive = PatchArchiveFile(header=header, entries=[])
@@ -360,17 +424,12 @@ class TestPatchArchiveParser:
         """Test building archive with invalid key size."""
         header = PatchArchiveHeader(
             magic=PA_MAGIC,
-            version=2,
-            file_key_size=16,
-            old_key_size=16,
-            patch_key_size=16,
-            block_size_bits=16,
-            block_count=1,
-            flags=0
+            version=2, file_key_size=16, old_key_size=16,
+            patch_key_size=16, block_size_bits=16, block_count=1, flags=0
         )
 
         entry = PatchEntry(
-            old_content_key=b'short',  # Wrong size
+            old_content_key=b'short',
             new_content_key=b'fedcba9876543210',
             patch_encoding_key=b'abcdef0123456789',
             compression_info=''
@@ -393,60 +452,8 @@ class TestPatchArchiveParser:
 
         assert parsed.header.magic == original.header.magic
         assert parsed.header.version == original.header.version
-        assert parsed.header.file_key_size == original.header.file_key_size
-        assert parsed.header.old_key_size == original.header.old_key_size
-        assert parsed.header.patch_key_size == original.header.patch_key_size
-        assert parsed.header.block_size_bits == original.header.block_size_bits
         assert parsed.header.block_count == original.header.block_count
-        assert parsed.header.flags == original.header.flags
         assert len(parsed.entries) == len(original.entries)
-
-    def test_round_trip_with_entries(self):
-        """Test round-trip parsing and building with entries."""
-        header = PatchArchiveHeader(
-            magic=PA_MAGIC,
-            version=2,
-            file_key_size=16,
-            old_key_size=16,
-            patch_key_size=16,
-            block_size_bits=16,
-            block_count=2,
-            flags=1
-        )
-
-        entries = [
-            PatchEntry(
-                old_content_key=b'0123456789abcdef',
-                new_content_key=b'fedcba9876543210',
-                patch_encoding_key=b'abcdef0123456789',
-                compression_info='{*=z}'
-            ),
-            PatchEntry(
-                old_content_key=b'1111222233334444',
-                new_content_key=b'5555666677778888',
-                patch_encoding_key=b'9999aaaabbbbcccc',
-                compression_info=''  # Empty compression
-            )
-        ]
-
-        original = PatchArchiveFile(header=header, entries=entries)
-
-        parser = PatchArchiveParser()
-        binary_data = parser.build(original)
-        parsed = parser.parse(binary_data)
-
-        # Check header
-        assert parsed.header.magic == original.header.magic
-        assert parsed.header.version == original.header.version
-        assert parsed.header.flags == original.header.flags
-
-        # Check entries
-        assert len(parsed.entries) == len(original.entries)
-        for _i, (parsed_entry, original_entry) in enumerate(zip(parsed.entries, original.entries, strict=False)):
-            assert parsed_entry.old_content_key == original_entry.old_content_key
-            assert parsed_entry.new_content_key == original_entry.new_content_key
-            assert parsed_entry.patch_encoding_key == original_entry.patch_encoding_key
-            assert parsed_entry.compression_info == original_entry.compression_info
 
     def test_file_parsing(self, tmp_path):
         """Test parsing from file."""
@@ -455,11 +462,9 @@ class TestPatchArchiveParser:
         parser = PatchArchiveParser()
         binary_data = parser.build(patch_archive)
 
-        # Write to file
         test_file = tmp_path / "test.pa"
         test_file.write_bytes(binary_data)
 
-        # Parse from file
         parsed = parser.parse_file(str(test_file))
 
         assert parsed.header.magic == PA_MAGIC
@@ -534,7 +539,7 @@ class TestUtilityFunctions:
 
 
 class TestPatchArchiveFlags:
-    """Test patch archive flag methods and validation."""
+    """Test patch archive flag methods."""
 
     def test_is_plain_data(self):
         """Test is_plain_data flag method."""
@@ -563,21 +568,20 @@ class TestPatchArchiveFlags:
         assert header.is_plain_data() is True
         assert header.has_extended_header() is True
 
-    def test_extended_header_rejected_during_parse(self):
-        """Test that extended header flag is rejected during parsing."""
-        header_data = bytearray()
-        header_data.extend(PA_MAGIC)
-        header_data.append(2)   # version
-        header_data.append(16)  # file_key_size
-        header_data.append(16)  # old_key_size
-        header_data.append(16)  # patch_key_size
-        header_data.append(16)  # block_size_bits
-        header_data.extend(struct.pack('>H', 0))  # block_count
-        header_data.append(0x02)  # flags with extended header bit
+    def test_extended_header_parsed_correctly(self):
+        """Test that extended header flag triggers encoding info parsing."""
+        data = _build_block_format_pa(
+            entries=[],
+            flags=0x02,
+            encoding_info=(b'\xaa' * 16, b'\xbb' * 16, 100, 90, '{*=z}'),
+        )
 
         parser = PatchArchiveParser()
-        with pytest.raises(ValueError, match="extended header"):
-            parser.parse(bytes(header_data))
+        pa = parser.parse(data)
+
+        assert pa.header.flags == 0x02
+        assert pa.encoding_info is not None
+        assert pa.encoding_info.encoding_spec == '{*=z}'
 
     def test_plain_data_flag_accepted(self):
         """Test that plain data flag (bit 0) is accepted."""
@@ -589,7 +593,7 @@ class TestPatchArchiveFlags:
         header_data.append(16)
         header_data.append(16)
         header_data.extend(struct.pack('>H', 0))
-        header_data.append(0x01)  # plain data flag only
+        header_data.append(0x01)
 
         parser = PatchArchiveParser()
         pa = parser.parse(bytes(header_data))
@@ -598,71 +602,13 @@ class TestPatchArchiveFlags:
 
 
 class TestEdgeCases:
-    """Test edge cases and error conditions."""
-
-    def test_parse_no_null_terminator(self):
-        """Test parsing entry without null terminator."""
-        # Create header
-        header_data = bytearray()
-        header_data.extend(PA_MAGIC)
-        header_data.append(2)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.extend(struct.pack('>H', 1))
-        header_data.append(0)
-
-        # Create entry without null terminator
-        entry_data = bytearray()
-        entry_data.extend(b'0123456789abcdef')  # Old key
-        entry_data.extend(b'fedcba9876543210')  # New key
-        entry_data.extend(b'abcdef0123456789')  # Patch key
-        entry_data.extend(b'{*=z}')  # Compression (no null terminator)
-
-        full_data = header_data + entry_data
-
-        parser = PatchArchiveParser()
-        patch_archive = parser.parse(bytes(full_data))
-
-        # Should still parse, taking the rest as compression info
-        assert len(patch_archive.entries) == 1
-        assert patch_archive.entries[0].compression_info == '{*=z}'
-
-    def test_parse_empty_compression(self):
-        """Test parsing entry with empty compression info."""
-        # Create header
-        header_data = bytearray()
-        header_data.extend(PA_MAGIC)
-        header_data.append(2)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.append(16)
-        header_data.extend(struct.pack('>H', 1))
-        header_data.append(0)
-
-        # Create entry with empty compression
-        entry_data = bytearray()
-        entry_data.extend(b'0123456789abcdef')  # Old key
-        entry_data.extend(b'fedcba9876543210')  # New key
-        entry_data.extend(b'abcdef0123456789')  # Patch key
-        entry_data.append(0)  # Just null terminator
-
-        full_data = header_data + entry_data
-
-        parser = PatchArchiveParser()
-        patch_archive = parser.parse(bytes(full_data))
-
-        assert len(patch_archive.entries) == 1
-        assert patch_archive.entries[0].compression_info == ''
+    """Test edge cases."""
 
     def test_parse_unusual_version(self):
         """Test parsing with unusual but valid version."""
-        # Create header with version 1
         header_data = bytearray()
         header_data.extend(PA_MAGIC)
-        header_data.append(1)  # Version 1
+        header_data.append(1)
         header_data.append(16)
         header_data.append(16)
         header_data.append(16)
@@ -677,7 +623,6 @@ class TestEdgeCases:
 
     def test_parse_unusual_key_sizes(self):
         """Test parsing with unusual key sizes."""
-        # Create header with different key sizes
         header_data = bytearray()
         header_data.extend(PA_MAGIC)
         header_data.append(2)

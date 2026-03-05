@@ -1,4 +1,4 @@
-"""Tests for analyze command module."""
+"""Tests for inspect command module (analyze subcommands)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from rich.console import Console
 from rich.table import Table
 
-from cascette_tools.commands.analyze import (
+from cascette_tools.commands.inspect import (
     _analyze_archive_stats,
     _analyze_blte_compression,
     _analyze_blte_stats,
@@ -25,12 +25,12 @@ from cascette_tools.commands.analyze import (
     _get_context_objects,
     _output_json,
     _output_table,
-    analyze,
+    inspect as analyze,
 )
 from cascette_tools.core.config import AppConfig
 
 
-class TestAnalyzeCommands:
+class TestInspectAnalyzeCommands:
     """Test analyze command functionality."""
 
     @pytest.fixture
@@ -107,7 +107,7 @@ class TestAnalyzeCommands:
 
         # Click returns exit code 2 when group is invoked without subcommand
         assert result.exit_code in (0, 2)
-        assert "Analyze NGDP/CASC format files and data" in result.output
+        assert "Inspect and analyze NGDP/CASC format files." in result.output
         assert "stats" in result.output
         assert "dependencies" in result.output
         assert "coverage" in result.output
@@ -118,14 +118,14 @@ class TestAnalyzeCommands:
         result = runner.invoke(analyze, ["--help"])
 
         assert result.exit_code == 0
-        assert "Analyze NGDP/CASC format files and data" in result.output
+        assert "Inspect and analyze NGDP/CASC format files." in result.output
 
     # Stats Command Tests
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._detect_format_type")
-    @patch("cascette_tools.commands.analyze._analyze_blte_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._detect_format_type")
+    @patch("cascette_tools.commands.inspect._analyze_blte_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_blte_file_auto_detect(
         self,
         mock_display_table,
@@ -156,10 +156,10 @@ class TestAnalyzeCommands:
         mock_analyze_blte.assert_called_once_with(sample_blte_data)
         mock_display_table.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._analyze_encoding_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._analyze_encoding_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_encoding_file_explicit_type(
         self,
         mock_display_table,
@@ -188,11 +188,11 @@ class TestAnalyzeCommands:
         mock_analyze_encoding.assert_called_once_with(sample_encoding_data)
         mock_display_table.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._detect_format_type")
-    @patch("cascette_tools.commands.analyze._analyze_config_stats")
-    @patch("cascette_tools.commands.analyze._output_json")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._detect_format_type")
+    @patch("cascette_tools.commands.inspect._analyze_config_stats")
+    @patch("cascette_tools.commands.inspect._output_json")
     def test_stats_config_file_json_output(
         self,
         mock_output_json,
@@ -223,9 +223,9 @@ class TestAnalyzeCommands:
         mock_analyze_config.assert_called_once_with(sample_config_data, "build")
         mock_output_json.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._detect_format_type")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._detect_format_type")
     def test_stats_auto_detect_unknown_format(
         self,
         mock_detect_format,
@@ -244,9 +244,9 @@ class TestAnalyzeCommands:
         assert result.exit_code != 0
         assert "Could not auto-detect format type" in result.output
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_unsupported_format_type(
         self,
         mock_display_table,
@@ -266,8 +266,8 @@ class TestAnalyzeCommands:
         # Should handle gracefully and show error in stats data
         mock_display_table.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_stats_fetch_error(
         self,
         mock_fetch,
@@ -285,8 +285,8 @@ class TestAnalyzeCommands:
         assert "Failed to analyze file" in result.output
 
     # Dependencies Command Tests
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_dependencies_valid_content_key(
         self,
         mock_fetch,
@@ -299,7 +299,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_size = 16
@@ -316,7 +316,7 @@ class TestAnalyzeCommands:
 
             assert result.exit_code == 0
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
     def test_dependencies_invalid_content_key(
         self,
         mock_get_context,
@@ -335,8 +335,8 @@ class TestAnalyzeCommands:
         # Check that the command failed due to hex validation
         assert "Invalid content key hex string" in result.output or result.exception is not None
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_dependencies_with_archive_details(
         self,
         mock_fetch,
@@ -349,7 +349,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_size = 16
@@ -367,8 +367,8 @@ class TestAnalyzeCommands:
 
             assert result.exit_code == 0
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_dependencies_parser_error(
         self,
         mock_fetch,
@@ -393,8 +393,8 @@ class TestAnalyzeCommands:
             assert "Failed to analyze dependencies" in result.output
 
     # Coverage Command Tests
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_coverage_encoding_only(
         self,
         mock_fetch,
@@ -407,7 +407,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_page_count = 5
@@ -418,8 +418,8 @@ class TestAnalyzeCommands:
 
             assert result.exit_code == 0
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
     def test_coverage_encoding_with_root_and_install(
         self,
         mock_fetch,
@@ -431,9 +431,9 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = mock_context_objects
         mock_fetch.side_effect = [b"encoding data", b"root data", b"install data"]
 
-        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_encoding_parser:
-            with patch("cascette_tools.commands.analyze.RootParser") as mock_root_parser:
-                with patch("cascette_tools.commands.analyze.InstallParser") as mock_install_parser:
+        with patch("cascette_tools.commands.inspect.EncodingParser") as mock_encoding_parser:
+            with patch("cascette_tools.commands.inspect.RootParser") as mock_root_parser:
+                with patch("cascette_tools.commands.inspect.InstallParser") as mock_install_parser:
                     # Mock encoding
                     mock_encoding = Mock()
                     mock_encoding.header = Mock()
@@ -474,9 +474,9 @@ class TestAnalyzeCommands:
 
                     assert result.exit_code == 0
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._output_json")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._output_json")
     def test_coverage_json_output(
         self,
         mock_output_json,
@@ -491,7 +491,7 @@ class TestAnalyzeCommands:
         mock_get_context.return_value = config, console, verbose, debug
         mock_fetch.return_value = sample_encoding_data
 
-        with patch("cascette_tools.commands.analyze.EncodingParser") as mock_parser:
+        with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser:
             mock_encoding = Mock()
             mock_encoding.header = Mock()
             mock_encoding.header.ckey_page_count = 5
@@ -504,10 +504,10 @@ class TestAnalyzeCommands:
             mock_output_json.assert_called_once()
 
     # Compression Command Tests
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze.is_blte")
-    @patch("cascette_tools.commands.analyze._analyze_blte_compression")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect.is_blte")
+    @patch("cascette_tools.commands.inspect._analyze_blte_compression")
     def test_compression_blte_file(
         self,
         mock_analyze_compression,
@@ -540,10 +540,10 @@ class TestAnalyzeCommands:
         assert result.exit_code == 0
         mock_analyze_compression.assert_called_once_with(sample_blte_data)
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze.is_blte")
-    @patch("cascette_tools.commands.analyze._analyze_blte_compression")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect.is_blte")
+    @patch("cascette_tools.commands.inspect._analyze_blte_compression")
     def test_compression_with_verbose_and_poorly_compressed_chunks(
         self,
         mock_analyze_compression,
@@ -574,9 +574,9 @@ class TestAnalyzeCommands:
 
         assert result.exit_code == 0
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze.is_blte")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect.is_blte")
     def test_compression_non_blte_file(
         self,
         mock_is_blte,
@@ -595,10 +595,10 @@ class TestAnalyzeCommands:
         assert result.exit_code != 0
         assert "Input file is not a BLTE file" in result.output
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze.is_blte")
-    @patch("cascette_tools.commands.analyze._analyze_blte_compression")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect.is_blte")
+    @patch("cascette_tools.commands.inspect._analyze_blte_compression")
     def test_compression_analysis_error(
         self,
         mock_analyze_compression,
@@ -626,7 +626,7 @@ class TestAnalyzeCommands:
         result = runner.invoke(analyze, ["stats", "--help"])
 
         assert result.exit_code == 0
-        assert "Analyze format files and show statistics" in result.output
+        assert "Show statistics for a format file." in result.output
         assert "INPUT can be either a file path or CDN hash" in result.output
 
     def test_dependencies_help(self, runner):
@@ -634,7 +634,7 @@ class TestAnalyzeCommands:
         result = runner.invoke(analyze, ["dependencies", "--help"])
 
         assert result.exit_code == 0
-        assert "Analyze file dependencies by tracing content key" in result.output
+        assert "Trace content key to encoding key to archive." in result.output
 
     def test_coverage_help(self, runner):
         """Test coverage subcommand shows help."""
@@ -727,10 +727,10 @@ class TestAnalyzeHelperFunctions:
                 with pytest.raises(Exception, match="Failed to read file"):
                     _fetch_from_cdn_or_path("/test/file.dat", mock_console, mock_config)
 
-    @patch("cascette_tools.commands.analyze.Progress")
-    @patch("cascette_tools.commands.analyze.validate_hash_string")
-    @patch("cascette_tools.commands.analyze.CDNConfig")
-    @patch("cascette_tools.commands.analyze.CDNClient")
+    @patch("cascette_tools.commands.inspect.Progress")
+    @patch("cascette_tools.commands.inspect.validate_hash_string")
+    @patch("cascette_tools.commands.inspect.CDNConfig")
+    @patch("cascette_tools.commands.inspect.CDNClient")
     def test_fetch_from_cdn_or_path_valid_hash(
         self, mock_cdn_class, mock_cdn_config_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
     ):
@@ -754,7 +754,7 @@ class TestAnalyzeHelperFunctions:
         assert result == b"cdn data"
         mock_cdn.fetch_data.assert_called_once_with("abc123def456")
 
-    @patch("cascette_tools.commands.analyze.validate_hash_string")
+    @patch("cascette_tools.commands.inspect.validate_hash_string")
     def test_fetch_from_cdn_or_path_invalid_hash(self, mock_validate_hash, mock_config, mock_console):
         """Test _fetch_from_cdn_or_path with invalid hash."""
         mock_validate_hash.return_value = False
@@ -762,10 +762,10 @@ class TestAnalyzeHelperFunctions:
         with pytest.raises(Exception, match="Invalid input: not a valid file path or hash"):
             _fetch_from_cdn_or_path("invalid_hash", mock_console, mock_config)
 
-    @patch("cascette_tools.commands.analyze.Progress")
-    @patch("cascette_tools.commands.analyze.validate_hash_string")
-    @patch("cascette_tools.commands.analyze.CDNConfig")
-    @patch("cascette_tools.commands.analyze.CDNClient")
+    @patch("cascette_tools.commands.inspect.Progress")
+    @patch("cascette_tools.commands.inspect.validate_hash_string")
+    @patch("cascette_tools.commands.inspect.CDNConfig")
+    @patch("cascette_tools.commands.inspect.CDNClient")
     def test_fetch_from_cdn_or_path_cdn_error(
         self, mock_cdn_class, mock_cdn_config_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
     ):
@@ -789,85 +789,85 @@ class TestAnalyzeHelperFunctions:
 
     def test_detect_format_type_blte(self):
         """Test _detect_format_type with BLTE data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=True):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=True):
             result = _detect_format_type(b"BLTE data")
             assert result == "blte"
 
     def test_detect_format_type_encoding(self):
         """Test _detect_format_type with encoding data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=True):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=True):
                 result = _detect_format_type(b"encoding data")
                 assert result == "encoding"
 
     def test_detect_format_type_config(self):
         """Test _detect_format_type with config data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=True):
-                    with patch("cascette_tools.commands.analyze.detect_config_type", return_value="build"):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=True):
+                    with patch("cascette_tools.commands.inspect.detect_config_type", return_value="build"):
                         result = _detect_format_type(b"config data")
                         assert result == "build"
 
     def test_detect_format_type_config_unknown_type(self):
         """Test _detect_format_type with config data of unknown type."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=True):
-                    with patch("cascette_tools.commands.analyze.detect_config_type", return_value=None):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=True):
+                    with patch("cascette_tools.commands.inspect.detect_config_type", return_value=None):
                         result = _detect_format_type(b"config data")
                         assert result == "unknown"
 
     def test_detect_format_type_root(self):
         """Test _detect_format_type with root data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=False):
-                    with patch("cascette_tools.commands.analyze.is_root", return_value=True):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
+                    with patch("cascette_tools.commands.inspect.is_root", return_value=True):
                         result = _detect_format_type(b"root data")
                         assert result == "root"
 
     def test_detect_format_type_install(self):
         """Test _detect_format_type with install data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=False):
-                    with patch("cascette_tools.commands.analyze.is_root", return_value=False):
-                        with patch("cascette_tools.commands.analyze.is_install", return_value=True):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
+                    with patch("cascette_tools.commands.inspect.is_root", return_value=False):
+                        with patch("cascette_tools.commands.inspect.is_install", return_value=True):
                             result = _detect_format_type(b"install data")
                             assert result == "install"
 
     def test_detect_format_type_download(self):
         """Test _detect_format_type with download data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=False):
-                    with patch("cascette_tools.commands.analyze.is_root", return_value=False):
-                        with patch("cascette_tools.commands.analyze.is_install", return_value=False):
-                            with patch("cascette_tools.commands.analyze.is_download", return_value=True):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
+                    with patch("cascette_tools.commands.inspect.is_root", return_value=False):
+                        with patch("cascette_tools.commands.inspect.is_install", return_value=False):
+                            with patch("cascette_tools.commands.inspect.is_download", return_value=True):
                                 result = _detect_format_type(b"download data")
                                 assert result == "download"
 
     def test_detect_format_type_archive_by_padding(self):
         """Test _detect_format_type with archive data detected by padding."""
         archive_data = b"test data" + b"\x00" * 12  # Ends with null padding
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=False):
-                    with patch("cascette_tools.commands.analyze.is_root", return_value=False):
-                        with patch("cascette_tools.commands.analyze.is_install", return_value=False):
-                            with patch("cascette_tools.commands.analyze.is_download", return_value=False):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
+                    with patch("cascette_tools.commands.inspect.is_root", return_value=False):
+                        with patch("cascette_tools.commands.inspect.is_install", return_value=False):
+                            with patch("cascette_tools.commands.inspect.is_download", return_value=False):
                                 result = _detect_format_type(archive_data)
                                 assert result == "archive"
 
     def test_detect_format_type_unknown(self):
         """Test _detect_format_type with unknown data."""
-        with patch("cascette_tools.commands.analyze.is_blte", return_value=False):
-            with patch("cascette_tools.commands.analyze.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.analyze.is_config_file", return_value=False):
-                    with patch("cascette_tools.commands.analyze.is_root", return_value=False):
-                        with patch("cascette_tools.commands.analyze.is_install", return_value=False):
-                            with patch("cascette_tools.commands.analyze.is_download", return_value=False):
+        with patch("cascette_tools.commands.inspect.is_blte", return_value=False):
+            with patch("cascette_tools.commands.inspect.is_encoding", return_value=False):
+                with patch("cascette_tools.commands.inspect.is_config_file", return_value=False):
+                    with patch("cascette_tools.commands.inspect.is_root", return_value=False):
+                        with patch("cascette_tools.commands.inspect.is_install", return_value=False):
+                            with patch("cascette_tools.commands.inspect.is_download", return_value=False):
                                 result = _detect_format_type(b"unknown")
                                 assert result == "unknown"
 
@@ -875,7 +875,7 @@ class TestAnalyzeHelperFunctions:
 class TestAnalyzeCompressionAnalysis:
     """Test _analyze_blte_compression function."""
 
-    @patch("cascette_tools.commands.analyze.BLTEParser")
+    @patch("cascette_tools.commands.inspect.BLTEParser")
     def test_analyze_blte_compression_success(self, mock_parser):
         """Test BLTE compression analysis success case."""
         mock_blte = Mock()
@@ -905,7 +905,7 @@ class TestAnalyzeCompressionAnalysis:
         assert result["compression_modes"] == {"zlib": 1, "none": 1}
         assert len(result["chunk_details"]) == 2
 
-    @patch("cascette_tools.commands.analyze.BLTEParser")
+    @patch("cascette_tools.commands.inspect.BLTEParser")
     def test_analyze_blte_compression_zero_decompressed(self, mock_parser):
         """Test BLTE compression analysis with zero decompressed size."""
         mock_blte = Mock()
@@ -924,7 +924,7 @@ class TestAnalyzeCompressionAnalysis:
         assert result["overall_compression_ratio"] == 0
         assert result["chunk_details"][0]["ratio"] == 0
 
-    @patch("cascette_tools.commands.analyze.BLTEParser")
+    @patch("cascette_tools.commands.inspect.BLTEParser")
     def test_analyze_blte_compression_parser_error(self, mock_parser):
         """Test BLTE compression analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -938,7 +938,7 @@ class TestAnalyzeCompressionAnalysis:
 class TestAnalyzeStatsHelpers:
     """Test format-specific stats analysis helper functions."""
 
-    @patch("cascette_tools.commands.analyze.BLTEParser")
+    @patch("cascette_tools.commands.inspect.BLTEParser")
     def test_analyze_blte_stats_success(self, mock_parser):
         """Test BLTE stats analysis success case."""
         mock_blte = Mock()
@@ -966,7 +966,7 @@ class TestAnalyzeStatsHelpers:
         assert result["header_size"] == 12
         assert result["flags"] == 0x01
 
-    @patch("cascette_tools.commands.analyze.BLTEParser")
+    @patch("cascette_tools.commands.inspect.BLTEParser")
     def test_analyze_blte_stats_parser_error(self, mock_parser):
         """Test BLTE stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -976,7 +976,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse BLTE" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.EncodingParser")
+    @patch("cascette_tools.commands.inspect.EncodingParser")
     def test_analyze_encoding_stats_success(self, mock_parser):
         """Test encoding stats analysis success case."""
         mock_encoding = Mock()
@@ -1002,7 +1002,7 @@ class TestAnalyzeStatsHelpers:
         assert result["ekey_page_size_kb"] == 4
         assert result["espec_size"] == 100
 
-    @patch("cascette_tools.commands.analyze.EncodingParser")
+    @patch("cascette_tools.commands.inspect.EncodingParser")
     def test_analyze_encoding_stats_parser_error(self, mock_parser):
         """Test encoding stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1012,7 +1012,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse encoding" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.BuildConfigParser")
+    @patch("cascette_tools.commands.inspect.BuildConfigParser")
     def test_analyze_config_stats_build_success(self, mock_parser):
         """Test build config stats analysis success case."""
         mock_config = Mock()
@@ -1029,7 +1029,7 @@ class TestAnalyzeStatsHelpers:
         assert result["entry_count"] == 3
         assert "entries" in result
 
-    @patch("cascette_tools.commands.analyze.CDNConfigParser")
+    @patch("cascette_tools.commands.inspect.CDNConfigParser")
     def test_analyze_config_stats_cdn_success(self, mock_parser):
         """Test CDN config stats analysis success case."""
         mock_config = Mock()
@@ -1044,7 +1044,7 @@ class TestAnalyzeStatsHelpers:
         assert result["config_type"] == "cdn"
         assert result["entry_count"] == 2
 
-    @patch("cascette_tools.commands.analyze.PatchConfigParser")
+    @patch("cascette_tools.commands.inspect.PatchConfigParser")
     def test_analyze_config_stats_patch_success(self, mock_parser):
         """Test patch config stats analysis success case."""
         # Create a simple object that doesn't have model_dump method
@@ -1061,7 +1061,7 @@ class TestAnalyzeStatsHelpers:
         assert result["config_type"] == "patch"
         assert result["entry_count"] == 2
 
-    @patch("cascette_tools.commands.analyze.ProductConfigParser")
+    @patch("cascette_tools.commands.inspect.ProductConfigParser")
     def test_analyze_config_stats_product_success(self, mock_parser):
         """Test product config stats analysis success case."""
         # Create a simple object that doesn't have model_dump method
@@ -1085,7 +1085,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Unknown config type" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.BuildConfigParser")
+    @patch("cascette_tools.commands.inspect.BuildConfigParser")
     def test_analyze_config_stats_parser_error(self, mock_parser):
         """Test config stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1095,7 +1095,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse config" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.ArchiveIndexParser")
+    @patch("cascette_tools.commands.inspect.ArchiveIndexParser")
     def test_analyze_archive_stats_success(self, mock_parser):
         """Test archive stats analysis success case."""
         mock_archive = Mock()
@@ -1129,7 +1129,7 @@ class TestAnalyzeStatsHelpers:
         assert result["version"] == 2
         assert result["page_size_kb"] == 4
 
-    @patch("cascette_tools.commands.analyze.ArchiveIndexParser")
+    @patch("cascette_tools.commands.inspect.ArchiveIndexParser")
     def test_analyze_archive_stats_parser_error(self, mock_parser):
         """Test archive stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1139,7 +1139,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse archive" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.RootParser")
+    @patch("cascette_tools.commands.inspect.RootParser")
     def test_analyze_root_stats_success(self, mock_parser):
         """Test root stats analysis success case."""
         mock_root = Mock()
@@ -1165,7 +1165,7 @@ class TestAnalyzeStatsHelpers:
         assert result["total_files"] == 1000
         assert result["named_files"] == 800
 
-    @patch("cascette_tools.commands.analyze.RootParser")
+    @patch("cascette_tools.commands.inspect.RootParser")
     def test_analyze_root_stats_parser_error(self, mock_parser):
         """Test root stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1175,7 +1175,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse root" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.InstallParser")
+    @patch("cascette_tools.commands.inspect.InstallParser")
     def test_analyze_install_stats_success(self, mock_parser):
         """Test install stats analysis success case."""
         mock_install = Mock()
@@ -1196,7 +1196,7 @@ class TestAnalyzeStatsHelpers:
         assert result["tag_count"] == 3
         assert result["total_size"] == 300
 
-    @patch("cascette_tools.commands.analyze.InstallParser")
+    @patch("cascette_tools.commands.inspect.InstallParser")
     def test_analyze_install_stats_parser_error(self, mock_parser):
         """Test install stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1206,7 +1206,7 @@ class TestAnalyzeStatsHelpers:
         assert "error" in result
         assert "Failed to parse install" in result["error"]
 
-    @patch("cascette_tools.commands.analyze.DownloadParser")
+    @patch("cascette_tools.commands.inspect.DownloadParser")
     def test_analyze_download_stats_success(self, mock_parser):
         """Test download stats analysis success case."""
         mock_download = Mock()
@@ -1233,7 +1233,7 @@ class TestAnalyzeStatsHelpers:
         assert result["total_size"] == 500
         assert result["priority_levels"] == 2  # Unique priority levels: 1, 2
 
-    @patch("cascette_tools.commands.analyze.DownloadParser")
+    @patch("cascette_tools.commands.inspect.DownloadParser")
     def test_analyze_download_stats_parser_error(self, mock_parser):
         """Test download stats analysis with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse failed")
@@ -1262,8 +1262,8 @@ class TestDisplayStatsTable:
             "compression_ratio": 0.75
         }
 
-        with patch("cascette_tools.commands.analyze.format_size") as mock_format_size:
-            with patch("cascette_tools.commands.analyze._output_table") as mock_output_table:
+        with patch("cascette_tools.commands.inspect.format_size") as mock_format_size:
+            with patch("cascette_tools.commands.inspect._output_table") as mock_output_table:
                 mock_format_size.side_effect = lambda x: f"{x}B"
 
                 _display_stats_table(stats_data, mock_console, False)
@@ -1283,8 +1283,8 @@ class TestDisplayStatsTable:
             "total_decompressed_size": 2048
         }
 
-        with patch("cascette_tools.commands.analyze.format_size") as mock_format_size:
-            with patch("cascette_tools.commands.analyze._output_table"):
+        with patch("cascette_tools.commands.inspect.format_size") as mock_format_size:
+            with patch("cascette_tools.commands.inspect._output_table"):
                 mock_format_size.side_effect = lambda x: f"{x//1024}KB"
 
                 _display_stats_table(stats_data, mock_console, False)
@@ -1301,8 +1301,8 @@ class TestDisplayStatsTable:
             "compression_ratio": 0.666666
         }
 
-        with patch("cascette_tools.commands.analyze.format_size") as mock_format_size:
-            with patch("cascette_tools.commands.analyze._output_table") as mock_output_table:
+        with patch("cascette_tools.commands.inspect.format_size") as mock_format_size:
+            with patch("cascette_tools.commands.inspect._output_table") as mock_output_table:
                 mock_format_size.return_value = "1KB"
 
                 _display_stats_table(stats_data, mock_console, False)
@@ -1318,8 +1318,8 @@ class TestDisplayStatsTable:
             "error": "Parse failed"
         }
 
-        with patch("cascette_tools.commands.analyze.format_size") as mock_format_size:
-            with patch("cascette_tools.commands.analyze._output_table") as mock_output_table:
+        with patch("cascette_tools.commands.inspect.format_size") as mock_format_size:
+            with patch("cascette_tools.commands.inspect._output_table") as mock_output_table:
                 mock_format_size.return_value = "1KB"
 
                 _display_stats_table(stats_data, mock_console, False)
@@ -1337,8 +1337,8 @@ class TestDisplayStatsTable:
             "compression_ratio": 0.5
         }
 
-        with patch("cascette_tools.commands.analyze.format_size") as mock_format_size:
-            with patch("cascette_tools.commands.analyze._output_table") as mock_output_table:
+        with patch("cascette_tools.commands.inspect.format_size") as mock_format_size:
+            with patch("cascette_tools.commands.inspect._output_table") as mock_output_table:
                 mock_format_size.return_value = "1KB"
 
                 _display_stats_table(stats_data, mock_console, False)
@@ -1367,8 +1367,8 @@ class TestComprehensiveCommandScenarios:
     # Error handling edge cases
     def test_stats_command_exception_handling(self, runner):
         """Test stats command exception handling during analysis."""
-        with patch("cascette_tools.commands.analyze._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path") as mock_fetch:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_get_context:
+            with patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path") as mock_fetch:
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 mock_fetch.side_effect = Exception("Unexpected error")
 
@@ -1379,8 +1379,8 @@ class TestComprehensiveCommandScenarios:
 
     def test_dependencies_command_exception_handling(self, runner):
         """Test dependencies command exception handling."""
-        with patch("cascette_tools.commands.analyze._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path") as mock_fetch:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_get_context:
+            with patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path") as mock_fetch:
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 mock_fetch.side_effect = Exception("Unexpected error")
 
@@ -1395,8 +1395,8 @@ class TestComprehensiveCommandScenarios:
 
     def test_coverage_command_exception_handling(self, runner):
         """Test coverage command exception handling."""
-        with patch("cascette_tools.commands.analyze._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path") as mock_fetch:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_get_context:
+            with patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path") as mock_fetch:
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 mock_fetch.side_effect = Exception("Unexpected error")
 
@@ -1407,8 +1407,8 @@ class TestComprehensiveCommandScenarios:
 
     def test_compression_command_exception_handling(self, runner):
         """Test compression command exception handling."""
-        with patch("cascette_tools.commands.analyze._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path") as mock_fetch:
+        with patch("cascette_tools.commands.inspect._get_context_objects") as mock_get_context:
+            with patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path") as mock_fetch:
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 mock_fetch.side_effect = Exception("Unexpected error")
 
@@ -1418,10 +1418,10 @@ class TestComprehensiveCommandScenarios:
                 assert "Failed to analyze compression" in result.output
 
     # All format types coverage for stats command
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._analyze_root_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._analyze_root_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_root_format(
         self,
         mock_display_table,
@@ -1445,10 +1445,10 @@ class TestComprehensiveCommandScenarios:
         assert result.exit_code == 0
         mock_analyze_root.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._analyze_install_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._analyze_install_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_install_format(
         self,
         mock_display_table,
@@ -1472,10 +1472,10 @@ class TestComprehensiveCommandScenarios:
         assert result.exit_code == 0
         mock_analyze_install.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._analyze_download_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._analyze_download_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_download_format(
         self,
         mock_display_table,
@@ -1500,10 +1500,10 @@ class TestComprehensiveCommandScenarios:
         assert result.exit_code == 0
         mock_analyze_download.assert_called_once()
 
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._analyze_archive_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._analyze_archive_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_archive_format(
         self,
         mock_display_table,
@@ -1531,11 +1531,11 @@ class TestComprehensiveCommandScenarios:
 
     # Test all config subtypes
     @pytest.mark.parametrize("config_type", ["build", "cdn", "patch", "product"])
-    @patch("cascette_tools.commands.analyze._get_context_objects")
-    @patch("cascette_tools.commands.analyze._fetch_from_cdn_or_path")
-    @patch("cascette_tools.commands.analyze._detect_format_type")
-    @patch("cascette_tools.commands.analyze._analyze_config_stats")
-    @patch("cascette_tools.commands.analyze._display_stats_table")
+    @patch("cascette_tools.commands.inspect._get_context_objects")
+    @patch("cascette_tools.commands.inspect._fetch_from_cdn_or_path")
+    @patch("cascette_tools.commands.inspect._detect_format_type")
+    @patch("cascette_tools.commands.inspect._analyze_config_stats")
+    @patch("cascette_tools.commands.inspect._display_stats_table")
     def test_stats_all_config_types(
         self,
         mock_display_table,

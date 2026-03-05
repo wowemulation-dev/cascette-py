@@ -359,7 +359,7 @@ def mock_file_operations():
                 if verbose:
                     console.print(f"Saved {len(data)} bytes to {output_path}")
 
-            return patch('cascette_tools.commands.fetch._save_file', side_effect=mock_save_file)
+            return patch('cascette_tools.commands.cdn._save_file', side_effect=mock_save_file)
 
     return FileOperationMocks()
 

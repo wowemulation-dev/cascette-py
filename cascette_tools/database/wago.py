@@ -946,8 +946,8 @@ class WagoClient:
             query += " AND version LIKE ?"
             params.append(version_pattern)
 
-        # Order by ID descending (newest first)
-        query += " ORDER BY id DESC"
+        # Order by product, then build number
+        query += " ORDER BY product ASC, CAST(build AS INTEGER) ASC"
 
         if limit:
             query += " LIMIT ?"

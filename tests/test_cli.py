@@ -120,9 +120,10 @@ class TestMainCLI:
 
         # Check that all expected command groups are listed
         expected_commands = [
-            "examine",
-            "analyze",
-            "fetch",
+            "cdn",
+            "inspect",
+            "install",
+            "archive",
             "validate",
             "tact",
             "listfile"
@@ -131,45 +132,31 @@ class TestMainCLI:
         for command in expected_commands:
             assert command in result.output
 
-    def test_examine_command_group(self) -> None:
-        """Test examine command group shows help when no subcommand given."""
-        result = self.runner.invoke(main, ["examine"])
+    def test_inspect_command_group(self) -> None:
+        """Test inspect command group shows help when no subcommand given."""
+        result = self.runner.invoke(main, ["inspect"])
         # Click returns exit code 2 when group is invoked without subcommand
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "Examine NGDP/CASC format files" in clean_output
+        assert "Inspect and analyze NGDP/CASC format files." in clean_output
         assert "Commands:" in clean_output
         assert "blte" in clean_output
         assert "encoding" in clean_output
         assert "config" in clean_output
         assert "archive" in clean_output
-
-    def test_analyze_command_group(self) -> None:
-        """Test analyze command group shows help when no subcommand given."""
-        result = self.runner.invoke(main, ["analyze"])
-        # Click returns exit code 2 when group is invoked without subcommand
-        assert result.exit_code in (0, 2)
-        # Remove ANSI color codes for testing
-        import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "Analyze NGDP/CASC format files and data" in clean_output
-        assert "Commands:" in clean_output
-        assert "compression" in clean_output
-        assert "coverage" in clean_output
-        assert "dependencies" in clean_output
         assert "stats" in clean_output
 
-    def test_fetch_command_group(self) -> None:
-        """Test fetch command group shows help when no subcommand given."""
-        result = self.runner.invoke(main, ["fetch"])
+    def test_cdn_command_group(self) -> None:
+        """Test cdn command group shows help when no subcommand given."""
+        result = self.runner.invoke(main, ["cdn"])
         # Click returns exit code 2 when group is invoked without subcommand
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "Fetch data from CDN sources" in clean_output
+        assert "Download data from Blizzard" in clean_output
         assert "Commands:" in clean_output
         assert "batch" in clean_output
         assert "build" in clean_output
@@ -338,19 +325,19 @@ class TestCLIIntegration:
         assert "Commands:" in result.output
 
         # Test that command groups have help
-        for cmd in ["examine", "analyze", "fetch", "validate", "tact", "listfile"]:
+        for cmd in ["cdn", "inspect", "install", "archive", "validate", "tact", "listfile"]:
             result = self.runner.invoke(main, [cmd, "--help"])
             assert result.exit_code == 0
 
     def test_context_passing(self) -> None:
         """Test that context is properly passed to subcommands."""
         # This tests that config and console objects are available in context
-        result = self.runner.invoke(main, ["--verbose", "--output", "json", "examine"])
+        result = self.runner.invoke(main, ["--verbose", "--output", "json", "inspect"])
         # Click returns exit code 2 when group is invoked without subcommand
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
         clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
         # The help output should work, indicating context was passed correctly
-        assert "Examine NGDP/CASC format files" in clean_output
+        assert "Inspect and analyze NGDP/CASC format files." in clean_output
         assert "Commands:" in clean_output

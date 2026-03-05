@@ -1,4 +1,4 @@
-"""Fetch commands for CDN data downloading."""
+"""CDN commands for downloading data from Blizzard's NGDP infrastructure."""
 
 from __future__ import annotations
 
@@ -138,12 +138,12 @@ def _show_config_metadata(data: bytes, config_type: str | None, console: Console
 
 @click.group()
 @click.pass_context
-def fetch(ctx: click.Context) -> None:
-    """Fetch data from CDN sources."""
+def cdn(ctx: click.Context) -> None:
+    """Download data from Blizzard's NGDP CDN infrastructure."""
     pass
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("hash_str", type=str)
 @click.option(
     "--type",
@@ -237,7 +237,7 @@ def config(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("hash_str", type=str)
 @click.option(
     "--index",
@@ -367,7 +367,7 @@ def data(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("build_id", type=str)
 @click.option(
     "--output-dir",
@@ -712,7 +712,7 @@ def build(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("hash_str", type=str)
 @click.option(
     "--output",
@@ -837,7 +837,7 @@ def encoding(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("input_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--output-dir",
@@ -1045,7 +1045,7 @@ def batch(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.argument("hash_str", type=str)
 @click.option(
     "--output",
@@ -1143,7 +1143,7 @@ def patch(
         sys.exit(1)
 
 
-@fetch.command()
+@cdn.command()
 @click.option(
     "--product",
     "-p",
@@ -1253,6 +1253,606 @@ def manifests(
         logger.error("manifests_fetch_failed", product=product, error=str(e))
         console.print(f"[red]Error fetching manifests: {e}[/red]")
         sys.exit(1)
+
+
+@cdn.command()
+@click.option(
+    "--product",
+    "-p",
+    type=click.Choice([p.value for p in Product], case_sensitive=False),
+    default="wow",
+    help="Product code",
+)
+@click.option(
+    "--region",
+    "-r",
+    type=str,
+    default="us",
+    help="Region code",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(path_type=Path),
+    help="Output directory (default: zbsdiff_{product})",
+)
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=5,
+    help="Maximum number of patches to download",
+)
+@click.option(
+    "--build-config",
+    type=str,
+    default=None,
+    help="Specific build config hash (from Wago database). If not provided, "
+         "uses the current live build from the versions manifest.",
+)
+@click.pass_context
+def zbsdiff(
+    ctx: click.Context,
+    product: str,
+    region: str,
+    output_dir: Path | None,
+    limit: int,
+    build_config: str | None,
+) -> None:
+    """Download ZBSDIFF patches from CDN for format verification.
+
+    Fetches real ZBSDIFF1 patches from Blizzard's CDN by resolving the
+    patch manifest from the build config, parsing the PA (patch archive)
+    manifest, downloading patch archive indexes, and extracting individual
+    patch entries via HTTP range requests.
+
+    Patches are looked up in patch archive indexes first. If found, they
+    are extracted via range request from the patch archive. If not found
+    in any archive index, a loose file download from patch/ is attempted.
+    """
+    from cascette_tools.core.cdn_archive_fetcher import create_patch_archive_fetcher
+    from cascette_tools.formats.config import CDNConfigParser
+    from cascette_tools.formats.patch_archive import PatchArchiveParser
+    from cascette_tools.formats.zbsdiff import ZbsdiffParser
+
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
+
+    if not output_dir:
+        output_dir = Path(f"zbsdiff_{product}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        product_enum = Product(product)
+        cdn_config = CDNConfig(
+            fallback_mirrors=_get_cdn_mirrors_for_product(product),
+            timeout=config_obj.cdn_timeout,
+            max_retries=config_obj.cdn_max_retries,
+        )
+
+        build_config_hash = build_config
+        cdn_config_hash = None
+
+        if not build_config_hash:
+            # Step 1: Fetch versions manifest to get build config hash
+            console.print(f"[blue]Fetching versions manifest for {product}...[/blue]")
+            tact_client = TACTClient(region=region)
+            versions_data = tact_client.fetch_versions(product_enum)
+            versions = tact_client.parse_versions(versions_data)
+
+            if not versions:
+                console.print("[red]Error: No versions found[/red]")
+                sys.exit(1)
+
+            # Find the version entry for our region
+            version_entry = None
+            for v in versions:
+                r = v.get("Region", v.get("region", ""))
+                if r == region:
+                    version_entry = v
+                    break
+            if version_entry is None:
+                for v in versions:
+                    bc = v.get("BuildConfig", v.get("buildconfig", ""))
+                    if bc:
+                        version_entry = v
+                        break
+            if version_entry is None:
+                console.print(f"[red]Error: No version entry found for region {region}[/red]")
+                sys.exit(1)
+
+            build_config_hash = version_entry.get("BuildConfig", version_entry.get("buildconfig"))
+            cdn_config_hash = version_entry.get("CDNConfig", version_entry.get("cdnconfig"))
+
+        if not build_config_hash:
+            console.print("[red]Error: No BuildConfig hash available[/red]")
+            sys.exit(1)
+
+        console.print(f"  Build config: {build_config_hash}")
+
+        # Step 2: Fetch and parse the build config + CDN config
+        with CDNClient(product_enum, region, cdn_config) as cdn_client:
+            console.print("[blue]Fetching build config...[/blue]")
+            build_config_data = cdn_client.fetch_config(build_config_hash, "build")
+            build_config_parser = BuildConfigParser()
+            parsed_build_config = build_config_parser.parse(build_config_data)
+
+            patch_info = parsed_build_config.get_patch_info()
+            if patch_info is None:
+                console.print("[yellow]No patch field in build config. "
+                              "This product may not have patches available.[/yellow]")
+                sys.exit(0)
+
+            patch_ekey = patch_info.encoding_key or patch_info.content_key
+            console.print(f"  Patch manifest encoding key: {patch_ekey}")
+
+            # Get CDN config hash if not already available
+            if not cdn_config_hash:
+                cdn_config_hash = parsed_build_config.extra_fields.get('cdn-config')
+
+            # Step 3: Download and decode the patch manifest
+            console.print("[blue]Fetching patch manifest...[/blue]")
+            patch_manifest_raw = cdn_client.fetch_patch(patch_ekey)
+
+            if is_blte(patch_manifest_raw):
+                patch_manifest_data = decompress_blte(patch_manifest_raw)
+                console.print(f"  BLTE decoded: {format_size(len(patch_manifest_raw))} -> "
+                              f"{format_size(len(patch_manifest_data))}")
+            else:
+                patch_manifest_data = patch_manifest_raw
+
+            # Step 4: Parse the PA manifest
+            pa_parser = PatchArchiveParser()
+            pa_file = pa_parser.parse(patch_manifest_data)
+            console.print(f"  Patch entries: {len(pa_file.entries)}")
+
+            if not pa_file.entries:
+                console.print("[yellow]No patch entries found in manifest.[/yellow]")
+                sys.exit(0)
+
+            # Step 5: Download patch archive indexes
+            patch_archive_hashes: list[str] = []
+            patch_fetcher = create_patch_archive_fetcher(cdn_client=cdn_client)
+
+            if cdn_config_hash:
+                console.print("[blue]Fetching CDN config for patch archive list...[/blue]")
+                cdn_config_data = cdn_client.fetch_config(cdn_config_hash, "cdn")
+                cdn_config_parser = CDNConfigParser()
+                parsed_cdn_config = cdn_config_parser.parse(cdn_config_data)
+                patch_archive_hashes = parsed_cdn_config.patch_archives
+
+                if patch_archive_hashes:
+                    console.print(f"  Found {len(patch_archive_hashes)} patch archives")
+                    console.print("[blue]Downloading patch archive indexes...[/blue]")
+
+                    loaded = 0
+                    for pa_hash in patch_archive_hashes:
+                        try:
+                            index_data = cdn_client.fetch_patch(pa_hash, is_index=True)
+                            if patch_fetcher.load_index_from_bytes(pa_hash, index_data):
+                                loaded += 1
+                        except Exception as e:
+                            logger.debug("patch_index_load_failed",
+                                         hash=pa_hash, error=str(e))
+
+                    console.print(f"  Loaded {loaded}/{len(patch_archive_hashes)} indexes "
+                                  f"({patch_fetcher.index_map.total_entries} entries)")
+                else:
+                    console.print("[yellow]No patch archives in CDN config[/yellow]")
+            else:
+                console.print("[yellow]No CDN config hash available, "
+                              "skipping patch archive index loading[/yellow]")
+
+            # Step 6: Download individual ZBSDIFF patches
+            entries_to_fetch = pa_file.entries[:limit]
+            console.print(f"[blue]Downloading up to {len(entries_to_fetch)} patches...[/blue]")
+
+            results: list[dict[str, str]] = []
+            archive_hits = 0
+            loose_hits = 0
+
+            for i, entry in enumerate(entries_to_fetch):
+                patch_hash = entry.patch_encoding_key.hex()
+                old_ckey = entry.old_content_key.hex()
+                new_ckey = entry.new_content_key.hex()
+
+                try:
+                    patch_data = None
+                    source = "loose"
+
+                    # Try patch archive index first
+                    if patch_fetcher.index_map.total_entries > 0:
+                        archive_data = patch_fetcher.fetch_file_via_cdn(
+                            cdn_client,
+                            entry.patch_encoding_key,
+                            decompress=True,
+                            verify=True,
+                        )
+                        if archive_data is not None:
+                            patch_data = archive_data
+                            source = "archive"
+                            archive_hits += 1
+
+                    # Fall back to loose file download
+                    if patch_data is None:
+                        try:
+                            raw_patch = cdn_client.fetch_patch(patch_hash)
+                            if is_blte(raw_patch):
+                                patch_data = decompress_blte(raw_patch)
+                            else:
+                                patch_data = raw_patch
+                            source = "loose"
+                            loose_hits += 1
+                        except Exception:
+                            # Both methods failed
+                            raise
+
+                    # Validate it looks like ZBSDIFF
+                    if patch_data[:8] == b"ZBSDIFF1":
+                        out_path = output_dir / f"{patch_hash}.zbsdiff"
+                        out_path.write_bytes(patch_data)
+
+                        try:
+                            zbsdiff_parser = ZbsdiffParser()
+                            parsed = zbsdiff_parser.parse(patch_data)
+                            status = (
+                                f"ok [{source}] ({len(parsed.control_entries)} ctrl, "
+                                f"new_size={parsed.header.new_size})"
+                            )
+                        except Exception as parse_err:
+                            status = f"saved [{source}] (parse warning: {parse_err})"
+
+                        results.append({
+                            "old_ckey": old_ckey[:16] + "...",
+                            "new_ckey": new_ckey[:16] + "...",
+                            "patch_ekey": patch_hash[:16] + "...",
+                            "size": format_size(len(patch_data)),
+                            "status": status,
+                        })
+                        console.print(f"  [{i+1}/{len(entries_to_fetch)}] {patch_hash[:16]}... "
+                                      f"({format_size(len(patch_data))}) [{source}]")
+                    else:
+                        magic = patch_data[:8]
+                        results.append({
+                            "old_ckey": old_ckey[:16] + "...",
+                            "new_ckey": new_ckey[:16] + "...",
+                            "patch_ekey": patch_hash[:16] + "...",
+                            "size": format_size(len(patch_data)),
+                            "status": f"skipped (magic: {magic!r})",
+                        })
+
+                except Exception as e:
+                    error_msg = str(e)
+                    if "404" in error_msg or "Not Found" in error_msg:
+                        status = "404 (not in archive or loose)"
+                    else:
+                        status = f"error: {error_msg[:60]}"
+                    results.append({
+                        "old_ckey": old_ckey[:16] + "...",
+                        "new_ckey": new_ckey[:16] + "...",
+                        "patch_ekey": patch_hash[:16] + "...",
+                        "size": "-",
+                        "status": status,
+                    })
+                    logger.warning("zbsdiff_fetch_entry_failed",
+                                   hash=patch_hash, error=error_msg)
+
+            # Summary table
+            table = Table(title="ZBSDIFF Patch Download Summary")
+            table.add_column("Old CKey", style="dim")
+            table.add_column("New CKey", style="dim")
+            table.add_column("Patch EKey", style="cyan")
+            table.add_column("Size", style="magenta")
+            table.add_column("Status", style="green")
+
+            for r in results:
+                table.add_row(
+                    r["old_ckey"], r["new_ckey"], r["patch_ekey"],
+                    r["size"], r["status"]
+                )
+
+            console.print(table)
+
+            saved_count = sum(1 for r in results if r["status"].startswith("ok") or r["status"].startswith("saved"))
+            console.print(f"[green]Saved {saved_count} ZBSDIFF patches to {output_dir}[/green]")
+            if archive_hits or loose_hits:
+                console.print(f"[dim]Sources: {archive_hits} from archives, "
+                              f"{loose_hits} from loose files[/dim]")
+
+    except Exception as e:
+        logger.error("zbsdiff_fetch_failed", product=product, error=str(e))
+        console.print(f"[red]Error fetching ZBSDIFF patches: {e}[/red]")
+        sys.exit(1)
+
+
+@cdn.command(name="verify-pa")
+@click.option(
+    "--products",
+    "-p",
+    type=str,
+    default="wow_classic",
+    help="Comma-separated product codes (e.g., wow,wow_classic)",
+)
+@click.option(
+    "--region",
+    "-r",
+    type=str,
+    default="us",
+    help="Region code",
+)
+@click.option(
+    "--version-filter",
+    "-f",
+    type=str,
+    default=None,
+    help="Comma-separated version glob patterns (e.g., '6.*,8.*,10.*'). "
+         "If not provided, uses the current live build for each product.",
+)
+@click.option(
+    "--use-wago/--no-wago",
+    default=True,
+    help="Use Wago database for historical builds (requires version-filter)",
+)
+@click.pass_context
+def verify_pa(
+    ctx: click.Context,
+    products: str,
+    region: str,
+    version_filter: str | None,
+    use_wago: bool,
+) -> None:
+    """Verify PA parser against real CDN data across product versions.
+
+    Downloads PA (Patch Archive) manifests and validates parsing by
+    cross-referencing with patch archive indexes.
+
+    Without --version-filter, verifies only the current live build.
+    With --version-filter and --use-wago, samples builds from the
+    Wago database matching the given version patterns.
+    """
+    import fnmatch
+
+    from cascette_tools.core.cdn_archive_fetcher import create_patch_archive_fetcher
+    from cascette_tools.formats.config import CDNConfigParser
+    from cascette_tools.formats.patch_archive import PatchArchiveParser
+
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
+
+    product_list = [p.strip() for p in products.split(",")]
+
+    # Results for summary table
+    all_results: list[dict[str, str | int]] = []
+
+    for product_str in product_list:
+        try:
+            product_enum = Product(product_str)
+        except ValueError:
+            console.print(f"[yellow]Unknown product: {product_str}, skipping[/yellow]")
+            continue
+
+        cdn_config_obj = CDNConfig(
+            fallback_mirrors=_get_cdn_mirrors_for_product(product_str),
+            timeout=config_obj.cdn_timeout,
+            max_retries=config_obj.cdn_max_retries,
+        )
+
+        # Build list of (version, build_config_hash, cdn_config_hash) to verify
+        builds_to_verify: list[tuple[str, str, str | None]] = []
+
+        if version_filter and use_wago:
+            # Use Wago database for historical builds
+            from cascette_tools.database.wago import WagoClient
+
+            console.print(f"[blue]Loading Wago builds for {product_str}...[/blue]")
+            with WagoClient(config_obj) as wago_client:
+                all_builds = wago_client.fetch_builds()
+                product_builds = [
+                    b for b in all_builds if b.product == product_str
+                ]
+
+            if not product_builds:
+                console.print(f"[yellow]No Wago builds for {product_str}[/yellow]")
+                continue
+
+            # Filter by version patterns
+            patterns = [p.strip() for p in version_filter.split(",")]
+            matched_builds = []
+            for b in product_builds:
+                if any(fnmatch.fnmatch(b.version, pat) for pat in patterns):
+                    matched_builds.append(b)
+
+            if not matched_builds:
+                console.print(f"[yellow]No builds matching {version_filter} "
+                              f"for {product_str}[/yellow]")
+                continue
+
+            # Sample one build per major.minor version
+            seen_versions: set[str] = set()
+            for b in sorted(matched_builds, key=lambda x: x.version, reverse=True):
+                parts = b.version.split(".")
+                major_minor = ".".join(parts[:2]) if len(parts) >= 2 else b.version
+                if major_minor not in seen_versions and b.build_config:
+                    seen_versions.add(major_minor)
+                    builds_to_verify.append(
+                        (b.version, b.build_config, b.cdn_config)
+                    )
+
+            console.print(f"  Sampled {len(builds_to_verify)} builds from "
+                          f"{len(matched_builds)} matches")
+        else:
+            # Use current live build from versions manifest
+            console.print(f"[blue]Fetching current versions for {product_str}...[/blue]")
+            tact_client = TACTClient(region=region)
+            versions_data = tact_client.fetch_versions(product_enum)
+            versions = tact_client.parse_versions(versions_data)
+
+            if not versions:
+                console.print(f"[yellow]No versions for {product_str}[/yellow]")
+                continue
+
+            version_entry = None
+            for v in versions:
+                r = v.get("Region", v.get("region", ""))
+                if r == region:
+                    version_entry = v
+                    break
+            if version_entry is None:
+                for v in versions:
+                    bc = v.get("BuildConfig", v.get("buildconfig", ""))
+                    if bc:
+                        version_entry = v
+                        break
+
+            if version_entry:
+                bc = version_entry.get("BuildConfig", version_entry.get("buildconfig", ""))
+                cc = version_entry.get("CDNConfig", version_entry.get("cdnconfig"))
+                ver = version_entry.get("VersionsName", version_entry.get("versionsname", "live"))
+                if bc:
+                    builds_to_verify.append((ver, bc, cc))
+
+        if not builds_to_verify:
+            console.print(f"[yellow]No builds to verify for {product_str}[/yellow]")
+            continue
+
+        # Verify each build
+        with CDNClient(product_enum, region, cdn_config_obj) as cdn_client:
+            for version_str, bc_hash, cc_hash in builds_to_verify:
+                result: dict[str, str | int] = {
+                    "product": product_str,
+                    "version": version_str,
+                    "build_config": bc_hash[:16] + "...",
+                    "entries": 0,
+                    "blocks": 0,
+                    "has_encoding_info": "no",
+                    "archive_index_entries": 0,
+                    "index_hits": 0,
+                    "status": "pending",
+                }
+
+                try:
+                    # Fetch build config
+                    build_data = cdn_client.fetch_config(bc_hash, "build")
+                    build_parser = BuildConfigParser()
+                    parsed_bc = build_parser.parse(build_data)
+
+                    patch_info = parsed_bc.get_patch_info()
+                    if patch_info is None:
+                        result["status"] = "no patch field"
+                        all_results.append(result)
+                        continue
+
+                    patch_ekey = patch_info.encoding_key or patch_info.content_key
+
+                    # Fetch patch manifest
+                    patch_raw = cdn_client.fetch_patch(patch_ekey)
+                    if is_blte(patch_raw):
+                        patch_data = decompress_blte(patch_raw)
+                    else:
+                        patch_data = patch_raw
+
+                    # Parse PA
+                    pa_parser = PatchArchiveParser()
+                    pa_file = pa_parser.parse(patch_data)
+
+                    result["entries"] = len(pa_file.entries)
+                    result["blocks"] = len(pa_file.blocks)
+                    result["has_encoding_info"] = "yes" if pa_file.encoding_info else "no"
+
+                    # Try to load patch archive indexes
+                    if not cc_hash:
+                        cc_hash = parsed_bc.extra_fields.get('cdn-config')
+
+                    index_hit_count = 0
+                    if cc_hash:
+                        try:
+                            cdn_data = cdn_client.fetch_config(cc_hash, "cdn")
+                            cdn_parser = CDNConfigParser()
+                            parsed_cc = cdn_parser.parse(cdn_data)
+
+                            if parsed_cc.patch_archives:
+                                patch_fetcher = create_patch_archive_fetcher(
+                                    cdn_client=cdn_client
+                                )
+                                for pa_hash in parsed_cc.patch_archives:
+                                    try:
+                                        idx_data = cdn_client.fetch_patch(
+                                            pa_hash, is_index=True
+                                        )
+                                        patch_fetcher.load_index_from_bytes(
+                                            pa_hash, idx_data
+                                        )
+                                    except Exception:
+                                        pass
+
+                                result["archive_index_entries"] = (
+                                    patch_fetcher.index_map.total_entries
+                                )
+
+                                # Check how many PA entries are in the index
+                                for entry in pa_file.entries:
+                                    loc = patch_fetcher.index_map.find(
+                                        entry.patch_encoding_key
+                                    )
+                                    if loc is not None:
+                                        index_hit_count += 1
+                        except Exception as e:
+                            logger.debug("cdn_config_load_failed",
+                                         hash=cc_hash, error=str(e))
+
+                    result["index_hits"] = index_hit_count
+
+                    entry_count = len(pa_file.entries)
+                    if entry_count > 0 and index_hit_count == entry_count:
+                        result["status"] = "ok (all in index)"
+                    elif entry_count > 0 and index_hit_count > 0:
+                        pct = index_hit_count * 100 // entry_count
+                        result["status"] = f"ok ({pct}% in index)"
+                    elif entry_count > 0:
+                        result["status"] = "ok (0 in index)"
+                    else:
+                        result["status"] = "ok (empty)"
+
+                    console.print(f"  {product_str} {version_str}: "
+                                  f"{entry_count} entries, "
+                                  f"{index_hit_count}/{entry_count} in index")
+
+                except Exception as e:
+                    result["status"] = f"error: {str(e)[:40]}"
+                    console.print(f"  [red]{product_str} {version_str}: {e}[/red]")
+
+                all_results.append(result)
+
+    # Summary table
+    if all_results:
+        table = Table(title="PA Verification Summary")
+        table.add_column("Product", style="cyan")
+        table.add_column("Version")
+        table.add_column("Build Config", style="dim")
+        table.add_column("Entries", justify="right")
+        table.add_column("Blocks", justify="right")
+        table.add_column("Enc Info")
+        table.add_column("Index Entries", justify="right")
+        table.add_column("Index Hits", justify="right")
+        table.add_column("Status", style="green")
+
+        for r in all_results:
+            table.add_row(
+                str(r["product"]),
+                str(r["version"]),
+                str(r["build_config"]),
+                str(r["entries"]),
+                str(r["blocks"]),
+                str(r["has_encoding_info"]),
+                str(r["archive_index_entries"]),
+                str(r["index_hits"]),
+                str(r["status"]),
+            )
+
+        console.print(table)
+
+        ok_count = sum(1 for r in all_results if str(r["status"]).startswith("ok"))
+        console.print(f"[green]{ok_count}/{len(all_results)} builds verified[/green]")
+    else:
+        console.print("[yellow]No builds were verified[/yellow]")
 
 
 # Note: wago-builds functionality has been moved to the 'builds' command group

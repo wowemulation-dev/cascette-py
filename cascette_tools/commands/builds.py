@@ -1,4 +1,4 @@
-"""Manage WoW build database from Wago.tools."""
+"""Manage WoW build database from Wago.tools and BlizzTrack."""
 
 from __future__ import annotations
 
@@ -15,6 +15,17 @@ from rich.table import Table
 from cascette_tools.core.config import AppConfig
 from cascette_tools.database.wago import WagoBuild
 
+# All products supported across both sync sources.
+_ALL_PRODUCTS = [
+    "agent",
+    "bna",
+    "wow",
+    "wow_classic",
+    "wow_classic_era",
+    "wow_classic_titan",
+    "wow_anniversary",
+]
+
 
 def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, bool]:
     """Extract context objects from Click context."""
@@ -25,119 +36,169 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
-@click.group("builds", short_help="Manage WoW build database.")
+@click.group("builds", short_help="Manage build database.")
 def builds_group() -> None:
-    """Manage WoW build database from Wago.tools.
+    """Manage build database from Wago.tools and BlizzTrack.
 
-    This command group provides tools for fetching, importing, searching,
-    and managing WoW build metadata from the Wago.tools API. The build
-    database contains information about 1,900+ WoW builds across all
-    products (retail, classic, classic_era, etc.) from version 6.0.x
-    through current versions.
+    Syncs build metadata from two sources:
+
+    - Wago.tools: WoW product family (wow, wow_classic, wow_classic_era,
+      wow_classic_titan, wow_anniversary) with decoded manifest EKEYs.
+    - BlizzTrack: All TACT products including agent and bna. Covers
+      current versions and archived seqn history.
+
+    Both sources write into the same SQLite database; duplicates are
+    resolved on import using (id, product) as the unique key.
     """
     pass
 
 
 @builds_group.command("sync")
 @click.option(
+    "--source",
+    "-s",
+    type=click.Choice(["wago", "blizztrack", "all"], case_sensitive=False),
+    default="all",
+    show_default=True,
+    help="Data source to sync from.",
+)
+@click.option(
     "--force",
     "-f",
     is_flag=True,
-    help="Force refresh even if cache is valid",
+    help="Force refresh even if Wago cache is still valid.",
 )
 @click.option(
-    "--import-db",
+    "--history",
     is_flag=True,
-    default=True,
-    help="Import fetched builds to SQLite database",
+    help="Fetch full snapshot history from BlizzTrack (slow, walks all seqns).",
 )
 @click.option(
     "--show-stats",
     is_flag=True,
-    help="Show import statistics after fetching",
+    help="Show per-product import statistics after syncing.",
 )
 @click.pass_context
 def sync_builds(
     ctx: click.Context,
+    source: str,
     force: bool,
-    import_db: bool,
+    history: bool,
     show_stats: bool,
 ) -> None:
-    """Sync build database with Wago.tools.
+    """Sync build database from Wago.tools and/or BlizzTrack.
 
-    Downloads build metadata from Wago.tools API covering all WoW products
-    from 6.0.x through current versions. The data is cached locally for
-    24 hours and optionally imported into a SQLite database for offline
-    querying and analysis.
+    By default syncs from both sources and deduplicates on import.
+
+    Wago.tools covers WoW products (wow, wow_classic, wow_classic_era,
+    wow_classic_titan, wow_anniversary) with decoded metadata.
+
+    BlizzTrack covers all TACT products including agent and bna. Use
+    --history to also walk archived seqn snapshots (makes one HTTP
+    request per historical snapshot — can be several hundred requests).
     """
     config_obj, console, verbose, debug = _get_context_objects(ctx)
 
+    all_builds: list[WagoBuild] = []
+
     try:
+        # --- Wago.tools ---
+        if source in ("wago", "all"):
+            from cascette_tools.database.wago import WagoClient
+
+            with WagoClient(config_obj) as wago:
+                if not force:
+                    status = wago.get_cache_status()
+                    if status["valid"]:
+                        console.print(
+                            f"[yellow]Wago cache valid — fetched {status['fetch_time']}, "
+                            f"expires in {status['remaining_hours']:.1f} hours[/yellow]"
+                        )
+
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold blue]{task.description}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    task = progress.add_task("Fetching from Wago.tools...", total=None)
+                    wago_builds = wago.fetch_builds(force_refresh=force)
+                    progress.update(
+                        task,
+                        description=f"Wago.tools: {len(wago_builds)} builds fetched",
+                    )
+
+                all_builds.extend(wago_builds)
+
+                if verbose:
+                    console.print(f"[dim]Wago.tools: {len(wago_builds)} builds[/dim]")
+
+        # --- BlizzTrack ---
+        if source in ("blizztrack", "all"):
+            from cascette_tools.database.blizztrack import BlizzTrackClient
+
+            with BlizzTrackClient(config_obj) as bt:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[bold blue]{task.description}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    if history:
+                        task = progress.add_task(
+                            "Fetching history from BlizzTrack (this may take a while)...",
+                            total=None,
+                        )
+                        bt_builds = bt.fetch_history()
+                    else:
+                        task = progress.add_task(
+                            "Fetching current versions from BlizzTrack...", total=None
+                        )
+                        bt_builds = bt.fetch_current()
+
+                    progress.update(
+                        task,
+                        description=f"BlizzTrack: {len(bt_builds)} builds fetched",
+                    )
+
+                all_builds.extend(bt_builds)
+
+                if verbose:
+                    console.print(f"[dim]BlizzTrack: {len(bt_builds)} builds[/dim]")
+
+        if not all_builds:
+            console.print("[yellow]No builds fetched.[/yellow]")
+            return
+
+        # --- Import to database (deduplication happens in import_builds_to_database) ---
         from cascette_tools.database.wago import WagoClient
 
         with WagoClient(config_obj) as wago:
-            # Check cache status first
-            if not force:
-                status = wago.get_cache_status()
-                if status["valid"]:
-                    console.print(
-                        f"[yellow]Using cached data from {status['fetch_time']} "
-                        f"(expires in {status['remaining_hours']:.1f} hours)[/yellow]"
-                    )
-                    if verbose:
-                        console.print(f"Cache contains {status['build_count']} builds")
+            console.print(f"\n[cyan]Importing {len(all_builds)} builds to database...[/cyan]")
+            import_stats = wago.import_builds_to_database(all_builds)
 
-            # Fetch builds
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description}"),
-                TimeElapsedColumn(),
-                console=console,
-            ) as progress:
-                task = progress.add_task("Fetching builds from Wago.tools...", total=None)
-                builds = wago.fetch_builds(force_refresh=force)
-                progress.update(task, description=f"Fetched {len(builds)} builds")
+        # --- Summary table ---
+        by_product: dict[str, list[WagoBuild]] = {}
+        for build in all_builds:
+            by_product.setdefault(build.product, []).append(build)
 
-            # Group builds by product for summary
-            by_product: dict[str, list[WagoBuild]] = {}
-            for build in builds:
-                if build.product not in by_product:
-                    by_product[build.product] = []
-                by_product[build.product].append(build)
+        table = Table(title="Sync Summary", show_header=True)
+        table.add_column("Product", style="cyan")
+        table.add_column("Fetched", justify="right", style="green")
+        table.add_column("Version Range", style="yellow")
 
-            # Display summary table
-            table = Table(title="Build Database Summary", show_header=True)
-            table.add_column("Product", style="cyan")
-            table.add_column("Builds", justify="right", style="green")
-            table.add_column("Version Range", style="yellow")
-            table.add_column("Date Range", style="magenta")
+        for product, product_builds in sorted(by_product.items()):
+            versions: list[str] = sorted({b.version for b in product_builds if b.version})
+            version_range = f"{versions[0]} – {versions[-1]}" if len(versions) > 1 else (versions[0] if versions else "N/A")
+            table.add_row(product, str(len(product_builds)), version_range)
 
-            for product, product_builds in sorted(by_product.items()):
-                versions: list[str] = sorted({b.version for b in product_builds if b.version})
-                dates: list[datetime] = sorted([b.build_time for b in product_builds if b.build_time])
+        console.print(table)
+        console.print(f"\n[green]Total fetched: {len(all_builds)}[/green]")
 
-                version_range = f"{versions[0]} - {versions[-1]}" if versions else "N/A"
-                date_range = f"{dates[0].strftime('%Y-%m-%d')} - {dates[-1].strftime('%Y-%m-%d')}" if dates else "N/A"
-
-                table.add_row(
-                    product,
-                    str(len(product_builds)),
-                    version_range,
-                    date_range,
-                )
-
-            console.print(table)
-            console.print(f"\n[green]Total builds: {len(builds)}[/green]")
-
-            # Import to database if requested
-            if import_db:
-                console.print("\n[cyan]Importing builds to database...[/cyan]")
-                stats = wago.import_builds_to_database(builds)
-
-                if show_stats or verbose:
-                    console.print(f"[green]Imported {stats['imported']} new builds[/green]")
-                    console.print(f"[yellow]Updated {stats['updated']} existing builds[/yellow]")
-                    console.print(f"[dim]Skipped {stats['skipped']} unchanged builds[/dim]")
+        if show_stats or verbose:
+            console.print(f"[green]  Imported (new): {import_stats['imported']}[/green]")
+            console.print(f"[yellow]  Updated:        {import_stats['updated']}[/yellow]")
+            console.print(f"[dim]  Skipped:        {import_stats['skipped']}[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -151,7 +212,7 @@ def sync_builds(
 @click.option(
     "--product",
     "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
+    type=click.Choice(_ALL_PRODUCTS, case_sensitive=False),
     help="Filter by product",
 )
 @click.option(
@@ -377,7 +438,7 @@ def builds_stats(ctx: click.Context) -> None:
 @click.option(
     "--product",
     "-p",
-    type=click.Choice(["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary", "wow_classic_ptr", "wow_beta"], case_sensitive=False),
+    type=click.Choice(_ALL_PRODUCTS, case_sensitive=False),
     help="Filter by product",
 )
 @click.pass_context

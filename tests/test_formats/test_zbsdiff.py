@@ -178,9 +178,9 @@ class TestZbsdiffParser:
         # Build header
         header_data = (
             b"ZBSDIFF1" +
-            struct.pack(">Q", len(control_compressed)) +
-            struct.pack(">Q", len(diff_compressed)) +
-            struct.pack(">Q", 15)  # new_size
+            struct.pack("<q", len(control_compressed)) +
+            struct.pack("<q", len(diff_compressed)) +
+            struct.pack("<q", 15)  # new_size
         )
 
         return header_data + control_compressed + diff_compressed + extra_compressed
@@ -236,9 +236,9 @@ class TestZbsdiffParser:
         # Create header claiming large control block but provide small data
         header_data = (
             b"ZBSDIFF1" +
-            struct.pack(">Q", 1000) +  # Claim 1000 bytes
-            struct.pack(">Q", 100) +
-            struct.pack(">Q", 1000)
+            struct.pack("<q", 1000) +  # Claim 1000 bytes
+            struct.pack("<q", 100) +
+            struct.pack("<q", 1000)
         )
         incomplete_data = header_data + b"small"
         parser = ZbsdiffParser()
@@ -251,9 +251,9 @@ class TestZbsdiffParser:
         # Create header
         header_data = (
             b"ZBSDIFF1" +
-            struct.pack(">Q", 5) +
-            struct.pack(">Q", 5) +
-            struct.pack(">Q", 100)
+            struct.pack("<q", 5) +
+            struct.pack("<q", 5) +
+            struct.pack("<q", 100)
         )
         # Invalid compressed data
         invalid_data = header_data + b"notok" + b"notok" + b"extra"
@@ -451,9 +451,9 @@ class TestZbsdiffParser:
         # Create header with no operations
         header_data = (
             b"ZBSDIFF1" +
-            struct.pack(">Q", len(zlib.compress(b""))) +  # Empty control
-            struct.pack(">Q", len(zlib.compress(b""))) +  # Empty diff
-            struct.pack(">Q", 0)  # Empty new size
+            struct.pack("<q", len(zlib.compress(b""))) +  # Empty control
+            struct.pack("<q", len(zlib.compress(b""))) +  # Empty diff
+            struct.pack("<q", 0)  # Empty new size
         )
 
         patch_data = (
@@ -503,13 +503,14 @@ class TestZbsdiffParser:
         parser = ZbsdiffParser()
 
         # Test with partial entry (should stop parsing)
-        partial_data = struct.pack("<q", 5) + struct.pack("<q", 10)  # Missing third field
+        # Use sign-magnitude encoding (offtout) for bsdiff values
+        partial_data = ZbsdiffParser._offtout(5) + ZbsdiffParser._offtout(10)  # Missing third field
         entries = parser._parse_control_entries(partial_data)
         assert len(entries) == 0  # Incomplete entry should be ignored
 
-        # Test with exact size
+        # Test with exact size (negative offset uses sign-magnitude, not two's complement)
         complete_data = (
-            struct.pack("<q", 5) + struct.pack("<q", 10) + struct.pack("<q", -2)
+            ZbsdiffParser._offtout(5) + ZbsdiffParser._offtout(10) + ZbsdiffParser._offtout(-2)
         )
         entries = parser._parse_control_entries(complete_data)
         assert len(entries) == 1

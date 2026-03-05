@@ -1,13 +1,12 @@
-"""Full installation POC demonstrating the NGDP/CASC resolution chain.
+"""Installation commands implementing the NGDP/CASC installation workflow.
 
-This module demonstrates the complete flow for resolving and fetching
-game content from Blizzard's CDN:
+Implements the agent.exe installation flow:
 
 1. Fetch BuildConfig and CDNConfig
 2. Download encoding file directly from CDN
 3. Parse encoding file to resolve content keys
 4. Fetch install/download manifests using resolved encoding keys
-5. Display installation statistics
+5. Install content to CASC container storage
 
 Key insight: The encoding file IS available as a loose CDN file.
 Archive-groups are generated LOCALLY by Battle.net client.
@@ -16,14 +15,17 @@ Archive-groups are generated LOCALLY by Battle.net client.
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
 import click
 import structlog
+from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from cascette_tools.core.build_update import (
@@ -35,7 +37,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
     parse_cdn_config_archives,
 )
-from cascette_tools.core.config import AppConfig
+from cascette_tools.core.config import AppConfig, CDNConfig
 from cascette_tools.core.containerless_storage import ContainerlessStorage
 from cascette_tools.core.containerless_update import (
     classify_containerless_files,
@@ -48,12 +50,14 @@ from cascette_tools.core.local_storage import (
     LocalIndexEntry,
     LocalStorage,
     compute_bucket,
+    parse_local_idx_file,
 )
 from cascette_tools.core.product_state import (
     ProductInfo,
     generate_all_state_files,
 )
-from cascette_tools.core.types import Product
+from cascette_tools.core.types import LocaleConfig, Product
+from cascette_tools.core.utils import format_size
 from cascette_tools.formats.blte import BLTEBuilder, decompress_blte, is_blte
 from cascette_tools.formats.build_info import (
     BuildInfoParser,
@@ -133,12 +137,12 @@ def get_product_enum(product_code: str) -> Product:
 
 
 @click.group()
-def install_poc() -> None:
-    """POC commands for full installation workflow."""
+def install() -> None:
+    """Install and manage game content via the NGDP/CASC pipeline."""
     pass
 
 
-@install_poc.command()
+@install.command()
 @click.argument("build_config_hash", type=str)
 @click.option(
     "--product", "-r",
@@ -378,7 +382,7 @@ def resolve_manifests(
         raise click.ClickException(f"Resolution failed: {e}") from e
 
 
-@install_poc.command()
+@install.command()
 @click.option(
     "--product", "-p",
     type=click.Choice(PRODUCT_CHOICES),
@@ -463,7 +467,7 @@ def discover_latest(
         raise click.ClickException(f"Discovery failed: {e}") from e
 
 
-@install_poc.command()
+@install.command()
 @click.argument("cdn_config_hash", type=str)
 @click.argument("encoding_key", type=str)
 @click.argument("output_path", type=click.Path(path_type=Path))
@@ -607,7 +611,7 @@ def extract_from_archives(
         raise click.ClickException(f"Extraction failed: {e}") from e
 
 
-@install_poc.command()
+@install.command()
 @click.argument("build_config_hash", type=str)
 @click.argument("cdn_config_hash", type=str)
 @click.argument("output_dir", type=click.Path(path_type=Path))
@@ -1404,7 +1408,7 @@ def _resolve_ekey(
     return None
 
 
-@install_poc.command()
+@install.command()
 @click.argument("build_config_hash", type=str)
 @click.argument("cdn_config_hash", type=str)
 @click.argument("install_path", type=click.Path(path_type=Path))
@@ -2138,7 +2142,7 @@ def install_to_casc(
         raise click.ClickException(f"Installation failed: {e}") from e
 
 
-@install_poc.command()
+@install.command()
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
@@ -2576,7 +2580,7 @@ def update(
         raise click.ClickException(f"Update failed: {e}") from e
 
 
-@install_poc.command("build-ecache")
+@install.command("build-ecache")
 @click.argument("install_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--product", "-r",
@@ -2818,7 +2822,7 @@ async def _download_containerless_files(
     return installed, failed, total_bytes
 
 
-@install_poc.command("install-containerless")
+@install.command("install-containerless")
 @click.argument("build_config_hash", type=str)
 @click.argument("cdn_config_hash", type=str)
 @click.argument("install_path", type=click.Path(path_type=Path))
@@ -3099,7 +3103,7 @@ def install_containerless(
         ) from e
 
 
-@install_poc.command("update-containerless")
+@install.command("update-containerless")
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
     "--product", "-r",
@@ -3403,3 +3407,494 @@ def update_containerless(
         raise click.ClickException(
             f"Containerless update failed: {e}"
         ) from e
+
+
+# ---------------------------------------------------------------------------
+# Installation state analysis (from install_analyzer.py)
+# ---------------------------------------------------------------------------
+
+class BuildInfoTags(BaseModel):
+    """Tags parsed from .build.info file."""
+
+    platform: str | None = Field(default=None, description="Target platform (e.g., Windows)")
+    architecture: str | None = Field(default=None, description="Target architecture (e.g., x86_64)")
+    locale_configs: list[LocaleConfig] = Field(default_factory=list, description="Installed locale configurations")  # pyright: ignore[reportUnknownVariableType]
+    region: str | None = Field(default=None, description="Target region (e.g., EU)")
+    raw_tags: str = Field(default="", description="Raw tag string from .build.info")
+
+    @property
+    def locales(self) -> list[str]:
+        """List of locale codes for backward compatibility."""
+        return [lc.code for lc in self.locale_configs]
+
+    @property
+    def locale(self) -> str | None:
+        """Primary locale (first in list) for backward compatibility."""
+        return self.locale_configs[0].code if self.locale_configs else None
+
+    @property
+    def locale_display(self) -> str:
+        """Format all locales with content flags for display."""
+        if not self.locale_configs:
+            return ""
+        return ", ".join(lc.display() for lc in self.locale_configs)
+
+
+class InstallationState(BaseModel):
+    """Represents the current state of an installation."""
+
+    install_path: Path = Field(description="Installation root path")
+    product_code: str = Field(description="Product code (e.g., wow_classic_era)")
+    build_config_hash: str | None = Field(default=None, description="Build config hash")
+    cdn_config_hash: str | None = Field(default=None, description="CDN config hash")
+    local_entries: dict[str, LocalIndexEntry] = Field(default_factory=dict, description="Local idx entries by hex key")
+    local_data_size: int = Field(default=0, description="Total size of local .data files")
+    local_entry_count: int = Field(default=0, description="Total number of local entries")
+    tags: BuildInfoTags = Field(default_factory=BuildInfoTags, description="Tags from .build.info")
+    shmem_version: int | None = Field(default=None, description="Detected shmem protocol version")
+
+
+class InstallationProgress(BaseModel):
+    """Progress information for an installation."""
+
+    total_entries: int = Field(description="Total entries needed")
+    downloaded_entries: int = Field(description="Entries already downloaded")
+    total_size: int = Field(description="Total size needed in bytes")
+    downloaded_size: int = Field(description="Size already downloaded")
+    priority_breakdown: dict[int, dict[str, int | float]] = Field(description="Breakdown by priority level")
+    missing_entries: list[str] = Field(default_factory=list, description="Missing encoding keys (first 100)")
+    tags_used: BuildInfoTags | None = Field(default=None, description="Tags used for filtering")
+
+
+def _parse_build_info_tags(install_path: Path) -> BuildInfoTags:
+    """Parse tags from .build.info file."""
+    build_info_path = install_path / ".build.info"
+    if not build_info_path.exists():
+        return BuildInfoTags()
+
+    try:
+        parser = BuildInfoParser()
+        info = parser.parse_file(str(build_info_path))
+
+        return BuildInfoTags(
+            platform=info.platform,
+            architecture=info.architecture,
+            locale_configs=info.locale_configs,
+            region=info.region,
+            raw_tags=info.tags,
+        )
+
+    except Exception as e:
+        logger.warning(f"Failed to parse .build.info tags: {e}")
+        return BuildInfoTags()
+
+
+def _scan_local_installation(install_path: Path, product_code: str) -> InstallationState:
+    """Scan a local installation and gather state information."""
+    state = InstallationState(
+        install_path=install_path,
+        product_code=product_code
+    )
+
+    state.tags = _parse_build_info_tags(install_path)
+    if state.tags.platform:
+        logger.info(f"Detected tags: {state.tags.platform} {state.tags.architecture} {state.tags.locale_display}")
+
+    data_path = install_path / "Data" / product_code
+    if not data_path.exists():
+        data_path = install_path / "Data"
+
+    logger.info(f"Scanning installation at {data_path}")
+
+    config_path = data_path / "config" if (data_path / "config").exists() else install_path / "Data" / "config"
+    if config_path.exists():
+        for config_file in config_path.rglob("*"):
+            if config_file.is_file() and len(config_file.name) == 32:
+                state.build_config_hash = config_file.name
+                logger.debug(f"Found config: {config_file.name}")
+                break
+
+    idx_locations = [
+        data_path,
+        data_path / "data",
+        install_path / "Data" / "data",
+    ]
+
+    for idx_dir in idx_locations:
+        if not idx_dir.exists():
+            continue
+
+        for idx_file in idx_dir.glob("*.idx"):
+            if not idx_file.is_file():
+                continue
+
+            try:
+                name = idx_file.stem
+                if len(name) == 10 and name.isalnum():
+                    idx_data = idx_file.read_bytes()
+                    idx_info = parse_local_idx_file(idx_data)
+
+                    for entry in idx_info.entries:
+                        hex_key = entry.key.hex()
+                        state.local_entries[hex_key] = entry
+
+                    logger.debug(f"Parsed {idx_file.name}: {len(idx_info.entries)} entries (v{idx_info.version})")
+
+            except Exception as e:
+                logger.warning(f"Failed to parse {idx_file}: {e}")
+
+    state.local_entry_count = len(state.local_entries)
+
+    data_file_dirs = [
+        data_path,
+        data_path / "data",
+        install_path / "Data" / "data",
+    ]
+
+    for data_dir in data_file_dirs:
+        if not data_dir.exists():
+            continue
+
+        for data_file in data_dir.glob("data.*"):
+            if data_file.is_file():
+                state.local_data_size += data_file.stat().st_size
+
+    shmem_locations = [
+        data_path / "shmem",
+        data_path / "data" / "shmem",
+        install_path / "Data" / "data" / "shmem",
+    ]
+    for shmem_path in shmem_locations:
+        if shmem_path.exists() and shmem_path.is_file():
+            try:
+                shmem_data = shmem_path.read_bytes()
+                if len(shmem_data) >= 1:
+                    state.shmem_version = shmem_data[0]
+                    logger.debug(f"Detected shmem protocol version: {state.shmem_version}")
+            except Exception as e:
+                logger.warning(f"Failed to read shmem file: {e}")
+            break
+
+    logger.info(f"Found {state.local_entry_count} local entries, {format_size(state.local_data_size)} data")
+
+    return state
+
+
+def _filter_entries_by_build_info_tags(
+    entries: list[Any],
+    manifest_tags: list[Any],
+    build_info_tags: BuildInfoTags,
+) -> list[Any]:
+    """Filter download manifest entries by tags from .build.info."""
+    platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
+    arch_tags = {"x86_32", "x86_64", "arm64"}
+    locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
+
+    required_tags: list[str] = []
+    if build_info_tags.platform:
+        required_tags.append(build_info_tags.platform)
+    if build_info_tags.architecture:
+        required_tags.append(build_info_tags.architecture)
+    if build_info_tags.locale:
+        required_tags.append(build_info_tags.locale)
+
+    if not required_tags:
+        return entries
+
+    filtered: list[Any] = []
+    for entry in entries:
+        entry_tags = set(entry.tags)
+
+        entry_platform_tags = entry_tags & platform_tags
+        if entry_platform_tags and build_info_tags.platform:
+            if build_info_tags.platform not in entry_platform_tags:
+                continue
+
+        entry_arch_tags = entry_tags & arch_tags
+        if entry_arch_tags and build_info_tags.architecture:
+            if build_info_tags.architecture not in entry_arch_tags:
+                continue
+
+        entry_locale_tags = entry_tags & locale_tags
+        if entry_locale_tags and build_info_tags.locale:
+            if build_info_tags.locale not in entry_locale_tags:
+                continue
+
+        filtered.append(entry)
+
+    return filtered
+
+
+def _calculate_progress(
+    state: InstallationState,
+    download_manifest: Any,
+    tags: list[str] | None = None,
+    use_build_info_tags: bool = True,
+) -> InstallationProgress:
+    """Calculate installation progress by comparing local state to download manifest."""
+    entries = download_manifest.entries
+    tags_used = None
+
+    if tags:
+        entries = [e for e in entries if any(t in e.tags for t in tags)]
+        tags_used = BuildInfoTags(raw_tags=", ".join(tags))
+    elif use_build_info_tags and state.tags.platform:
+        entries = _filter_entries_by_build_info_tags(
+            entries, download_manifest.tags, state.tags
+        )
+        tags_used = state.tags
+
+    priority_groups: dict[int, list[Any]] = defaultdict(list)
+    for entry in entries:
+        priority_groups[entry.priority].append(entry)
+
+    total_entries = len(entries)
+    total_size = sum(e.size for e in entries)
+
+    downloaded_entries = 0
+    downloaded_size = 0
+    missing: list[str] = []
+
+    priority_breakdown: dict[int, dict[str, int | float]] = {}
+
+    for priority in sorted(priority_groups.keys()):
+        group = priority_groups[priority]
+        group_total = len(group)
+        group_size = sum(e.size for e in group)
+        group_downloaded = 0
+        group_downloaded_size = 0
+
+        for entry in group:
+            truncated_key = entry.ekey[:9].hex()
+
+            if truncated_key in state.local_entries:
+                group_downloaded += 1
+                group_downloaded_size += entry.size
+                downloaded_entries += 1
+                downloaded_size += entry.size
+            else:
+                if len(missing) < 100:
+                    missing.append(entry.ekey.hex())
+
+        priority_breakdown[priority] = {
+            "total_entries": group_total,
+            "downloaded_entries": group_downloaded,
+            "total_size": group_size,
+            "downloaded_size": group_downloaded_size,
+            "percent": (group_downloaded / group_total * 100) if group_total > 0 else 0
+        }
+
+    return InstallationProgress(
+        total_entries=total_entries,
+        downloaded_entries=downloaded_entries,
+        total_size=total_size,
+        downloaded_size=downloaded_size,
+        priority_breakdown=priority_breakdown,
+        missing_entries=missing,
+        tags_used=tags_used,
+    )
+
+
+@install.command("scan-state")
+@click.argument("install_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--product", "-p",
+    type=str,
+    default="wow_classic_era",
+    help="Product code (e.g., wow_classic_era)"
+)
+@click.pass_context
+def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
+    """Scan a local installation and show current state.
+
+    INSTALL_PATH is the root of the game installation (e.g., /path/to/World of Warcraft).
+    """
+    _config, console, verbose, _ = _get_context_objects(ctx)
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as progress:
+            progress.add_task(description="Scanning installation...", total=None)
+            state = _scan_local_installation(install_path, product)
+
+        table = Table(title="Local Installation State")
+        table.add_column("Property", style="cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Install Path", str(state.install_path))
+        table.add_row("Product Code", state.product_code)
+        table.add_row("Build Config", state.build_config_hash or "Not found")
+        table.add_row("Local Entries", f"{state.local_entry_count:,}")
+        table.add_row("Local Data Size", format_size(state.local_data_size))
+
+        if state.shmem_version is not None:
+            table.add_row("Shmem Protocol", f"V{state.shmem_version}")
+        else:
+            table.add_row("Shmem Protocol", "Not found")
+
+        if state.tags.platform:
+            tags_str = f"{state.tags.platform} {state.tags.architecture or ''} {state.tags.locale_display}"
+            table.add_row("Installed Config", tags_str.strip())
+        else:
+            table.add_row("Installed Config", "Not detected (no .build.info)")
+
+        console.print(table)
+
+        if verbose and state.local_entries:
+            sample_table = Table(title="Sample Local Entries (first 10)")
+            sample_table.add_column("Key (truncated)", style="yellow")
+            sample_table.add_column("Archive", style="blue")
+            sample_table.add_column("Size", style="green")
+
+            for key, entry in list(state.local_entries.items())[:10]:
+                sample_table.add_row(key, f"data.{entry.archive_id:03d}", format_size(entry.size))
+
+            console.print(sample_table)
+
+    except Exception as e:
+        logger.error("Failed to scan installation", error=str(e))
+        raise click.ClickException(f"Failed to scan installation: {e}") from e
+
+
+@install.command("progress")
+@click.argument("install_path", type=click.Path(exists=True, path_type=Path))
+@click.argument("download_hash", type=str)
+@click.option(
+    "--product", "-p",
+    type=str,
+    default="wow_classic_era",
+    help="Product code (e.g., wow_classic_era)"
+)
+@click.option(
+    "--tags", "-t",
+    type=str,
+    multiple=True,
+    help="Tags to filter by (e.g., Windows, enUS)"
+)
+@click.pass_context
+def install_progress(
+    ctx: click.Context,
+    install_path: Path,
+    download_hash: str,
+    product: str,
+    tags: tuple[str, ...]
+) -> None:
+    """Calculate installation progress against download manifest.
+
+    INSTALL_PATH is the game installation root.
+    DOWNLOAD_HASH is the download manifest hash from build config.
+    """
+    config, console, verbose, _ = _get_context_objects(ctx)
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as prog:
+            prog.add_task(description="Scanning local installation...", total=None)
+            state = _scan_local_installation(install_path, product)
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True
+        ) as prog:
+            prog.add_task(description="Fetching download manifest...", total=None)
+
+            cdn_config = CDNConfig(
+                timeout=config.cdn_timeout,
+                max_retries=config.cdn_max_retries
+            )
+            cdn_client = CDNClient(Product.WOW, config=cdn_config)
+            download_data = cdn_client.fetch_data(download_hash)
+
+        from cascette_tools.formats.download import DownloadParser as _DP
+        parser = _DP()
+        download_manifest = parser.parse(download_data)
+
+        tag_list = list(tags) if tags else None
+        prog_result = _calculate_progress(state, download_manifest, tag_list)
+
+        overall_pct = (prog_result.downloaded_size / prog_result.total_size * 100) if prog_result.total_size > 0 else 0
+
+        summary_table = Table(title="Installation Progress")
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", style="white")
+
+        summary_table.add_row("Total Entries", f"{prog_result.total_entries:,}")
+        summary_table.add_row("Downloaded Entries", f"{prog_result.downloaded_entries:,}")
+        summary_table.add_row("Total Size", format_size(prog_result.total_size))
+        summary_table.add_row("Downloaded Size", format_size(prog_result.downloaded_size))
+        summary_table.add_row("Overall Progress", f"{overall_pct:.1f}%")
+
+        console.print(summary_table)
+
+        priority_table = Table(title="Progress by Priority Level")
+        priority_table.add_column("Priority", style="cyan")
+        priority_table.add_column("Entries", style="white")
+        priority_table.add_column("Size", style="green")
+        priority_table.add_column("Progress", style="yellow")
+
+        for priority in sorted(prog_result.priority_breakdown.keys()):
+            breakdown = prog_result.priority_breakdown[priority]
+            priority_table.add_row(
+                str(priority),
+                f"{breakdown['downloaded_entries']:,}/{breakdown['total_entries']:,}",
+                f"{format_size(int(breakdown['downloaded_size']))}/{format_size(int(breakdown['total_size']))}",
+                f"{breakdown['percent']:.1f}%"
+            )
+
+        console.print(priority_table)
+
+        if verbose and prog_result.missing_entries:
+            console.print("\n[yellow]First 10 missing entries:[/yellow]")
+            for key in prog_result.missing_entries[:10]:
+                console.print(f"  {key}")
+
+    except Exception as e:
+        logger.error("Failed to calculate progress", error=str(e))
+        raise click.ClickException(f"Failed to calculate progress: {e}") from e
+
+
+@install.command("show-config")
+@click.argument("build_config_path", type=click.Path(exists=True, path_type=Path))
+@click.pass_context
+def show_config(ctx: click.Context, build_config_path: Path) -> None:
+    """Parse and display a build config file.
+
+    BUILD_CONFIG_PATH is the path to a build config file.
+    """
+    _config, console, _verbose, _ = _get_context_objects(ctx)
+
+    try:
+        data = build_config_path.read_bytes()
+        from cascette_tools.formats.config import BuildConfigParser as _BCP
+        build_config = _BCP().parse(data)
+
+        table = Table(title="Build Configuration")
+        table.add_column("Key", style="cyan")
+        table.add_column("Value", style="white")
+
+        if hasattr(build_config, 'model_dump'):
+            for key, value in build_config.model_dump().items():
+                if value is not None:
+                    if isinstance(value, list):
+                        value = " ".join(str(v) for v in cast(list[object], value))
+                    table.add_row(key, str(value))
+        else:
+            for key, value in vars(build_config).items():
+                if value is not None:
+                    table.add_row(key, str(value))
+
+        console.print(table)
+
+    except Exception as e:
+        logger.error("Failed to parse build config", error=str(e))
+        raise click.ClickException(f"Failed to parse build config: {e}") from e
