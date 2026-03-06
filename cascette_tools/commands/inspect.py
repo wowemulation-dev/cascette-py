@@ -691,6 +691,161 @@ def encoding(
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
+    "--limit", "-l",
+    type=int,
+    default=10,
+    help="Limit number of entries to display",
+)
+@click.option(
+    "--tag", "-t",
+    type=str,
+    default=None,
+    help="Filter entries by tag name (e.g. 'Windows', 'enUS')",
+)
+@click.option(
+    "--product",
+    "-p",
+    type=click.Choice([p.value for p in Product], case_sensitive=False),
+    default="wow",
+    help="Product code (used when fetching from CDN by hash)",
+)
+@click.pass_context
+def download(
+    ctx: click.Context,
+    input_path: str,
+    limit: int,
+    tag: str | None,
+    product: str,
+) -> None:
+    """Examine download manifest files.
+
+    INPUT can be either a file path or a CDN hash.
+    If a hash is provided, the file will be fetched from CDN.
+
+    Shows total download size, tag breakdown, priority distribution,
+    and the first --limit entries.
+    """
+    config, console, _, _ = _get_context_objects(ctx)
+
+    try:
+        product_enum = Product(product)
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching download manifest", product=product_enum
+        )
+
+        if is_blte(data):
+            data = decompress_blte(data)
+
+        parser = DownloadParser()
+        dl = parser.parse(data)
+
+        entries = dl.get_entries_with_tag(tag) if tag else dl.entries
+
+        if config.output_format == "json":
+            result: dict[str, Any] = {
+                "version": dl.header.version,
+                "entry_count": dl.header.entry_count,
+                "tag_count": dl.header.tag_count,
+                "has_checksum": dl.header.has_checksum,
+                "flag_size": dl.header.flag_size,
+                "base_priority": dl.header.base_priority,
+                "total_size": sum(e.size for e in entries),
+                "tags": [
+                    {
+                        "name": t.name,
+                        "tag_type": t.tag_type,
+                        "file_count": sum(1 for e in dl.entries if t.name in e.tags),
+                        "total_size": sum(e.size for e in dl.entries if t.name in e.tags),
+                    }
+                    for t in dl.tags
+                ],
+                "entries": [
+                    {
+                        "ekey": e.ekey.hex(),
+                        "size": e.size,
+                        "priority": e.priority,
+                        "tags": e.tags,
+                    }
+                    for e in entries[:limit]
+                ],
+            }
+            _output_json(result, console)
+        else:
+            # Header summary
+            header_table = Table(title="Download Manifest")
+            header_table.add_column("Property", style="cyan")
+            header_table.add_column("Value", style="white")
+            header_table.add_row("Version", str(dl.header.version))
+            header_table.add_row("Entries", str(dl.header.entry_count))
+            header_table.add_row("Tags", str(dl.header.tag_count))
+            header_table.add_row(
+                "Total download size",
+                format_size(sum(e.size for e in entries)),
+            )
+            if tag:
+                header_table.add_row("Filter tag", tag)
+                header_table.add_row("Filtered entries", str(len(entries)))
+            _output_table(header_table, console)
+
+            # Per-tag size breakdown
+            tag_table = Table(title="Size by Tag")
+            tag_table.add_column("Tag", style="cyan")
+            tag_table.add_column("Type", style="dim", justify="right")
+            tag_table.add_column("Files", style="white", justify="right")
+            tag_table.add_column("Total Size", style="magenta", justify="right")
+            for t in dl.tags:
+                tagged = [e for e in dl.entries if t.name in e.tags]
+                tag_table.add_row(
+                    t.name,
+                    str(t.tag_type),
+                    str(len(tagged)),
+                    format_size(sum(e.size for e in tagged)),
+                )
+            _output_table(tag_table, console)
+
+            # Priority distribution
+            priority_counts: dict[int, int] = defaultdict(int)
+            priority_sizes: dict[int, int] = defaultdict(int)
+            for e in entries:
+                priority_counts[e.priority] += 1
+                priority_sizes[e.priority] += e.size
+            prio_table = Table(title="Priority Distribution")
+            prio_table.add_column("Priority", style="cyan", justify="right")
+            prio_table.add_column("Files", style="white", justify="right")
+            prio_table.add_column("Total Size", style="magenta", justify="right")
+            for prio in sorted(priority_counts):
+                prio_table.add_row(
+                    str(prio),
+                    str(priority_counts[prio]),
+                    format_size(priority_sizes[prio]),
+                )
+            _output_table(prio_table, console)
+
+            # Entry sample
+            entries_table = Table(title=f"Entries (first {min(limit, len(entries))} of {len(entries)})")
+            entries_table.add_column("EKey", style="cyan", no_wrap=True)
+            entries_table.add_column("Size", style="magenta", justify="right")
+            entries_table.add_column("Priority", style="white", justify="right")
+            entries_table.add_column("Tags", style="green")
+            for e in entries[:limit]:
+                entries_table.add_row(
+                    e.ekey.hex(),
+                    format_size(e.size),
+                    str(e.priority),
+                    ", ".join(e.tags),
+                )
+            _output_table(entries_table, console)
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("Failed to examine download manifest", error=str(e))
+        raise click.ClickException(f"Failed to examine download manifest: {e}") from e
+
+
+@inspect.command()
+@click.argument("input_path", type=str)
+@click.option(
     "--product",
     "-p",
     type=click.Choice([p.value for p in Product], case_sensitive=False),
