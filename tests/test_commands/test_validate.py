@@ -912,7 +912,7 @@ class TestValidateFormatStructure:
         """Test BLTE structure validation failure."""
         mock_parser.return_value.parse.side_effect = Exception("Parse error")
 
-        valid, msg, info = _validate_format_structure(b"invalid blte", "blte")
+        valid, msg, _info = _validate_format_structure(b"invalid blte", "blte")
 
         assert valid is False
         assert "Structure validation failed" in msg
@@ -1132,7 +1132,7 @@ class TestValidateChecksums:
         """Test BLTE checksum validation with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse error")
 
-        valid, msg, info = _validate_checksums(b"invalid blte", "blte")
+        valid, msg, _info = _validate_checksums(b"invalid blte", "blte")
 
         assert valid is False
         assert "Checksum validation failed" in msg
@@ -1200,7 +1200,7 @@ class TestValidateChecksums:
         """Test archive checksum validation with parser error."""
         mock_parser.return_value.parse.side_effect = Exception("Parse error")
 
-        valid, msg, info = _validate_checksums(b"invalid archive", "archive")
+        valid, msg, _info = _validate_checksums(b"invalid archive", "archive")
 
         assert valid is False
         assert "Checksum validation failed" in msg

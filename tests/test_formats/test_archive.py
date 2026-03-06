@@ -85,31 +85,32 @@ class TestArchiveIndexParser:
 
     def test_parse_single_chunk_with_entries(self):
         """Test parsing single chunk with entries."""
-        # Create test entries
-        entry1_ekey = b'\x01' * 9
+        # Use 16-byte ekeys matching ekey_length=16 in footer
+        # Record layout: 16 (ekey) + 4 (size) + 4 (offset) = 24 bytes
+        entry1_ekey = b'\x01' * 16
         entry1_offset = 1000
         entry1_size = 2000
 
-        entry2_ekey = b'\x02' * 9
+        entry2_ekey = b'\x02' * 16
         entry2_offset = 3000
         entry2_size = 4000
 
-        # Build chunk data
+        # Build chunk data (record: ekey[16] + size[4] + offset[4])
         chunk_data = bytearray(4096)
 
-        # Entry 1
-        chunk_data[0:9] = entry1_ekey
-        chunk_data[9:13] = struct.pack('>I', entry1_offset)
-        chunk_data[13:17] = struct.pack('>I', entry1_size)
-        # 7 bytes reserved (already zero)
+        # Entry 1 at offset 0
+        chunk_data[0:16] = entry1_ekey
+        chunk_data[16:20] = struct.pack('>I', entry1_size)
+        chunk_data[20:24] = struct.pack('>I', entry1_offset)
 
-        # Entry 2
-        chunk_data[24:33] = entry2_ekey
-        chunk_data[33:37] = struct.pack('>I', entry2_offset)
-        chunk_data[37:41] = struct.pack('>I', entry2_size)
+        # Entry 2 at offset 24
+        chunk_data[24:40] = entry2_ekey
+        chunk_data[40:44] = struct.pack('>I', entry2_size)
+        chunk_data[44:48] = struct.pack('>I', entry2_offset)
 
-        # Create TOC (last key of each chunk)
-        toc_data = entry2_ekey  # Only one chunk
+        # TOC layout: keys section (ekey_length per chunk) then hashes section
+        # (footer_hash_bytes per chunk). For 1 chunk: 16 key bytes + 8 hash bytes.
+        toc_data = entry2_ekey + b'\x00' * 8  # key + placeholder hash
 
         # Create footer
         footer_data = bytearray(28)
@@ -119,7 +120,7 @@ class TestArchiveIndexParser:
         footer_data[13] = 4                 # size_bytes
         footer_data[14] = 16                # ekey_length
         footer_data[15] = 8                 # footer_hash_bytes
-        footer_data[16:20] = struct.pack('<I', 1)  # element_count
+        footer_data[16:20] = struct.pack('<I', 2)  # element_count (2 entries)
 
         # Build complete archive index
         archive_data = chunk_data + toc_data + footer_data
@@ -150,31 +151,35 @@ class TestArchiveIndexParser:
 
     def test_parse_multiple_chunks(self):
         """Test parsing multiple chunks."""
-        # Create two chunks with one entry each
+        # Use 16-byte ekeys matching ekey_length=16 in footer
+        # Record layout: 16 (ekey) + 4 (size) + 4 (offset) = 24 bytes
+        # With 2 entries and records_per_block=170, chunk_count = ceil(2/170) = 1
+        # Use element_count=171 to force two chunks (ceil(171/170) = 2)
         chunk1_data = bytearray(4096)
-        chunk1_ekey = b'\x11' * 9
-        chunk1_data[0:9] = chunk1_ekey
-        chunk1_data[9:13] = struct.pack('>I', 1000)
-        chunk1_data[13:17] = struct.pack('>I', 2000)
+        chunk1_ekey = b'\x11' * 16
+        chunk1_data[0:16] = chunk1_ekey
+        chunk1_data[16:20] = struct.pack('>I', 2000)   # size
+        chunk1_data[20:24] = struct.pack('>I', 1000)   # offset
 
         chunk2_data = bytearray(4096)
-        chunk2_ekey = b'\x22' * 9
-        chunk2_data[0:9] = chunk2_ekey
-        chunk2_data[9:13] = struct.pack('>I', 3000)
-        chunk2_data[13:17] = struct.pack('>I', 4000)
+        chunk2_ekey = b'\x22' * 16
+        chunk2_data[0:16] = chunk2_ekey
+        chunk2_data[16:20] = struct.pack('>I', 4000)   # size
+        chunk2_data[20:24] = struct.pack('>I', 3000)   # offset
 
-        # Create TOC
-        toc_data = chunk1_ekey + chunk2_ekey
+        # TOC layout: keys section then hashes section.
+        # For 2 chunks: (chunk1_ekey + chunk2_ekey) then (hash1 + hash2).
+        toc_data = chunk1_ekey + chunk2_ekey + b'\x00' * 16  # 2 placeholder hashes
 
-        # Create footer
+        # Create footer: element_count=171 forces ceil(171/170)=2 chunks
         footer_data = bytearray(28)
-        footer_data[8] = 1                  # version
-        footer_data[11] = 4                 # page_size_kb
-        footer_data[12] = 4                 # offset_bytes
-        footer_data[13] = 4                 # size_bytes
-        footer_data[14] = 16                # ekey_length
-        footer_data[15] = 8                 # footer_hash_bytes
-        footer_data[16:20] = struct.pack('<I', 2)  # element_count
+        footer_data[8] = 1                   # version
+        footer_data[11] = 4                  # page_size_kb
+        footer_data[12] = 4                  # offset_bytes
+        footer_data[13] = 4                  # size_bytes
+        footer_data[14] = 16                 # ekey_length
+        footer_data[15] = 8                  # footer_hash_bytes
+        footer_data[16:20] = struct.pack('<I', 171)  # element_count → 2 chunks
 
         # Build complete archive index
         archive_data = chunk1_data + chunk2_data + toc_data + footer_data
@@ -190,6 +195,7 @@ class TestArchiveIndexParser:
         assert chunk1.chunk_index == 0
         assert len(chunk1.entries) == 1
         assert chunk1.entries[0].ekey == chunk1_ekey
+        assert chunk1.entries[0].offset == 1000
         assert chunk1.last_key == chunk1_ekey
 
         # Chunk 2
@@ -197,6 +203,7 @@ class TestArchiveIndexParser:
         assert chunk2.chunk_index == 1
         assert len(chunk2.entries) == 1
         assert chunk2.entries[0].ekey == chunk2_ekey
+        assert chunk2.entries[0].offset == 3000
         assert chunk2.last_key == chunk2_ekey
 
         # Verify TOC
@@ -435,13 +442,13 @@ class TestArchiveIndexParser:
 
     def test_round_trip(self):
         """Test round-trip parsing and building."""
-        # Create test data
-        entry = ArchiveIndexEntry(ekey=b'\x05' * 9, offset=12345, size=67890)
+        # Use 16-byte ekey matching ekey_length=16 in footer
+        entry = ArchiveIndexEntry(ekey=b'\x05' * 16, offset=12345, size=67890)
 
         chunk = ArchiveIndexChunk(
             chunk_index=0,
             entries=[entry],
-            last_key=b'\x05' * 9
+            last_key=b'\x05' * 16
         )
 
         footer = ArchiveIndexFooter(
@@ -460,7 +467,7 @@ class TestArchiveIndexParser:
         archive_index = ArchiveIndex(
             footer=footer,
             chunks=[chunk],
-            toc=[b'\x05' * 9]
+            toc=[b'\x05' * 16]
         )
 
         # Build and parse back
@@ -493,27 +500,21 @@ class TestArchiveIndexParser:
         with pytest.raises(ValueError, match="Data too short for footer"):
             parser.parse(short_data)
 
-    def test_invalid_chunk_structure(self):
-        """Test error handling for invalid chunk structure."""
-        # Create data with invalid chunk structure
-        invalid_chunk_data = b'\x00' * 1000  # Not multiple of 4096
-
-        # Create footer
+    def test_invalid_footer_version(self):
+        """Test error handling for unsupported footer version."""
+        # Create a minimal valid archive (no chunks, no toc, just footer)
         footer_data = bytearray(28)
-        footer_data[8] = 1                  # version
+        footer_data[8] = 2                  # version = 2 (unsupported; must be 0 or 1)
         footer_data[11] = 4                 # page_size_kb
         footer_data[12] = 4                 # offset_bytes
         footer_data[13] = 4                 # size_bytes
         footer_data[14] = 16                # ekey_length
         footer_data[15] = 8                 # footer_hash_bytes
-        footer_data[16:20] = struct.pack('<I', 1)  # element_count
-
-        # No TOC data
-        archive_data = invalid_chunk_data + footer_data
+        footer_data[16:20] = struct.pack('<I', 0)  # element_count = 0
 
         parser = ArchiveIndexParser()
-        with pytest.raises(ValueError, match="Invalid archive index block structure"):
-            parser.parse(archive_data)
+        with pytest.raises(ValueError, match="Unsupported CDN index footer version"):
+            parser.parse(bytes(footer_data))
 
     def test_file_parsing(self, tmp_path):
         """Test parsing from file."""
@@ -631,3 +632,121 @@ class TestArchiveIndexModels:
         assert len(archive_index.toc) == 1
         assert archive_index.chunks[0].chunk_index == 0
         assert archive_index.toc[0] == b'\x05' * 9
+
+
+class TestArchiveBuilder:
+    """Test ArchiveBuilder class methods."""
+
+    def test_builder_build(self):
+        """ArchiveBuilder.build() delegates to ArchiveIndexParser.build()."""
+        from cascette_tools.formats.archive import (
+            ArchiveBuilder,
+            ArchiveIndex,
+            ArchiveIndexFooter,
+        )
+        footer = ArchiveIndexFooter(
+            toc_hash=b'\x00' * 16, version=1, reserved=b'\x00\x00',
+            page_size_kb=4, offset_bytes=4, size_bytes=4, ekey_length=16,
+            footer_hash_bytes=8, element_count=0, footer_hash=b'\x00' * 8
+        )
+        arch = ArchiveIndex(footer=footer, chunks=[], toc=[])
+        builder = ArchiveBuilder()
+        result = builder.build(arch)
+        # Result should be a valid archive with footer at the end
+        assert len(result) >= 28  # Minimum: footer only
+
+    def test_create_empty(self):
+        """ArchiveBuilder.create_empty() returns a valid empty ArchiveIndex."""
+        from cascette_tools.formats.archive import ArchiveBuilder
+        arch = ArchiveBuilder.create_empty()
+        assert arch.footer.version == 1
+        assert arch.footer.element_count == 0
+        assert len(arch.chunks) == 0
+
+    def test_create_with_entries(self):
+        """ArchiveBuilder.create_with_entries() builds chunks from entries."""
+        from cascette_tools.formats.archive import ArchiveBuilder, ArchiveIndexEntry
+        entries = [
+            ArchiveIndexEntry(ekey=b'\x01' * 9, offset=100, size=500),
+            ArchiveIndexEntry(ekey=b'\x02' * 9, offset=600, size=300),
+        ]
+        arch = ArchiveBuilder.create_with_entries(entries)
+        assert arch.footer.element_count == 2
+        assert len(arch.chunks) >= 1
+        # Verify first chunk has our entries
+        assert arch.chunks[0].entries[0].ekey == b'\x01' * 9
+        assert arch.chunks[0].entries[1].ekey == b'\x02' * 9
+
+
+class TestArchiveEdgeCases:
+    """Test uncovered edge cases in archive.py."""
+
+    def _make_valid_archive_bytes(self, entries: list[tuple[bytes, int, int]], version: int = 1) -> bytes:
+        """Build a minimal valid CDN index blob."""
+        from cascette_tools.formats.archive import ArchiveBuilder, ArchiveIndexEntry
+        entries_obj = [ArchiveIndexEntry(ekey=e[0], offset=e[1], size=e[2]) for e in entries]
+        arch = ArchiveBuilder.create_with_entries(entries_obj)
+        from cascette_tools.formats.archive import ArchiveIndexParser
+        return ArchiveIndexParser().build(arch)
+
+    def test_unsupported_footer_version_raises(self):
+        """Footer version > 1 raises ValueError when parsing (line 116)."""
+        from cascette_tools.formats.archive import ArchiveIndexParser
+
+        # Build a valid index blob and patch the footer version byte
+        blob = bytearray(self._make_valid_archive_bytes([]))
+        # Footer is last 28 bytes; byte 8 of footer is version
+        # Footer layout: toc_hash(8) + version(1) + ...
+        footer_start = len(blob) - 28
+        blob[footer_start + 8] = 2  # version = 2 (unsupported)
+
+        parser = ArchiveIndexParser()
+        with pytest.raises(ValueError, match="Unsupported CDN index footer version"):
+            parser.parse(bytes(blob))
+
+    def test_stats_empty_archive(self):
+        """get_statistics() on empty archive sets min/max/avg to 0 (line 328)."""
+        from cascette_tools.formats.archive import ArchiveBuilder, ArchiveIndexParser
+        arch = ArchiveBuilder.create_empty()
+        parser = ArchiveIndexParser()
+        stats = parser.get_statistics(arch)
+        assert stats['total_entries'] == 0
+        assert stats['min_entry_size'] == 0
+        assert stats['max_entry_size'] == 0
+        assert stats['avg_entry_size'] == 0
+
+    def test_build_truncates_excess_entries_per_chunk(self):
+        """build() stops writing after MAX_ENTRIES_PER_CHUNK entries (line 359)."""
+        from cascette_tools.formats.archive import (
+            ArchiveIndexChunk,
+            ArchiveIndexEntry,
+            ArchiveIndexParser,
+        )
+        # Create an ArchiveIndexChunk with more entries than MAX_ENTRIES_PER_CHUNK
+        parser = ArchiveIndexParser()
+        max_entries = parser.MAX_ENTRIES_PER_CHUNK
+
+        # Build a valid archive then directly inject an oversized chunk
+        from cascette_tools.formats.archive import ArchiveBuilder
+        arch = ArchiveBuilder.create_empty()
+
+        # Add a chunk with max_entries + 2 entries
+        overflow_entries = [
+            ArchiveIndexEntry(ekey=bytes([i % 256]) * 9, offset=i * 100, size=50)
+            for i in range(max_entries + 2)
+        ]
+        arch.chunks.append(ArchiveIndexChunk(
+            chunk_index=0,
+            entries=overflow_entries,
+            last_key=overflow_entries[-1].ekey,
+        ))
+
+        # build() should not crash; excess entries are silently dropped
+        binary = parser.build(arch)
+        assert binary is not None
+
+    def test_is_obj_returns_false_for_short_data(self):
+        """is_obj() returns False for data shorter than 28 bytes (footer minimum)."""
+        from cascette_tools.formats.archive import is_obj
+        assert not is_obj(b'\x00' * 5)
+        assert not is_obj(b'')

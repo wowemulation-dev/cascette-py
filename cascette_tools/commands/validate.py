@@ -836,11 +836,15 @@ def relationships(
     try:
         # Fetch and parse root file
         root_data = _fetch_from_cdn_or_path(root_file, console, config, "Fetching root file")
+        if is_blte(root_data):
+            root_data = decompress_blte(root_data)
         root_parser = RootParser()
         root_obj = root_parser.parse(root_data)
 
         # Fetch and parse encoding file
         encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
         encoding_parser = EncodingParser()
         encoding_obj = encoding_parser.parse(encoding_data)
 

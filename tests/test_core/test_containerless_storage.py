@@ -218,7 +218,7 @@ class TestContainerlessStorage:
 
         (tmp_path / "file.txt").write_bytes(b"different content")
 
-        actual_md5, matches = storage.identify_file(entry)
+        _actual_md5, matches = storage.identify_file(entry)
         assert matches is False
 
     def test_identify_file_missing(self, tmp_path: Path):

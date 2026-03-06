@@ -232,7 +232,7 @@ class TestCdnCommands:
     ):
         """Test build command fetching build by version string."""
         # Add cdn_timeout and cdn_max_retries to the mock config object
-        config_obj, cache_obj, _, _ = mock_context_objects
+        config_obj, _cache_obj, _, _ = mock_context_objects
         config_obj.cdn_timeout = 30.0
         config_obj.cdn_max_retries = 3
         mock_get_context.return_value = mock_context_objects

@@ -91,3 +91,11 @@ Pipfile.lock
 cache/
 test_data/
 results/
+
+# Verification and local test artifacts
+VERIFICATION.md
+manifests_*/
+*.build
+*.cdn
+*.encoding
+*.blte

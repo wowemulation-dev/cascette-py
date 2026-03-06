@@ -639,3 +639,167 @@ class TestEdgeCases:
         assert patch_archive.header.file_key_size == 20
         assert patch_archive.header.old_key_size == 16
         assert patch_archive.header.patch_key_size == 24
+
+    def test_parse_block_size_bits_boundary_values(self):
+        """Test block_size_bits is validated to 12-24 per Agent.exe ParseHeader."""
+        def make_header(block_size_bits: int) -> bytes:
+            data = bytearray()
+            data.extend(PA_MAGIC)
+            data.append(2)   # version
+            data.append(16)  # file_key_size
+            data.append(16)  # old_key_size
+            data.append(16)  # patch_key_size
+            data.append(block_size_bits)
+            data.extend(struct.pack('>H', 0))  # block_count
+            data.append(0)   # flags
+            return bytes(data)
+
+        parser = PatchArchiveParser()
+
+        # Valid boundary values
+        for bits in [12, 16, 24]:
+            result = parser.parse(make_header(bits))
+            assert result.header.block_size_bits == bits
+
+        # Invalid values
+        with pytest.raises(ValueError, match="block_size_bits"):
+            parser.parse(make_header(11))
+
+        with pytest.raises(ValueError, match="block_size_bits"):
+            parser.parse(make_header(25))
+
+
+class TestPatchArchiveBuilderMethods:
+    """Test PatchArchiveBuilder class methods and uncovered build() paths."""
+
+    def test_builder_build(self):
+        """PatchArchiveBuilder.build() delegates to parser (lines 519-520)."""
+        from cascette_tools.formats.patch_archive import PatchArchiveBuilder
+        archive = PatchArchiveBuilder.create_empty()
+
+        builder = PatchArchiveBuilder()
+        binary = builder.build(archive)
+        assert binary[:2] == b'PA'
+
+    def test_builder_create_empty(self):
+        """PatchArchiveBuilder.create_empty() returns empty archive (line 525)."""
+        from cascette_tools.formats.patch_archive import PatchArchiveBuilder
+        archive = PatchArchiveBuilder.create_empty()
+        assert archive.header.block_count == 0
+        assert archive.entries == []
+
+    def test_builder_create_with_entries(self):
+        """PatchArchiveBuilder.create_with_entries() builds header (lines 530-541)."""
+        from cascette_tools.formats.patch_archive import PatchArchiveBuilder, PatchEntry
+        entries = [
+            PatchEntry(
+                old_content_key=b'\x01' * 16,
+                new_content_key=b'\x02' * 16,
+                patch_encoding_key=b'\x03' * 16,
+                compression_info='',
+            ),
+        ]
+        archive = PatchArchiveBuilder.create_with_entries(entries)
+        assert archive.header.block_count == 1
+        assert archive.header.version == 2
+        assert len(archive.entries) == 1
+
+    def test_unexpected_version_warns(self):
+        """Version not in [1, 2] logs a warning but parses successfully (line 296)."""
+        from cascette_tools.formats.patch_archive import PA_MAGIC, PatchArchiveParser
+        data = bytearray()
+        data.extend(PA_MAGIC)
+        data.append(3)   # version = 3 (unexpected)
+        data.append(16)  # file_key_size
+        data.append(16)  # old_key_size
+        data.append(16)  # patch_key_size
+        data.append(16)  # block_size_bits
+        data.extend(b'\x00\x00')  # block_count = 0
+        data.append(0)            # flags
+
+        parser = PatchArchiveParser()
+        archive = parser.parse(bytes(data))
+        assert archive.header.version == 3  # parsed despite unexpected version
+
+    def test_build_zero_key_size_raises(self):
+        """build() raises when key sizes are zero (line 463)."""
+        from cascette_tools.formats.patch_archive import (
+            PA_MAGIC,
+            PatchArchiveFile,
+            PatchArchiveHeader,
+            PatchArchiveParser,
+        )
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC,
+            version=2,
+            file_key_size=0,   # invalid!
+            old_key_size=16,
+            patch_key_size=16,
+            block_size_bits=16,
+            block_count=0,
+            flags=0,
+        )
+        archive = PatchArchiveFile(header=header, entries=[])
+        parser = PatchArchiveParser()
+        with pytest.raises(ValueError, match="Key sizes must be positive"):
+            parser.build(archive)
+
+    def test_build_new_key_mismatch_raises(self):
+        """build() raises when new_content_key doesn't match file_key_size (line 480)."""
+        from cascette_tools.formats.patch_archive import (
+            PA_MAGIC,
+            PatchArchiveFile,
+            PatchArchiveHeader,
+            PatchArchiveParser,
+            PatchEntry,
+        )
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC,
+            version=2,
+            file_key_size=16,
+            old_key_size=16,
+            patch_key_size=16,
+            block_size_bits=16,
+            block_count=1,
+            flags=0,
+        )
+        entry = PatchEntry(
+            old_content_key=b'\x01' * 16,
+            new_content_key=b'\x02' * 8,  # 8 bytes, but file_key_size=16
+            patch_encoding_key=b'\x03' * 16,
+            compression_info='',
+        )
+        archive = PatchArchiveFile(header=header, entries=[entry])
+        parser = PatchArchiveParser()
+        with pytest.raises(ValueError, match="New key size mismatch"):
+            parser.build(archive)
+
+    def test_build_patch_key_mismatch_raises(self):
+        """build() raises when patch_encoding_key doesn't match patch_key_size (line 482)."""
+        from cascette_tools.formats.patch_archive import (
+            PA_MAGIC,
+            PatchArchiveFile,
+            PatchArchiveHeader,
+            PatchArchiveParser,
+            PatchEntry,
+        )
+        header = PatchArchiveHeader(
+            magic=PA_MAGIC,
+            version=2,
+            file_key_size=16,
+            old_key_size=16,
+            patch_key_size=16,
+            block_size_bits=16,
+            block_count=1,
+            flags=0,
+        )
+        entry = PatchEntry(
+            old_content_key=b'\x01' * 16,
+            new_content_key=b'\x02' * 16,
+            patch_encoding_key=b'\x03' * 4,  # 4 bytes, but patch_key_size=16
+            compression_info='',
+        )
+        archive = PatchArchiveFile(header=header, entries=[entry])
+        parser = PatchArchiveParser()
+        with pytest.raises(ValueError, match="Patch key size mismatch"):
+            parser.build(archive)

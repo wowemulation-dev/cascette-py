@@ -22,7 +22,7 @@ from cascette_tools.database.wago import WagoBuild, WagoClient
 console = Console()
 
 
-def parse_wago_search(search_term: str) -> list[dict]:
+def parse_wago_search(search_term: str) -> list[dict[str, str]]:
     """Parse Wago.tools search results from HTML.
 
     Args:

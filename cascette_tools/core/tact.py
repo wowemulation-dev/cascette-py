@@ -15,10 +15,38 @@ logger = structlog.get_logger()
 
 
 class BPSVParser:
-    """Parser for Blizzard Pipe-Separated Values format."""
+    """Parser for Blizzard Pipe-Separated Values format.
+
+    Implements the TACT BPSV protocol as observed in Agent.exe (TACT 3.13.3).
+    See tact::PsvReader::ParseHeaderLine, ParseDataRow, and ParseMetadataLine.
+    """
+
+    _SEQN_PREFIX = "## seqn = "
+
+    def extract_sequence_number(self, manifest: str) -> int | None:
+        """Extract the Ribbit sequence number from a BPSV document.
+
+        Agent.exe looks for the literal prefix '## seqn = ' at 0x8fd00c,
+        followed by a decimal integer. Used for CDN manifest cache validation.
+
+        Returns the sequence number, or None if not present.
+        """
+        for line in manifest.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(self._SEQN_PREFIX):
+                try:
+                    return int(stripped[len(self._SEQN_PREFIX):].strip())
+                except ValueError:
+                    return None
+        return None
 
     def parse(self, manifest: str) -> list[dict[str, str]]:
         """Parse BPSV manifest into list of dictionaries.
+
+        Implements tact::PsvReader::ParseDataRow (0x6f18b2).
+        Comment handling matches tact::PsvReader::ParseMetadataLine (0x6f1d1c):
+        - Lines beginning with '#' are comments and are skipped (including '## seqn').
+        - The header line defines column names via 'name!TYPE:width' syntax.
 
         Args:
             manifest: BPSV manifest text
@@ -33,13 +61,21 @@ class BPSVParser:
         if not lines:
             return []
 
-        # First line is header with column definitions
-        header_line = lines[0]
-        if not header_line:
+        # Skip leading comment/metadata lines to find the header
+        header_line = None
+        header_idx = 0
+        for i, line in enumerate(lines):
+            if not line.startswith('#'):
+                header_line = line
+                header_idx = i
+                break
+
+        if header_line is None:
             return []
 
         # Parse header to get column names
         # Format: ColumnName!TYPE:SIZE|ColumnName2!TYPE:SIZE
+        # Type names are case-insensitive per tact::PsvReader::ParseHeaderLine (0x6f19e6)
         columns: list[str] = []
         for column_def in header_line.split('|'):
             if '!' in column_def:
@@ -48,16 +84,15 @@ class BPSVParser:
                 column_name = column_def
             columns.append(column_name)
 
-        # Parse data lines
+        # Parse data lines, skipping comment lines (# prefix)
         results: list[dict[str, str]] = []
-        for line in lines[1:]:
-            if not line:
+        for line in lines[header_idx + 1:]:
+            if not line or line.startswith('#'):
                 continue
 
             values = line.split('|')
             entry: dict[str, str] = {}
 
-            # Map values to columns, handling mismatched counts
             for i, column in enumerate(columns):
                 if i < len(values):
                     entry[column] = values[i]

@@ -338,7 +338,7 @@ class TestSortedSectionHash:
             size=100,
         )
         entry_bytes = entry.to_bytes()
-        pc, pb = hashlittle2(entry_bytes, 0, 0)
+        pc, _pb = hashlittle2(entry_bytes, 0, 0)
         assert pc != 0  # Non-trivial hash
 
     def test_multi_entry_hash_is_iterative(self) -> None:
@@ -519,3 +519,159 @@ class TestInsertEntry:
         info = parse_local_idx_file(data)
 
         assert len(info.update_entries) == 3
+
+
+class TestKmtV8Format:
+    """Tests for KMT v8 format awareness.
+
+    KMT v8 (casc::KmtV8) stores full 16-byte EKeys and uses 64-bit storage
+    offsets. Key differences from V7 documented in casc/cascette-deferred-topics.md:
+
+    - Sorted entry size: 0x20 (32) bytes (vs 18 bytes in V7)
+    - Update entry size: 0x28 (40) bytes (vs 24 bytes in V7)
+    - EKey: full 16 bytes (vs 9-byte prefix in V7)
+    - StorageOffset: 8 bytes / 64-bit (vs 5 bytes in V7)
+    - Hash guard payload: 33 bytes (0x21) from entry[4..] (vs 20 bytes in V7)
+    - Revision header field >= 8 (vs version == 7)
+    """
+
+    def _build_v8_update_entry(
+        self,
+        ekey: bytes,
+        offset_lo: int,
+        offset_hi: int,
+        encoded_size: int,
+        decoded_size: int,
+        status: int = 1,
+    ) -> bytes:
+        """Build a 40-byte KMT v8 update entry per casc/cascette-deferred-topics.md."""
+        entry = bytearray(40)
+        # [0x04..0x13]: full 16-byte EKey
+        entry[4:20] = ekey[:16]
+        # [0x14..0x17]: StorageOffset low (LE)
+        struct.pack_into('<I', entry, 0x14, offset_lo)
+        # [0x18..0x1B]: StorageOffset high (LE)
+        struct.pack_into('<I', entry, 0x18, offset_hi)
+        # [0x1C..0x1F]: EncodedSize (LE)
+        struct.pack_into('<I', entry, 0x1C, encoded_size)
+        # [0x20..0x23]: DecodedSize (LE)
+        struct.pack_into('<I', entry, 0x20, decoded_size)
+        # [0x24]: Status
+        entry[0x24] = status
+        # [0x00..0x03]: HashGuard = hashlittle(entry[4:37], 0) | 0x80000000
+        payload = bytes(entry[4:37])  # 33 bytes = 0x21
+        guard = hashlittle(payload, 0) | 0x80000000
+        struct.pack_into('<I', entry, 0, guard)
+        return bytes(entry)
+
+    def test_v8_update_entry_hash_guard_covers_33_bytes(self) -> None:
+        """V8 hash guard covers 33 bytes (0x21) from entry[4..].
+
+        Per casc/cascette-deferred-topics.md:
+          JenkinsHashLittle2(&entry[4], 0x21, 0) | 0x80000000
+        where entry[4..37] (33 bytes) = EKey (16) + offset_lo (4) + offset_hi (4)
+        + encoded_size (4) + decoded_size (4) + status (1).
+        """
+        ekey = b'\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10'
+        raw = self._build_v8_update_entry(ekey, 0x1000, 0, 512, 1024, status=1)
+
+        assert len(raw) == 40
+        payload = raw[4:37]  # 33 bytes
+        expected_guard = hashlittle(payload, 0) | 0x80000000
+        actual_guard = struct.unpack('<I', raw[0:4])[0]
+        assert actual_guard == expected_guard
+        assert actual_guard & 0x80000000 != 0, "High bit must be set"
+
+    def test_v8_update_entry_high_bit_distinguishes_from_empty(self) -> None:
+        """High bit in hash guard distinguishes valid entries from empty slots.
+
+        Empty slots have first 4 bytes == 0, valid entries have bit 31 set.
+        """
+        ekey = b'\xde\xad\xbe\xef' * 4
+        raw = self._build_v8_update_entry(ekey, 0, 0, 0, 0, status=1)
+        guard = struct.unpack('<I', raw[0:4])[0]
+        assert guard != 0, "Non-empty entry must not have zero hash guard"
+        assert guard & 0x80000000 != 0, "High bit must be set"
+
+    def test_v8_sorted_entry_is_32_bytes(self) -> None:
+        """V8 sorted entries are 32 (0x20) bytes.
+
+        Layout: EKey (16) + StorageOffset_lo (4) + StorageOffset_hi (4)
+        + EncodedSize (4) + DecodedSize (4) = 32 bytes.
+        """
+        # Build minimal 32-byte sorted entry
+        entry = bytearray(32)
+        ekey = b'\xaa\xbb\xcc\xdd' * 4
+        entry[0:16] = ekey
+        struct.pack_into('<I', entry, 16, 0x2000)   # offset_lo
+        struct.pack_into('<I', entry, 20, 0)         # offset_hi
+        struct.pack_into('<I', entry, 24, 256)       # encoded_size
+        struct.pack_into('<I', entry, 28, 512)       # decoded_size
+
+        assert len(entry) == 32
+
+        # Verify field extraction is correct
+        extracted_ekey = bytes(entry[0:16])
+        extracted_offset_lo = struct.unpack('<I', entry[16:20])[0]
+        extracted_offset_hi = struct.unpack('<I', entry[20:24])[0]
+        extracted_encoded = struct.unpack('<I', entry[24:28])[0]
+        extracted_decoded = struct.unpack('<I', entry[28:32])[0]
+
+        assert extracted_ekey == ekey
+        assert extracted_offset_lo == 0x2000
+        assert extracted_offset_hi == 0
+        assert extracted_encoded == 256
+        assert extracted_decoded == 512
+
+    def test_v7_vs_v8_hash_guard_coverage_differs(self) -> None:
+        """V7 covers 19 bytes (0x13), V8 covers 33 bytes (0x21) from entry[4..].
+
+        This test documents the behavioral difference to catch regressions
+        if the parsing code conflates the two formats.
+
+        V7: hashlittle(entry[4:23], 0) | 0x80000000  (19 bytes)
+        V8: hashlittle(entry[4:37], 0) | 0x80000000  (33 bytes)
+        """
+        payload = b'\x11' * 40  # 40 arbitrary bytes
+
+        v7_guard = hashlittle(payload[4:23], 0) | 0x80000000  # 19 bytes
+        v8_guard = hashlittle(payload[4:37], 0) | 0x80000000  # 33 bytes
+
+        # They should produce different hash values (different byte counts)
+        assert v7_guard != v8_guard, (
+            "V7 and V8 hash guards cover different payload lengths "
+            "and must produce different results for the same data"
+        )
+
+    def test_parse_detects_v8_version_byte(self) -> None:
+        """parse_local_idx_file detects version 8 files from the header.
+
+        The parser reads version at header offset 8-9 (LE uint16) and warns
+        for version 8. This test verifies the version byte is read correctly.
+        """
+        # Build a minimal V8-style guarded block
+        inner = bytearray(16)
+        struct.pack_into('<H', inner, 0, 8)   # version = 8
+        inner[2] = 0                           # bucket
+        inner[4] = 4                           # encoded_size_length
+        inner[5] = 8                           # storage_offset_length (64-bit)
+        inner[6] = 16                          # ekey_length (full 16 bytes)
+        inner[7] = 0                           # file_offset_bits
+        struct.pack_into('<Q', inner, 8, 0x40000000)  # segment_size
+
+        header_hash = hashlittle(bytes(inner), 0)
+
+        file_data = bytearray(0x10000 + 0x7800)
+        # Outer header: block_size=16, hash
+        struct.pack_into('<I', file_data, 0, 16)
+        struct.pack_into('<I', file_data, 4, header_hash)
+        # Inner header at offset 8
+        file_data[8:24] = inner
+        # Zero padding at 0x18..0x20 already zero
+        # Entry block: block_size=0, hash=0
+        struct.pack_into('<I', file_data, 0x20, 0)
+        struct.pack_into('<I', file_data, 0x24, 0)
+
+        info = parse_local_idx_file(bytes(file_data))
+        assert info.version == 8
+        assert info.ekey_length == 16

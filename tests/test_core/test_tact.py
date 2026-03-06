@@ -390,3 +390,243 @@ class TestTACTClient:
         with patch.object(client.cache, "clear_expired", return_value=2):
             result = client.clear_cache(Product.WOW)
             assert result == 2
+
+
+class TestBPSVParserCommentHandling:
+    """Tests for BPSV comment and metadata line handling.
+
+    Validates behavior of tact::PsvReader::ParseMetadataLine (0x6f1d1c):
+    - '## seqn = N' lines are skipped and the seqn value is extractable.
+    - '#' prefixed lines are comments and are skipped.
+    Both must be excluded from data row parsing.
+    """
+
+    def test_double_hash_seqn_line_is_skipped(self):
+        """'## seqn = N' lines must not appear as data rows."""
+        parser = BPSVParser()
+        manifest = (
+            "## seqn = 3568387\n"
+            "Region!STRING:0|BuildConfig!HEX:16\n"
+            "us|abc123def456\n"
+            "eu|789abc123def\n"
+        )
+        result = parser.parse(manifest)
+        assert len(result) == 2
+        assert result[0]["Region"] == "us"
+        assert result[1]["Region"] == "eu"
+
+    def test_single_hash_comment_line_is_skipped(self):
+        """Lines beginning with '#' are comments per ParseMetadataLine and must be skipped."""
+        parser = BPSVParser()
+        manifest = (
+            "## seqn = 42\n"
+            "# This is a comment\n"
+            "Region!STRING:0|BuildConfig!HEX:16\n"
+            "us|abc123def456\n"
+        )
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert result[0]["Region"] == "us"
+
+    def test_comment_only_document_returns_empty(self):
+        """Document with only comment lines and no header returns empty list."""
+        parser = BPSVParser()
+        manifest = "## seqn = 1\n# just a comment\n"
+        result = parser.parse(manifest)
+        assert result == []
+
+    def test_comment_between_data_rows_is_skipped(self):
+        """Comment lines between data rows are also skipped."""
+        parser = BPSVParser()
+        manifest = (
+            "Region!STRING:0|Value!STRING:0\n"
+            "us|val1\n"
+            "# mid-document comment\n"
+            "eu|val2\n"
+        )
+        result = parser.parse(manifest)
+        assert len(result) == 2
+        assert result[0]["Region"] == "us"
+        assert result[1]["Region"] == "eu"
+
+    def test_seqn_and_comment_before_header(self):
+        """Both ## seqn and # comments can appear before the header line."""
+        parser = BPSVParser()
+        manifest = (
+            "## seqn = 99\n"
+            "# optional comment\n"
+            "Name!STRING:32|Region!STRING:8\n"
+            "US-Server|US\n"
+            "EU-Server|EU\n"
+        )
+        result = parser.parse(manifest)
+        assert len(result) == 2
+        assert result[0]["Name"] == "US-Server"
+        assert result[0]["Region"] == "US"
+        assert result[1]["Name"] == "EU-Server"
+        assert result[1]["Region"] == "EU"
+
+    def test_real_ribbit_style_versions_manifest(self):
+        """Validates parsing of a realistic Ribbit-style BPSV versions manifest.
+
+        Ribbit injects '## seqn = N' at the top of every manifest response.
+        This is the format actually returned by Blizzard CDN infrastructure.
+        """
+        parser = BPSVParser()
+        manifest = "\n".join([
+            "## seqn = 3568387",
+            "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|BuildId!DEC:0|VersionsName!String:0|ProductConfig!HEX:16",
+            "us|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
+            "eu|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
+        ])
+        result = parser.parse(manifest)
+        assert len(result) == 2
+        assert result[0]["Region"] == "us"
+        assert result[0]["BuildConfig"] == "4e4525fb424e72da28bc1b9ab5f22a84"
+        assert result[0]["BuildId"] == "9370"
+        assert result[0]["VersionsName"] == "3.13.3.9370"
+        # Empty fields produce empty strings, not missing keys
+        assert result[0]["KeyRing"] == ""
+
+
+class TestBPSVParserSequenceNumber:
+    """Tests for Ribbit sequence number extraction.
+
+    Agent.exe reads '## seqn = ' (0x8fd00c) + decimal integer for cache validation.
+    Implemented in sub_41cafa.
+    """
+
+    def test_extract_seqn_from_standard_manifest(self):
+        """Extracts seqn from a standard BPSV manifest."""
+        parser = BPSVParser()
+        manifest = "## seqn = 3568387\nRegion!STRING:0\nus\n"
+        seqn = parser.extract_sequence_number(manifest)
+        assert seqn == 3568387
+
+    def test_extract_seqn_returns_none_when_absent(self):
+        """Returns None when no seqn line is present."""
+        parser = BPSVParser()
+        manifest = "Region!STRING:0\nus\n"
+        seqn = parser.extract_sequence_number(manifest)
+        assert seqn is None
+
+    def test_extract_seqn_zero(self):
+        """Handles seqn value of zero."""
+        parser = BPSVParser()
+        manifest = "## seqn = 0\nRegion!STRING:0\nus\n"
+        seqn = parser.extract_sequence_number(manifest)
+        assert seqn == 0
+
+    def test_extract_seqn_large_value(self):
+        """Handles large seqn values."""
+        parser = BPSVParser()
+        manifest = "## seqn = 9999999\nRegion!STRING:0\nus\n"
+        seqn = parser.extract_sequence_number(manifest)
+        assert seqn == 9999999
+
+    def test_extract_seqn_empty_manifest(self):
+        """Returns None on empty manifest."""
+        parser = BPSVParser()
+        assert parser.extract_sequence_number("") is None
+
+    def test_extract_seqn_is_independent_of_parse(self):
+        """Sequence number extraction does not interfere with data parsing."""
+        parser = BPSVParser()
+        manifest = (
+            "## seqn = 12345\n"
+            "Region!STRING:0|BuildConfig!HEX:16\n"
+            "us|abc123def456\n"
+        )
+        seqn = parser.extract_sequence_number(manifest)
+        rows = parser.parse(manifest)
+        assert seqn == 12345
+        assert len(rows) == 1
+        assert rows[0]["Region"] == "us"
+
+
+class TestBPSVParserTypeSystem:
+    """Tests for BPSV header type system.
+
+    Agent.exe (TACT 3.13.3) supports three type codes per ParseHeaderLine (0x6f19e6):
+    - DEC (0x444543): decimal integer
+    - HEX (0x484558): hexadecimal integer
+    - STRING (0x535452494E47): UTF-8 string
+
+    Type names are case-insensitive (converted to uppercase before comparison).
+    The parser currently returns all values as strings; these tests verify column
+    names are correctly extracted regardless of the type annotation case.
+    """
+
+    def test_string_type_uppercase(self):
+        """STRING type (uppercase) is recognized and column name extracted."""
+        parser = BPSVParser()
+        manifest = "Region!STRING:0\nus\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "Region" in result[0]
+
+    def test_string_type_lowercase(self):
+        """string type (lowercase) is accepted per case-insensitive spec."""
+        parser = BPSVParser()
+        manifest = "Region!string:0\nus\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "Region" in result[0]
+
+    def test_string_type_mixed_case(self):
+        """String type (mixed case) is accepted per case-insensitive spec."""
+        parser = BPSVParser()
+        manifest = "Region!String:100\nus\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "Region" in result[0]
+
+    def test_dec_type(self):
+        """DEC type is recognized and column name extracted."""
+        parser = BPSVParser()
+        manifest = "BuildId!DEC:0\n9370\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "BuildId" in result[0]
+        assert result[0]["BuildId"] == "9370"
+
+    def test_hex_type(self):
+        """HEX type is recognized and column name extracted."""
+        parser = BPSVParser()
+        manifest = "BuildConfig!HEX:16\nabc123def456abc1\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "BuildConfig" in result[0]
+        assert result[0]["BuildConfig"] == "abc123def456abc1"
+
+    def test_multiple_types_in_header(self):
+        """Header with all three types is correctly parsed."""
+        parser = BPSVParser()
+        manifest = (
+            "Region!STRING:0|BuildId!DEC:0|BuildConfig!HEX:16\n"
+            "us|9370|abc123def456abc1def456abc123def4\n"
+        )
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert result[0]["Region"] == "us"
+        assert result[0]["BuildId"] == "9370"
+        assert result[0]["BuildConfig"] == "abc123def456abc1def456abc123def4"
+
+    def test_width_value_is_ignored_for_column_name(self):
+        """The ':width' suffix does not affect column name extraction."""
+        parser = BPSVParser()
+        manifest = "Name!STRING:100|Path!STRING:0\nWoW|wow\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert "Name" in result[0]
+        assert "Path" in result[0]
+
+    def test_empty_value_is_preserved(self):
+        """Empty pipe-separated values produce empty strings (BpsvValue::Empty)."""
+        parser = BPSVParser()
+        manifest = "A!STRING:0|B!STRING:0|C!STRING:0\nval1||val3\n"
+        result = parser.parse(manifest)
+        assert len(result) == 1
+        assert result[0]["A"] == "val1"
+        assert result[0]["B"] == ""
+        assert result[0]["C"] == "val3"

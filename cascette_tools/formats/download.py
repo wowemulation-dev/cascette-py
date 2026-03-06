@@ -24,9 +24,9 @@ class DownloadTag(BaseModel):
     def has_file(self, file_index: int) -> bool:
         """Check if file at given index has this tag.
 
-        Uses little-endian bit ordering within each byte:
-        - Bit 0 (LSB) corresponds to file index byte_index * 8 + 0
-        - Bit 7 (MSB) corresponds to file index byte_index * 8 + 7
+        Uses MSB-first (big-endian) bit ordering within each byte,
+        matching Agent.exe TestBitmapBit (0x6ff8f4):
+          uint8_t bitMask = 0x80 >> (fileIndex & 7);
 
         Args:
             file_index: Index of file to check
@@ -34,13 +34,13 @@ class DownloadTag(BaseModel):
         Returns:
             True if file has this tag
         """
-        byte_index = file_index // 8
-        bit_offset = file_index % 8
+        byte_index = file_index >> 3
+        bit_mask = 0x80 >> (file_index & 7)
 
         if byte_index >= len(self.file_mask):
             return False
 
-        return (self.file_mask[byte_index] & (1 << bit_offset)) != 0
+        return (self.file_mask[byte_index] & bit_mask) != 0
 
 
 class DownloadEntry(BaseModel):
@@ -295,15 +295,13 @@ class DownloadParser(FormatParser[DownloadFile]):
         # Calculate bit mask size
         bit_mask_size = (len(obj.entries) + 7) // 8
 
-        # Rebuild tag bit masks from entry tags
+        # Rebuild tag bit masks from entry tags (MSB-first bit ordering)
         tag_masks: dict[str, bytes] = {}
         for tag in obj.tags:
             mask = bytearray(bit_mask_size)
             for i, entry in enumerate(obj.entries):
                 if tag.name in entry.tags:
-                    byte_index = i // 8
-                    bit_offset = i % 8
-                    mask[byte_index] |= (1 << bit_offset)
+                    mask[i >> 3] |= 0x80 >> (i & 7)
             tag_masks[tag.name] = bytes(mask)
 
         # Write file entries FIRST (all versions have entries before tags)

@@ -3,7 +3,10 @@
 import struct
 from io import BytesIO
 
+import pytest
+
 from cascette_tools.formats.install import (
+    InstallBuilder,
     InstallEntry,
     InstallFile,
     InstallParser,
@@ -503,3 +506,104 @@ class TestInstallParser:
                 assert "Base" in entry.tags
             else:
                 assert "Base" not in entry.tags
+
+
+class TestInstallParserEdgeCases:
+    """Test uncovered edge cases in InstallParser."""
+
+    def _build_v1_header(self, tag_count: int = 0, entry_count: int = 0) -> bytes:
+        """Build a minimal V1 install manifest header."""
+        data = BytesIO()
+        data.write(b'IN')
+        data.write(struct.pack('B', 1))        # version
+        data.write(struct.pack('B', 16))       # hash_size
+        data.write(struct.pack('>H', tag_count))
+        data.write(struct.pack('>I', entry_count))
+        return data.getvalue()
+
+    def test_parse_stream_input(self):
+        """Test parse() accepts BytesIO stream directly."""
+        header = self._build_v1_header()
+        parser = InstallParser()
+        result = parser.parse(BytesIO(header))
+        assert result.version == 1
+        assert len(result.entries) == 0
+
+    def test_parse_truncated_tag_bitmask(self):
+        """Test that truncated tag bitmask raises ValueError."""
+        parser = InstallParser()
+        # 1 tag, 2 entries: mask_size=1, but we provide only the name+type with no mask
+        data = self._build_v1_header(tag_count=1, entry_count=2)
+        data += b'Base\x00'              # tag name
+        data += struct.pack('>H', 1)     # tag type
+        # Intentionally omit the 1-byte bitmask
+        with pytest.raises(ValueError, match="Insufficient data for bit mask"):
+            parser.parse(data)
+
+    def test_parse_truncated_md5_hash(self):
+        """Test that truncated MD5 hash raises ValueError."""
+        parser = InstallParser()
+        data = self._build_v1_header(tag_count=0, entry_count=1)
+        data += b'test.exe\x00'         # filename
+        data += b'\x00' * 8             # only 8 of 16 hash bytes
+        with pytest.raises(ValueError, match="Insufficient data for MD5 hash"):
+            parser.parse(data)
+
+    def test_parse_v2_truncated_file_type(self):
+        """Test that truncated file_type field in V2 raises ValueError."""
+        parser = InstallParser()
+        # Build V2 header manually
+        data = BytesIO()
+        data.write(b'IN')
+        data.write(struct.pack('B', 2))   # version = 2
+        data.write(struct.pack('B', 16))  # hash_size
+        data.write(struct.pack('>H', 0))  # tag_count = 0
+        data.write(struct.pack('>I', 1))  # entry_count = 1
+        # Entry: filename + full MD5 + 4-byte size but no file_type byte
+        data.write(b'test.exe\x00')
+        data.write(b'\x00' * 16)          # full hash
+        data.write(struct.pack('>I', 1024))  # file_size
+        # No file_type byte
+        with pytest.raises(ValueError, match="Insufficient data for file_type"):
+            parser.parse(data.getvalue())
+
+
+class TestInstallBuilder:
+    """Test InstallBuilder class methods."""
+
+    def test_builder_build(self):
+        """Test InstallBuilder.build() delegates to InstallParser."""
+        install = InstallFile(version=1, hash_size=16, tags=[], entries=[])
+        builder = InstallBuilder()
+        data = builder.build(install)
+        # Should produce the standard empty header
+        assert data == b'IN\x01\x10\x00\x00\x00\x00\x00\x00'
+
+    def test_create_empty(self):
+        """Test InstallBuilder.create_empty() creates correct defaults."""
+        install = InstallBuilder.create_empty()
+        assert install.version == 1
+        assert install.hash_size == 16
+        assert install.tags == []
+        assert install.entries == []
+
+    def test_create_with_entries(self):
+        """Test InstallBuilder.create_with_entries() sets entries correctly."""
+        entries = [
+            InstallEntry(filename="file.dat", md5_hash=b'\x00' * 16, size=100, tags=[]),
+        ]
+        install = InstallBuilder.create_with_entries(entries)
+        assert install.version == 1
+        assert install.hash_size == 16
+        assert len(install.entries) == 1
+        assert install.entries[0].filename == "file.dat"
+
+    def test_create_with_entries_and_tags(self):
+        """Test InstallBuilder.create_with_entries() preserves custom tags."""
+        tags = [InstallTag(name="Base", tag_type=1, bit_mask=b'\x80')]
+        entries = [
+            InstallEntry(filename="file.dat", md5_hash=b'\x00' * 16, size=100, tags=["Base"]),
+        ]
+        install = InstallBuilder.create_with_entries(entries, tags=tags)
+        assert len(install.tags) == 1
+        assert install.tags[0].name == "Base"

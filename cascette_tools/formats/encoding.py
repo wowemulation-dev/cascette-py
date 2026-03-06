@@ -201,9 +201,13 @@ class EncodingParser(FormatParser[EncodingFile]):
         return entries
 
     def _parse_ckey_index(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
-        """Parse CKey page index."""
-        # Each index entry is exactly 32 bytes: 16 bytes first_key + 16 bytes checksum
-        entry_size = 32
+        """Parse CKey page index.
+
+        Per Agent.exe ParseHeader: each entry = key_size_c + 16 bytes
+        (first CKey of page + MD5 checksum of page).
+        """
+        key_sz = header.ckey_size
+        entry_size = key_sz + 16
         index_size = header.ckey_page_count * entry_size
         if index_size == 0:
             return []
@@ -212,24 +216,27 @@ class EncodingParser(FormatParser[EncodingFile]):
         if len(index_data) != index_size:
             raise ValueError(f"Incomplete CKey index: expected {index_size}, got {len(index_data)}")
 
-        # Parse index entries
         index: list[tuple[bytes, bytes]] = []
         offset = 0
 
         for _ in range(header.ckey_page_count):
             if offset + entry_size > len(index_data):
                 raise ValueError("CKey index truncated")
-            first_key = index_data[offset:offset + 16]
-            checksum = index_data[offset + 16:offset + 32]
+            first_key = index_data[offset:offset + key_sz]
+            checksum = index_data[offset + key_sz:offset + entry_size]
             index.append((first_key, checksum))
             offset += entry_size
 
         return index
 
     def _parse_ekey_index(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
-        """Parse EKey page index."""
-        # Each index entry is exactly 32 bytes: 16 bytes first_key + 16 bytes checksum
-        entry_size = 32
+        """Parse EKey page index.
+
+        Per Agent.exe ParseHeader: each entry = key_size_e + 16 bytes
+        (first EKey of page + MD5 checksum of page).
+        """
+        key_sz = header.ekey_size
+        entry_size = key_sz + 16
         index_size = header.ekey_page_count * entry_size
         if index_size == 0:
             return []
@@ -238,30 +245,32 @@ class EncodingParser(FormatParser[EncodingFile]):
         if len(index_data) != index_size:
             raise ValueError(f"Incomplete EKey index: expected {index_size}, got {len(index_data)}")
 
-        # Parse index entries
         index: list[tuple[bytes, bytes]] = []
         offset = 0
 
         for _ in range(header.ekey_page_count):
             if offset + entry_size > len(index_data):
                 raise ValueError("EKey index truncated")
-            first_key = index_data[offset:offset + 16]
-            checksum = index_data[offset + 16:offset + 32]
+            first_key = index_data[offset:offset + key_sz]
+            checksum = index_data[offset + key_sz:offset + entry_size]
             index.append((first_key, checksum))
             offset += entry_size
 
         return index
 
     def _parse_ckey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
-        """Parse CKey page index sequentially like Rust."""
+        """Parse CKey page index sequentially.
+
+        Each entry = key_size_c bytes (first CKey) + 16 bytes (MD5 checksum).
+        """
+        key_sz = header.ckey_size
         index: list[tuple[bytes, bytes]] = []
 
         for _ in range(header.ckey_page_count):
-            # Read each index entry sequentially (16 + 16 bytes)
-            first_key = stream.read(16)
+            first_key = stream.read(key_sz)
             checksum = stream.read(16)
 
-            if len(first_key) != 16 or len(checksum) != 16:
+            if len(first_key) != key_sz or len(checksum) != 16:
                 raise ValueError("Incomplete CKey index entry")
 
             index.append((first_key, checksum))
@@ -269,15 +278,18 @@ class EncodingParser(FormatParser[EncodingFile]):
         return index
 
     def _parse_ekey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
-        """Parse EKey page index sequentially like Rust."""
+        """Parse EKey page index sequentially.
+
+        Each entry = key_size_e bytes (first EKey) + 16 bytes (MD5 checksum).
+        """
+        key_sz = header.ekey_size
         index: list[tuple[bytes, bytes]] = []
 
         for _ in range(header.ekey_page_count):
-            # Read each index entry sequentially (16 + 16 bytes)
-            first_key = stream.read(16)
+            first_key = stream.read(key_sz)
             checksum = stream.read(16)
 
-            if len(first_key) != 16 or len(checksum) != 16:
+            if len(first_key) != key_sz or len(checksum) != 16:
                 raise ValueError("Incomplete EKey index entry")
 
             index.append((first_key, checksum))
@@ -584,6 +596,10 @@ class EncodingParser(FormatParser[EncodingFile]):
                        max_entries: int = 1000) -> EKeyPage:
         """Load and parse a specific EKey page.
 
+        EKey page entry format (per Agent.exe RE, encoding-system.md):
+            encoding_key[key_size_e] + espec_index(4 BE) + file_size_hi(1) + file_size_lo(4 BE)
+        Total per entry: key_size_e + 9 bytes. No content key in EKey page entries.
+
         Args:
             encoding_data: Complete encoding file data
             encoding_file: Parsed encoding file structure
@@ -608,18 +624,18 @@ class EncodingParser(FormatParser[EncodingFile]):
         page_data = encoding_data[page_offset:page_offset + page_size]
 
         # Parse page entries
+        # Entry stride = key_size_e + 4 + 5 = key_size_e + 9 bytes per Agent.exe RE
+        entry_stride = header.ekey_size + 9
         entries: list[EKeyPageEntry] = []
         offset = 0
         entry_count = 0
 
-        while offset + header.ekey_size + 9 <= len(page_data) and entry_count < max_entries:
-            # Read encoding key (16 bytes)
+        while offset + entry_stride <= len(page_data) and entry_count < max_entries:
+            # Read encoding key
             encoding_key = page_data[offset:offset + header.ekey_size]
             offset += header.ekey_size
 
-            # Read ESpec index (4 bytes, big-endian matching Rust)
-            if offset + 4 > len(page_data):
-                break
+            # Read ESpec index (4 bytes, big-endian)
             espec_index = struct.unpack('>I', page_data[offset:offset + 4])[0]
             offset += 4
 
@@ -632,26 +648,17 @@ class EncodingParser(FormatParser[EncodingFile]):
                 break
 
             # Read file size (40-bit: 1 byte high + 4 bytes low, big-endian)
-            if offset + 5 > len(page_data):
-                break
             file_size_high = page_data[offset]
             offset += 1
             file_size_low = struct.unpack('>I', page_data[offset:offset + 4])[0]
             offset += 4
             file_size = (file_size_high << 32) | file_size_low
 
-            # For simplicity, assume 1 content key per encoding key
-            # Real implementation would parse the actual structure
-            content_keys: list[bytes] = []
-            if offset + header.ckey_size <= len(page_data):
-                ckey = page_data[offset:offset + header.ckey_size]
-                if ckey != b'\x00' * header.ckey_size:
-                    content_keys.append(ckey)
-                offset += header.ckey_size
-
+            # EKey page entries do not contain content keys per Agent.exe RE doc.
+            # CKey → EKey mapping lives in CKey pages only.
             entries.append(EKeyPageEntry(
                 encoding_key=encoding_key,
-                content_keys=content_keys,
+                content_keys=[],
                 espec_index=espec_index,
                 file_size=file_size
             ))
@@ -673,12 +680,14 @@ class EncodingParser(FormatParser[EncodingFile]):
         """Calculate offset of EKey page data.
 
         EKey pages come after CKey pages and EKey index.
+        EKey index entry size = key_size_e + 16 bytes (per Agent.exe ParseHeader).
         """
         header = encoding_file.header
 
         # EKey pages start after: CKey pages + EKey index
         ckey_pages_size = header.ckey_page_count * header.ckey_page_size_kb * 1024
-        ekey_index_size = header.ekey_page_count * 32  # 32 bytes per index entry
+        ekey_index_entry_size = header.ekey_size + 16
+        ekey_index_size = header.ekey_page_count * ekey_index_entry_size
 
         ekey_pages_start = encoding_file.pages_start_offset + ckey_pages_size + ekey_index_size
         page_size_bytes = header.ekey_page_size_kb * 1024

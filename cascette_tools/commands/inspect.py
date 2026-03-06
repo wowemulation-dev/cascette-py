@@ -68,6 +68,7 @@ def _fetch_from_cdn_or_path(
     config: AppConfig,
     progress_text: str = "Fetching from CDN",
     cdn_type: str = "data",
+    product: Product = Product.WOW,
 ) -> bytes:
     """Fetch data from CDN hash or read from file path.
 
@@ -78,6 +79,7 @@ def _fetch_from_cdn_or_path(
         progress_text: Text to show during CDN fetch
         cdn_type: CDN content type - "config" for build/CDN/patch configs,
             "data" for archives, encoding, root, install, download files
+        product: Product to use for CDN lookup
 
     Returns:
         File content as bytes
@@ -101,7 +103,7 @@ def _fetch_from_cdn_or_path(
             timeout=config.cdn_timeout,
             max_retries=config.cdn_max_retries
         )
-        cdn_client = CDNClient(Product.WOW, config=cdn_config)
+        cdn_client = CDNClient(product, config=cdn_config)
 
         with Progress(
             SpinnerColumn(),
@@ -113,6 +115,8 @@ def _fetch_from_cdn_or_path(
 
             if cdn_type == "config":
                 data = cdn_client.fetch_config(input_str)
+            elif cdn_type == "index":
+                data = cdn_client.fetch_data(input_str, is_index=True)
             else:
                 data = cdn_client.fetch_data(input_str)
 
@@ -205,6 +209,8 @@ def _analyze_blte_stats(data: bytes) -> dict[str, Any]:
 def _analyze_encoding_stats(data: bytes) -> dict[str, Any]:
     """Analyze encoding file statistics."""
     try:
+        if is_blte(data):
+            data = decompress_blte(data)
         parser = EncodingParser()
         encoding = parser.parse(data)
 
@@ -377,12 +383,20 @@ def inspect() -> None:
     type=click.Path(path_type=Path),
     help="Save decompressed data to file"
 )
+@click.option(
+    "--product",
+    "-p",
+    type=click.Choice([p.value for p in Product], case_sensitive=False),
+    default="wow",
+    help="Product code (used when fetching from CDN by hash)",
+)
 @click.pass_context
 def blte(
     ctx: click.Context,
     input_path: str,
     decompress: bool,
-    output_file: Path | None
+    output_file: Path | None,
+    product: str,
 ) -> None:
     """Examine BLTE compressed files.
 
@@ -393,7 +407,10 @@ def blte(
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching BLTE file")
+        product_enum = Product(product)
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching BLTE file", product=product_enum
+        )
 
         parser = BLTEParser()
         blte_file = parser.parse(data)
@@ -517,12 +534,20 @@ def blte(
     type=str,
     help="Search for specific content key (hex string)"
 )
+@click.option(
+    "--product",
+    "-p",
+    type=click.Choice([p.value for p in Product], case_sensitive=False),
+    default="wow",
+    help="Product code (used when fetching from CDN by hash)",
+)
 @click.pass_context
 def encoding(
     ctx: click.Context,
     input_path: str,
     limit: int,
-    search: str | None
+    search: str | None,
+    product: str,
 ) -> None:
     """Examine encoding files.
 
@@ -532,7 +557,13 @@ def encoding(
     config, console, _, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching encoding file")
+        product_enum = Product(product)
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching encoding file", product=product_enum
+        )
+
+        if is_blte(data):
+            data = decompress_blte(data)
 
         parser = EncodingParser()
         encoding_file = parser.parse(data)
@@ -548,17 +579,44 @@ def encoding(
                 "ckey_page_count": encoding_file.header.ckey_page_count,
                 "ekey_page_count": encoding_file.header.ekey_page_count,
                 "espec_size": encoding_file.header.espec_size,
-                "sample_entries": []
+                "ckey_index_count": len(encoding_file.ckey_index),
+                "ekey_index_count": len(encoding_file.ekey_index),
+                "espec_table_count": len(encoding_file.espec_table),
             }
 
-            result["ckey_index_count"] = len(encoding_file.ckey_index)
-            result["ekey_index_count"] = len(encoding_file.ekey_index)
-            result["espec_table_count"] = len(encoding_file.espec_table)
-
             if search:
-                result["note"] = "Search functionality requires page parsing implementation"
+                try:
+                    ckey_bytes = bytes.fromhex(search)
+                    ekeys = parser.find_content_key(data, encoding_file, ckey_bytes)
+                    if ekeys:
+                        result["search_result"] = {
+                            "content_key": search,
+                            "encoding_keys": [k.hex() for k in ekeys],
+                        }
+                    else:
+                        result["search_result"] = {"content_key": search, "found": False}
+                except ValueError as e:
+                    result["search_error"] = str(e)
             else:
-                result["note"] = "Full entry parsing requires page loading implementation"
+                entries: list[dict[str, Any]] = []
+                collected = 0
+                for page_idx in range(encoding_file.header.ckey_page_count):
+                    if collected >= limit:
+                        break
+                    try:
+                        page = parser.load_ckey_page(data, encoding_file, page_idx)
+                        for entry in page.entries:
+                            if collected >= limit:
+                                break
+                            entries.append({
+                                "content_key": entry.content_key.hex(),
+                                "encoding_keys": [k.hex() for k in entry.encoding_keys],
+                                "file_size": entry.file_size,
+                            })
+                            collected += 1
+                    except Exception:
+                        break
+                result["entries"] = entries
 
             _output_json(result, console)
         else:
@@ -579,11 +637,49 @@ def encoding(
             _output_table(header_table, console)
 
             if search:
-                console.print("[yellow]Search functionality requires page parsing implementation[/yellow]")
-                console.print("[yellow]Use encoding parser's find_content_key method for specific searches[/yellow]")
+                try:
+                    ckey_bytes = bytes.fromhex(search)
+                    ekeys = parser.find_content_key(data, encoding_file, ckey_bytes)
+                    if ekeys:
+                        result_table = Table(title=f"Search Result: {search[:16]}...")
+                        result_table.add_column("Content Key", style="cyan")
+                        result_table.add_column("Encoding Keys", style="green")
+                        ekey_str = "\n".join(k.hex() for k in ekeys)
+                        result_table.add_row(search, ekey_str)
+                        _output_table(result_table, console)
+                    else:
+                        console.print(f"[yellow]Content key not found: {search}[/yellow]")
+                except ValueError as e:
+                    console.print(f"[red]Invalid hex key: {e}[/red]")
             else:
-                console.print("[yellow]Entry details require loading pages individually[/yellow]")
-                console.print("[yellow]Use encoding parser's load_ckey_page method to access entries[/yellow]")
+                entries_table = Table(title=f"CKey Entries (first {limit})")
+                entries_table.add_column("Content Key", style="cyan", no_wrap=True)
+                entries_table.add_column("Encoding Keys", style="green")
+                entries_table.add_column("File Size", style="magenta", justify="right")
+
+                collected = 0
+                for page_idx in range(encoding_file.header.ckey_page_count):
+                    if collected >= limit:
+                        break
+                    try:
+                        page = parser.load_ckey_page(data, encoding_file, page_idx)
+                        for entry in page.entries:
+                            if collected >= limit:
+                                break
+                            ekey_str = "\n".join(k.hex() for k in entry.encoding_keys)
+                            entries_table.add_row(
+                                entry.content_key.hex(),
+                                ekey_str,
+                                format_size(entry.file_size),
+                            )
+                            collected += 1
+                    except Exception:
+                        break
+
+                if collected > 0:
+                    _output_table(entries_table, console)
+                else:
+                    console.print("[yellow]No entries found in CKey pages[/yellow]")
 
     except click.ClickException:
         raise
@@ -594,8 +690,15 @@ def encoding(
 
 @inspect.command()
 @click.argument("input_path", type=str)
+@click.option(
+    "--product",
+    "-p",
+    type=click.Choice([p.value for p in Product], case_sensitive=False),
+    default="wow",
+    help="Product code (used when fetching from CDN by hash)",
+)
 @click.pass_context
-def config(ctx: click.Context, input_path: str) -> None:
+def config(ctx: click.Context, input_path: str, product: str) -> None:
     """Examine build/CDN/product configuration files.
 
     INPUT can be either a file path or CDN hash.
@@ -604,7 +707,11 @@ def config(ctx: click.Context, input_path: str) -> None:
     config_obj, console, _, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config_obj, "Fetching config file", cdn_type="config")
+        product_enum = Product(product)
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config_obj, "Fetching config file",
+            cdn_type="config", product=product_enum
+        )
 
         if not is_config_file(data):
             raise click.ClickException("Input is not a valid config file")
@@ -679,7 +786,7 @@ def archive(ctx: click.Context, input_path: str) -> None:
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching archive index")
+        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching archive index", cdn_type="index")
 
         parser = ArchiveIndexParser()
         archive_index = parser.parse(data)
@@ -858,6 +965,8 @@ def dependencies(
             raise click.ClickException(f"Invalid content key hex string: {e}") from e
 
         encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
 
         parser = EncodingParser()
         encoding = parser.parse(encoding_data)
@@ -920,6 +1029,8 @@ def coverage(
         }
 
         encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
         encoding_parser = EncodingParser()
         encoding = encoding_parser.parse(encoding_data)
 

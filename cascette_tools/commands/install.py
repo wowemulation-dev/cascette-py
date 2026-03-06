@@ -153,15 +153,15 @@ def install() -> None:
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
-    default="us",
-    help="CDN region"
+    default=None,
+    help="CDN region (default: from config, initially 'kr')"
 )
 @click.pass_context
 def resolve_manifests(
     ctx: click.Context,
     build_config_hash: str,
     product: str,
-    region: str
+    region: str | None,
 ) -> None:
     """Resolve all manifests starting from a build config hash.
 
@@ -172,7 +172,8 @@ def resolve_manifests(
     2. Encoding file -> install/root content key resolution
     3. Install manifest -> file list and sizes
     """
-    _, console, verbose, _ = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Initialize CDN client with Ribbit integration
@@ -408,7 +409,8 @@ def discover_latest(
     """
     from cascette_tools.core.tact import TACTClient
 
-    _, console, _, _ = _get_context_objects(ctx)
+    config_obj, console, _, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Use TACTClient for querying versions
@@ -480,8 +482,8 @@ def discover_latest(
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
-    default="us",
-    help="CDN region"
+    default=None,
+    help="CDN region (default: from config, initially 'kr')"
 )
 @click.option(
     "--max-archives", "-m",
@@ -501,7 +503,7 @@ def extract_from_archives(
     encoding_key: str,
     output_path: Path,
     product: str,
-    region: str,
+    region: str | None,
     max_archives: int,
     no_decompress: bool
 ) -> None:
@@ -522,7 +524,8 @@ def extract_from_archives(
         TextColumn,
     )
 
-    _, console, _, _ = _get_context_objects(ctx)
+    config_obj, console, _, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Parse encoding key
@@ -624,8 +627,8 @@ def extract_from_archives(
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
-    default="us",
-    help="CDN region"
+    default=None,
+    help="CDN region (default: from config, initially 'kr')"
 )
 @click.option(
     "--max-archives", "-m",
@@ -652,7 +655,7 @@ def extract_priority_files(
     cdn_config_hash: str,
     output_dir: Path,
     product: str,
-    region: str,
+    region: str | None,
     max_archives: int,
     max_files: int,
     priority: int
@@ -677,7 +680,8 @@ def extract_priority_files(
         TextColumn,
     )
 
-    _, console, verbose, _ = _get_context_objects(ctx)
+    config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Initialize CDN client
@@ -1457,8 +1461,8 @@ def _resolve_ekey(
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
-    default="us",
-    help="CDN region"
+    default=None,
+    help="CDN region (default: from config, initially 'kr')"
 )
 @click.option(
     "--resume/--no-resume",
@@ -1490,7 +1494,7 @@ def install_to_casc(
     platform: str,
     arch: str,
     locale: str,
-    region: str,
+    region: str | None,
     resume: bool,
     force: bool,
     shmem_version: str,
@@ -1506,7 +1510,8 @@ def install_to_casc(
     CDN_CONFIG_HASH is the CDN config hash from versions endpoint.
     INSTALL_PATH is the installation directory (e.g., /path/to/wow).
     """
-    _config, console, _verbose, _debug = _get_context_objects(ctx)
+    config_obj, console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Step 0: Resume detection - check for existing .build.info
@@ -2185,7 +2190,7 @@ def update(
     ctx: click.Context,
     install_path: Path,
     product: str,
-    region: str,
+    region: str | None,
     build_config_hash: str | None,
     cdn_config_hash: str | None,
     priority: int,
@@ -2199,7 +2204,8 @@ def update(
 
     INSTALL_PATH is the root of an existing installation (must contain .build.info).
     """
-    _config, console, _verbose, _debug = _get_context_objects(ctx)
+    config_obj, console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Step 1: Read existing .build.info
@@ -2599,7 +2605,7 @@ def build_ecache(
     ctx: click.Context,
     install_path: Path,
     product: str,
-    region: str,
+    region: str | None,
 ) -> None:
     """Bootstrap an encoding cache from CDN for an existing installation.
 
@@ -2611,7 +2617,8 @@ def build_ecache(
 
     INSTALL_PATH is the root of an existing installation (must contain .build.info).
     """
-    _config, console, _verbose, _debug = _get_context_objects(ctx)
+    config_obj, console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Step 1: Read .build.info
@@ -2881,7 +2888,7 @@ def install_containerless(
     cdn_config_hash: str,
     install_path: Path,
     product: str,
-    region: str,
+    region: str | None,
     platform: str,
     arch: str,
     locale: str,
@@ -2897,7 +2904,8 @@ def install_containerless(
     CDN_CONFIG_HASH is the CDN config hash from versions endpoint.
     INSTALL_PATH is the installation directory.
     """
-    _config, console, _verbose, _debug = _get_context_objects(ctx)
+    config_obj, console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Step 1: Fetch and parse configs
@@ -3148,7 +3156,7 @@ def update_containerless(
     ctx: click.Context,
     install_path: Path,
     product: str,
-    region: str,
+    region: str | None,
     build_config_hash: str | None,
     cdn_config_hash: str | None,
     max_archives: int,
@@ -3161,7 +3169,8 @@ def update_containerless(
 
     INSTALL_PATH is the root of an existing containerless installation.
     """
-    _config, console, _verbose, _debug = _get_context_objects(ctx)
+    config_obj, console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Step 1: Read existing .build.info
@@ -3500,19 +3509,34 @@ def _scan_local_installation(install_path: Path, product_code: str) -> Installat
     if state.tags.platform:
         logger.info(f"Detected tags: {state.tags.platform} {state.tags.architecture} {state.tags.locale_display}")
 
-    data_path = install_path / "Data" / product_code
-    if not data_path.exists():
-        data_path = install_path / "Data"
+    # Support multiple CASC root layouts:
+    #   WoW:    <install>/Data/
+    #   agent:  <install>/data/<product_code>/   (lowercase, product subdir)
+    #   bna:    <install>/.battle.net/<product_code>/
+    data_path_candidates = [
+        install_path / ".battle.net" / product_code,       # bna: .battle.net/bna/
+        install_path / "Data" / product_code,
+        install_path / "Data",
+        install_path / "data" / product_code,              # agent: data/agent/
+        install_path / "data",
+    ]
+    data_path = next((p for p in data_path_candidates if p.exists()), install_path / "Data")
 
     logger.info(f"Scanning installation at {data_path}")
 
-    config_path = data_path / "config" if (data_path / "config").exists() else install_path / "Data" / "config"
-    if config_path.exists():
-        for config_file in config_path.rglob("*"):
-            if config_file.is_file() and len(config_file.name) == 32:
-                state.build_config_hash = config_file.name
-                logger.debug(f"Found config: {config_file.name}")
-                break
+    # Config files live under the shared CASC root (parent of the product subdir),
+    # or directly under the product subdir for dedicated installs.
+    config_roots = [data_path, data_path.parent] if data_path.name == product_code else [data_path]
+    for config_root in config_roots:
+        config_path = config_root / "config"
+        if config_path.exists():
+            for config_file in config_path.rglob("*"):
+                if config_file.is_file() and len(config_file.name) == 32:
+                    state.build_config_hash = config_file.name
+                    logger.debug(f"Found config: {config_file.name}")
+                    break
+        if state.build_config_hash:
+            break
 
     idx_locations = [
         data_path,

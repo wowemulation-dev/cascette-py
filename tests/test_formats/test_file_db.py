@@ -44,7 +44,7 @@ def _make_test_db(
     conn.commit()
     result = conn.serialize()
     conn.close()
-    return bytes(result) if result is not None else b""
+    return bytes(result)
 
 
 class TestFileDatabaseParser:
@@ -244,6 +244,124 @@ class TestFileDbTags:
         # No filters → all entries
         filtered = db.filter_by_tags()
         assert len(filtered) == 2
+
+
+class TestFileDatabaseParserEdgeCases:
+    """Test edge cases not covered by existing tests."""
+
+    def test_parse_stream_input(self):
+        """Test parse() accepts a BytesIO stream, not just bytes."""
+        from io import BytesIO
+        blob = _make_test_db([], entry_count=0)
+        parser = FileDatabaseParser()
+        db = parser.parse(BytesIO(blob))
+        assert db.meta.entry_count == 0
+        assert db.entries == []
+
+    def test_parse_no_meta_row_raises(self):
+        """Test that a SQLite blob with no meta row raises ValueError."""
+        # Create a valid SQLite but with empty meta table
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE meta (id INTEGER PRIMARY KEY, entry_count INTEGER)")
+        conn.execute("CREATE TABLE tags (id INTEGER PRIMARY KEY, data BLOB)")
+        conn.execute(
+            "CREATE TABLE files ("
+            "file_index INTEGER PRIMARY KEY, ekey BLOB, ckey BLOB, "
+            "encoded_size INTEGER, decoded_size INTEGER, "
+            "flags INTEGER, relative_path TEXT)"
+        )
+        conn.commit()
+        blob = bytes(conn.serialize())
+        conn.close()
+
+        parser = FileDatabaseParser()
+        with pytest.raises(ValueError, match="No meta row"):
+            parser.parse(blob)
+
+    def test_build_with_tags(self):
+        """Test build() includes tags in the resulting SQLite blob."""
+        import struct
+        name = b"Windows"
+        tags_blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
+        entries = [(0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file.dat")]
+        blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=1)
+
+        parser = FileDatabaseParser()
+        db = parser.parse(blob)
+
+        # Rebuild and re-parse — tags should be preserved
+        rebuilt = parser.build(db)
+        db2 = parser.parse(rebuilt)
+        assert len(db2.tags) == 1
+        assert db2.tags[0].name == "Windows"
+
+    def test_filter_by_tags_arch(self):
+        """Test filter_by_tags() with arch parameter."""
+        import struct
+        arch_name = b"x86_64"
+        tags_blob = struct.pack('<H', len(arch_name)) + arch_name + struct.pack('<H', 1) + b'\x80'
+        entries = [
+            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file0.dat"),
+            (1, b'\x03' * 16, b'\x04' * 16, 100, 200, 0, "file1.dat"),
+        ]
+        blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=2)
+        db = FileDatabaseParser().parse(blob)
+
+        # Filter by arch → only file 0 (bit 0 = 0x80 set)
+        filtered = db.filter_by_tags(arch="x86_64")
+        assert len(filtered) == 1
+        assert filtered[0].file_index == 0
+
+    def test_filter_by_tags_no_matching_tags_returns_all(self):
+        """Test that filter_by_tags() returns all entries when no matching tags found."""
+        import struct
+        name = b"Windows"
+        tags_blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
+        entries = [
+            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file0.dat"),
+            (1, b'\x03' * 16, b'\x04' * 16, 100, 200, 0, "file1.dat"),
+        ]
+        blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=2)
+        db = FileDatabaseParser().parse(blob)
+
+        # Filter by a tag that doesn't exist in the database → all entries returned
+        filtered = db.filter_by_tags(platform="Linux")
+        assert len(filtered) == 2  # Returns all when no matching tags
+
+
+class TestParseTagsBlobEdgeCases:
+    """Test truncated input paths in _parse_tags_blob."""
+
+    def test_truncated_name_len(self):
+        """Truncated name_len_data causes early break, returning empty list."""
+        blob = b'\x03'  # Only 1 byte instead of 2 for name_len
+        tags = _parse_tags_blob(blob, entry_count=1)
+        assert len(tags) == 0
+
+    def test_truncated_name(self):
+        """Truncated name causes early break."""
+        import struct
+        # name_len=5 but only 3 name bytes
+        blob = struct.pack('<H', 5) + b'abc'
+        tags = _parse_tags_blob(blob, entry_count=1)
+        assert len(tags) == 0
+
+    def test_truncated_tag_type(self):
+        """Truncated tag type causes early break."""
+        import struct
+        name = b"test"
+        blob = struct.pack('<H', len(name)) + name + b'\x01'  # Only 1 byte of tag_type
+        tags = _parse_tags_blob(blob, entry_count=1)
+        assert len(tags) == 0
+
+    def test_truncated_bitmask(self):
+        """Truncated bitmask causes early break."""
+        import struct
+        name = b"test"
+        # mask_size = ceil(4/8) = 1, but we provide 0 bitmask bytes
+        blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1)  # no bitmask
+        tags = _parse_tags_blob(blob, entry_count=4)
+        assert len(tags) == 0
 
 
 class TestIsFileDb:

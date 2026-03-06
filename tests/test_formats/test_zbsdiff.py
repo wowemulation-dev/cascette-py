@@ -517,3 +517,293 @@ class TestZbsdiffParser:
         assert entries[0].add_length == 5
         assert entries[0].copy_length == 10
         assert entries[0].offset == -2
+
+
+class TestZbsdiffBuilder:
+    """Test ZbsdiffBuilder class methods."""
+
+    def test_builder_build(self):
+        """ZbsdiffBuilder.build() delegates to ZbsdiffParser.build()."""
+        from cascette_tools.formats.zbsdiff import (
+            ZbsdiffBuilder,
+            ZbsdiffParser,
+        )
+        empty = ZbsdiffBuilder.create_empty(new_size=0)
+        builder = ZbsdiffBuilder()
+        result = builder.build(empty)
+        parser = ZbsdiffParser()
+        parsed = parser.parse(result)
+        assert parsed.header.new_size == 0
+
+    def test_create_empty(self):
+        """ZbsdiffBuilder.create_empty() returns a valid empty ZbsdiffFile."""
+        from cascette_tools.formats.zbsdiff import ZbsdiffBuilder
+        z = ZbsdiffBuilder.create_empty(new_size=1024)
+        assert z.header.new_size == 1024
+        assert z.header.control_length == 0
+        assert len(z.control_entries) == 0
+
+    def test_create_with_data(self):
+        """ZbsdiffBuilder.create_with_data() sets header fields correctly."""
+
+        from cascette_tools.formats.zbsdiff import (
+            ZbsdiffBuilder,
+            ZbsdiffControlEntry,
+        )
+        control_entry = ZbsdiffControlEntry(add_length=4, copy_length=0, offset=0)
+        diff_data = b'test'
+        z = ZbsdiffBuilder.create_with_data(
+            control_entries=[control_entry],
+            diff_data=diff_data,
+            extra_data=b'',
+            new_size=4
+        )
+        assert z.header.new_size == 4
+        assert z.header.diff_length == len(diff_data)
+        assert len(z.control_entries) == 1
+
+
+class TestZbsdiffEdgeCases:
+    """Test zbsdiff error paths not covered by existing tests."""
+
+    def test_control_decompression_failure(self):
+        """Corrupt zlib control block raises ValueError."""
+        import struct
+        import zlib
+
+        from cascette_tools.formats.zbsdiff import ZbsdiffParser
+        # Build a header pointing to corrupt zlib data
+        corrupt = b'\xFF\xFF\xFF\xFF'  # invalid zlib
+        diff = zlib.compress(b'')
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<Q', len(corrupt))   # control_length
+        buf += struct.pack('<Q', len(diff))      # diff_length
+        buf += struct.pack('<Q', 0)              # new_size
+        buf += corrupt
+        buf += diff
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="decompress control"):
+            parser.parse(bytes(buf))
+
+    def test_diff_decompression_failure(self):
+        """Corrupt zlib diff block raises ValueError."""
+        import struct
+        import zlib
+
+        from cascette_tools.formats.zbsdiff import ZbsdiffParser
+        control = zlib.compress(b'')   # valid empty control
+        corrupt = b'\xFF\xFF\xFF'
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<Q', len(control))
+        buf += struct.pack('<Q', len(corrupt))
+        buf += struct.pack('<Q', 0)
+        buf += control
+        buf += corrupt
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="decompress diff"):
+            parser.parse(bytes(buf))
+
+    def test_negative_old_position_raises(self):
+        """Control entry with large negative offset causes ValueError."""
+        import struct
+        import zlib
+
+        from cascette_tools.formats.zbsdiff import ZbsdiffParser
+
+        # Build a control entry with seek_offset = very large negative → wraps old_pos below 0
+        def _offout(val: int) -> bytes:
+            if val < 0:
+                return struct.pack('<Q', ((-val) | (1 << 63)))
+            return struct.pack('<Q', val)
+
+        # old_data is empty, so old_pos starts at 0; add_length=0, copy_length=0, offset=-1
+        # After the entry: old_pos = 0 + (-1) = -1 → should raise
+        control_entries = _offout(0) + _offout(0) + _offout(-1)  # add=0, copy=0, seek=-1
+        control_compressed = zlib.compress(control_entries)
+        diff_compressed = zlib.compress(b'')
+        extra_compressed = zlib.compress(b'')
+
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<Q', len(control_compressed))
+        buf += struct.pack('<Q', len(diff_compressed))
+        buf += struct.pack('<Q', 0)              # new_size
+        buf += control_compressed
+        buf += diff_compressed
+        buf += extra_compressed
+
+        parser = ZbsdiffParser()
+        z = parser.parse(bytes(buf))
+        with pytest.raises(ValueError, match="Negative old position"):
+            parser.apply_patch(b'', z)
+
+
+class TestZbsdiffParserEdgeCases:
+    """Test edge cases not covered by existing tests."""
+
+    def _make_patch(
+        self,
+        control_entries_bytes: bytes,
+        diff_data: bytes = b'',
+        extra_data: bytes = b'',
+        new_size: int = 0,
+    ) -> bytes:
+        """Build a minimal valid ZBSDIFF1 patch blob."""
+        control_compressed = zlib.compress(control_entries_bytes)
+        diff_compressed = zlib.compress(diff_data)
+        extra_compressed = zlib.compress(extra_data) if extra_data else b''
+
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<q', len(control_compressed))
+        buf += struct.pack('<q', len(diff_compressed))
+        buf += struct.pack('<q', new_size)
+        buf += control_compressed
+        buf += diff_compressed
+        buf += extra_compressed
+        return bytes(buf)
+
+    @staticmethod
+    def _offtout(val: int) -> bytes:
+        """Encode sign-magnitude 64-bit integer."""
+        if val < 0:
+            return struct.pack('<Q', ((-val) | (1 << 63)))
+        return struct.pack('<Q', val)
+
+    def test_diff_block_too_short(self):
+        """Truncated diff block raises ValueError (line 137)."""
+        control = zlib.compress(b'')
+        # Claim diff_length=50 but write only 3 bytes
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<q', len(control))
+        buf += struct.pack('<q', 50)         # diff_length = 50 (too large)
+        buf += struct.pack('<q', 0)
+        buf += control
+        buf += b'\xFF\xFF\xFF'               # only 3 bytes
+
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="Diff block too short"):
+            parser.parse(bytes(buf))
+
+    def test_extra_block_decompression_failure(self):
+        """Corrupt extra block raises ValueError (lines 154-155)."""
+        # Control = empty, diff = empty zlib, extra = corrupt
+        control = zlib.compress(b'')
+        diff = zlib.compress(b'')
+        corrupt_extra = b'\xFF\xFF\xFF'
+
+        buf = bytearray()
+        buf += b'ZBSDIFF1'
+        buf += struct.pack('<q', len(control))
+        buf += struct.pack('<q', len(diff))
+        buf += struct.pack('<q', 0)
+        buf += control
+        buf += diff
+        buf += corrupt_extra
+
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="decompress extra"):
+            parser.parse(bytes(buf))
+
+    def test_struct_error_propagates(self):
+        """struct.error during header parse raises ValueError (line 173)."""
+        # Provide only 4 bytes — header needs 32 bytes
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="(Header too short|Failed to parse)"):
+            parser.parse(b'ZBSDIF\x00\x00')
+
+    def test_diff_block_overflow(self):
+        """Control entry requiring more diff bytes than available raises ValueError (line 232)."""
+        # one entry: add_length=10, diff_data has only 5 bytes, new_size=10
+        entry = self._offtout(10) + self._offtout(0) + self._offtout(0)
+        # diff_data = 5 bytes, but add_length=10 requires 10
+        blob = self._make_patch(entry, diff_data=b'\x01' * 5, new_size=10)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+        with pytest.raises(ValueError, match="Diff block overflow"):
+            parser.apply_patch(b'\x00' * 10, patch)
+
+    def test_apply_patch_beyond_old_data_boundary(self):
+        """add_length extending past old_data uses diff byte directly (line 241)."""
+        # old_data = b'\x10', add_length=2 → index 0 within old, index 1 beyond old
+        # diff_data must have 2 bytes
+        old_data = b'\x10'
+        diff_data = b'\x01\x02'  # 2 bytes
+        entry = self._offtout(2) + self._offtout(0) + self._offtout(0)
+        blob = self._make_patch(entry, diff_data=diff_data, new_size=2)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+        result = parser.apply_patch(old_data, patch)
+
+        # byte 0: old[0] + diff[0] = 0x10 + 0x01 = 0x11
+        # byte 1: old[1] out of range → just diff[1] = 0x02
+        assert result == bytes([0x11, 0x02])
+
+    def test_extra_block_overflow(self):
+        """Control entry requiring more extra bytes than available raises ValueError (line 250)."""
+        # add_length=0, copy_length=10, extra_data has only 5 bytes
+        entry = self._offtout(0) + self._offtout(10) + self._offtout(0)
+        blob = self._make_patch(entry, extra_data=b'\xAA' * 5, new_size=10)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+        with pytest.raises(ValueError, match="Extra block overflow"):
+            parser.apply_patch(b'', patch)
+
+    def test_new_data_overflow_from_copy(self):
+        """Control entry copy_length overflowing new_data raises ValueError (line 252)."""
+        # new_size=2 but copy_length=10 → overflow new_data
+        entry = self._offtout(0) + self._offtout(10) + self._offtout(0)
+        blob = self._make_patch(entry, extra_data=b'\xAA' * 10, new_size=2)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+        with pytest.raises(ValueError, match="(Extra block overflow|New data overflow)"):
+            parser.apply_patch(b'', patch)
+
+    def test_negative_add_length_clamped_to_zero(self):
+        """Negative add_length in control entry is clamped to 0 (line 326)."""
+        # Sign-magnitude encode: bit 63 set = negative, lower bits = magnitude
+        # Encodes -5: magnitude=5, set bit 63
+        magnitude = 5
+        buf = bytearray(struct.pack('<Q', magnitude))
+        buf[7] |= 0x80  # set sign bit
+        entry = bytes(buf) + struct.pack('<Q', 0) + struct.pack('<Q', 0)
+        blob = self._make_patch(entry, new_size=0)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+
+        # With add_length clamped to 0 and copy_length=0, applying to empty produces empty
+        result = parser.apply_patch(b'', patch)
+        assert result == b''
+
+    def test_negative_copy_length_clamped_to_zero(self):
+        """Negative copy_length in control entry is clamped to 0 (line 328)."""
+        # Encode copy_length = -3 via sign-magnitude
+        magnitude = 3
+        buf = bytearray(struct.pack('<Q', magnitude))
+        buf[7] |= 0x80
+        entry = struct.pack('<Q', 0) + bytes(buf) + struct.pack('<Q', 0)
+        blob = self._make_patch(entry, new_size=0)
+
+        parser = ZbsdiffParser()
+        patch = parser.parse(blob)
+        result = parser.apply_patch(b'', patch)
+        assert result == b''
+
+    def test_too_many_control_entries_raises(self):
+        """More than MAX_CONTROL_ENTRIES raises ValueError (line 341)."""
+        # Build MAX_CONTROL_ENTRIES + 1 entries of all zeros
+        entry = struct.pack('<Q', 0) * 3  # add=0, copy=0, seek=0
+        too_many = entry * (MAX_CONTROL_ENTRIES + 1)
+        blob = self._make_patch(too_many, new_size=0)
+
+        parser = ZbsdiffParser()
+        with pytest.raises(ValueError, match="Too many control entries"):
+            parser.parse(blob)

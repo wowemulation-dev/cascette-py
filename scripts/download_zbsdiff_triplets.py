@@ -29,7 +29,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
     create_patch_archive_fetcher,
 )
-from cascette_tools.core.config import AppConfig, CDNConfig
+from cascette_tools.core.config import CDNConfig
 from cascette_tools.core.tact import TACTClient
 from cascette_tools.core.types import Product
 from cascette_tools.formats.blte import decompress_blte, is_blte
@@ -107,14 +107,18 @@ def main() -> None:
         print("ERROR: No version entry found")
         sys.exit(1)
 
-    build_config_hash = version_entry.get(
+    build_config_hash: str | None = version_entry.get(
         "BuildConfig", version_entry.get("buildconfig")
     )
-    cdn_config_hash = version_entry.get(
+    cdn_config_hash: str | None = version_entry.get(
         "CDNConfig", version_entry.get("cdnconfig")
     )
     print(f"  Build config: {build_config_hash}")
     print(f"  CDN config:   {cdn_config_hash}")
+
+    if not build_config_hash or not cdn_config_hash:
+        print("ERROR: Missing build or CDN config hash in version entry")
+        sys.exit(1)
 
     with CDNClient(product_enum, args.region, cdn_config) as cdn_client:
         # Step 2: Parse build config for patch manifest EKey
@@ -210,7 +214,7 @@ def main() -> None:
 
         saved = 0
         skipped = 0
-        manifest: list[dict] = []
+        manifest: list[dict[str, object]] = []
 
         for fe in pa_file.file_entries:
             if saved >= args.limit:

@@ -32,35 +32,41 @@ class TestDownloadParser:
         assert not is_download(b'')
 
     def test_download_tag_has_file(self):
-        """Test DownloadTag.has_file method."""
+        """Test DownloadTag.has_file method.
+
+        Bit ordering is MSB-first per Agent.exe TestBitmapBit:
+          bitMask = 0x80 >> (fileIndex & 7)
+        File 0 -> 0x80 (MSB), file 1 -> 0x40, ..., file 7 -> 0x01 (LSB).
+        """
         # Create tag with bitmask: files 0, 2, 5 have the tag
-        # Byte 0: bits 0, 2, 5 set = 0b00100101 = 0x25
+        # File 0 -> 0x80, file 2 -> 0x20, file 5 -> 0x04 => 0xA4
         bitmask = bytearray(1)
-        bitmask[0] = 0b00100101  # bits 0, 2, 5 set
+        bitmask[0] = 0x80 | 0x20 | 0x04  # files 0, 2, 5 set = 0xA4
 
         tag = DownloadTag(name="test", tag_type=1, file_mask=bytes(bitmask))
 
-        assert tag.has_file(0) is True   # bit 0
-        assert tag.has_file(1) is False  # bit 1
-        assert tag.has_file(2) is True   # bit 2
-        assert tag.has_file(3) is False  # bit 3
-        assert tag.has_file(4) is False  # bit 4
-        assert tag.has_file(5) is True   # bit 5
-        assert tag.has_file(6) is False  # bit 6
-        assert tag.has_file(7) is False  # bit 7
+        assert tag.has_file(0) is True   # file 0 -> 0x80
+        assert tag.has_file(1) is False  # file 1 -> 0x40
+        assert tag.has_file(2) is True   # file 2 -> 0x20
+        assert tag.has_file(3) is False  # file 3 -> 0x10
+        assert tag.has_file(4) is False  # file 4 -> 0x08
+        assert tag.has_file(5) is True   # file 5 -> 0x04
+        assert tag.has_file(6) is False  # file 6 -> 0x02
+        assert tag.has_file(7) is False  # file 7 -> 0x01
         assert tag.has_file(8) is False  # out of range
 
         # Test with multiple bytes
+        # File 0 -> 0x80 in byte 0, file 8 -> 0x80 in byte 1
         bitmask_multi = bytearray(2)
-        bitmask_multi[0] = 0b00000001  # bit 0 set
-        bitmask_multi[1] = 0b00000001  # bit 8 set (first bit of second byte)
+        bitmask_multi[0] = 0x80  # file 0 set (MSB of byte 0)
+        bitmask_multi[1] = 0x80  # file 8 set (MSB of byte 1)
 
         tag_multi = DownloadTag(name="test2", tag_type=2, file_mask=bytes(bitmask_multi))
 
-        assert tag_multi.has_file(0) is True   # bit 0 in byte 0
-        assert tag_multi.has_file(7) is False  # bit 7 in byte 0
-        assert tag_multi.has_file(8) is True   # bit 0 in byte 1
-        assert tag_multi.has_file(15) is False  # bit 7 in byte 1
+        assert tag_multi.has_file(0) is True   # file 0 in byte 0
+        assert tag_multi.has_file(7) is False  # file 7 in byte 0
+        assert tag_multi.has_file(8) is True   # file 8 in byte 1
+        assert tag_multi.has_file(15) is False  # file 15 in byte 1
         assert tag_multi.has_file(16) is False  # out of range
 
     def test_parse_empty_download(self):
@@ -115,10 +121,11 @@ class TestDownloadParser:
         data.write(struct.pack('>Q', 2000)[3:])  # Size (5 bytes)
         data.write(struct.pack('B', 20))  # Priority
 
-        # Tag: "Windows" type 1, affects files 0 and 1 (version 1: tags come AFTER entries)
+        # Tag: "Windows" type 1, affects files 0 and 1 (MSB-first bit ordering)
+        # File 0 -> 0x80, file 1 -> 0x40; combined 0xC0
         data.write(b'Windows\x00')  # Tag name
         data.write(struct.pack('>H', 1))  # Tag type
-        data.write(b'\x03')  # Bitmask: 0b00000011 (files 0 and 1)
+        data.write(b'\xC0')  # Bitmask: files 0 and 1 (MSB-first)
 
         parser = DownloadParser()
         result = parser.parse(data.getvalue())
@@ -256,7 +263,7 @@ class TestDownloadParser:
         tag = DownloadTag(
             name="Test",
             tag_type=42,
-            file_mask=b'\x01'  # File 0 has this tag
+            file_mask=b'\x80'  # File 0 has this tag (MSB-first: file 0 -> 0x80)
         )
 
         entry = DownloadEntry(
@@ -334,8 +341,10 @@ class TestDownloadParser:
             tag_count=2
         )
 
-        tag1 = DownloadTag(name="Windows", tag_type=1, file_mask=b'\x05')  # Files 0 and 2
-        tag2 = DownloadTag(name="enUS", tag_type=2, file_mask=b'\x03')  # Files 0 and 1
+        # MSB-first: file 0 -> 0x80, file 2 -> 0x20 => 0xA0
+        #            file 0 -> 0x80, file 1 -> 0x40 => 0xC0
+        tag1 = DownloadTag(name="Windows", tag_type=1, file_mask=b'\xA0')  # Files 0 and 2
+        tag2 = DownloadTag(name="enUS", tag_type=2, file_mask=b'\xC0')  # Files 0 and 1
 
         entry1 = DownloadEntry(
             ekey=b'\x01\x02\x03\x04\x05\x06\x07\x08\x09',
@@ -567,3 +576,258 @@ class TestDownloadParser:
         is_valid, message = parser.validate(invalid_data)
         assert not is_valid
         assert "Invalid magic" in message
+
+
+class TestDownloadParserV2V3:
+    """Tests for V2 and V3 download manifest features."""
+
+    def _build_v2_manifest(self, entries: list[DownloadEntry], tags: list[DownloadTag] | None = None,
+                            flag_size: int = 1) -> bytes:
+        tags = tags or []
+        bit_mask_size = (len(entries) + 7) // 8
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 2))               # version 2
+        buf.write(struct.pack('B', 16))              # ekey_size
+        buf.write(struct.pack('B', 0))               # has_checksum
+        buf.write(struct.pack('>I', len(entries)))   # entry_count
+        buf.write(struct.pack('>H', len(tags)))      # tag_count
+        buf.write(struct.pack('B', flag_size))       # flag_size (V2+)
+        for e in entries:
+            buf.write(e.ekey)
+            buf.write(struct.pack('>Q', e.size)[3:])
+            buf.write(struct.pack('b', e.priority))
+            if flag_size > 0:
+                buf.write(e.flags or b'\x00' * flag_size)
+        for t in tags:
+            buf.write(t.name.encode() + b'\x00')
+            buf.write(struct.pack('>H', t.tag_type))
+            mask = bytearray(bit_mask_size)
+            buf.write(bytes(mask))
+        return buf.getvalue()
+
+    def _build_v3_manifest(self, entries: list[DownloadEntry], tags: list[DownloadTag] | None = None,
+                            base_priority: int = -1) -> bytes:
+        tags = tags or []
+        bit_mask_size = (len(entries) + 7) // 8
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 3))               # version 3
+        buf.write(struct.pack('B', 16))              # ekey_size
+        buf.write(struct.pack('B', 0))               # has_checksum
+        buf.write(struct.pack('>I', len(entries)))
+        buf.write(struct.pack('>H', len(tags)))
+        buf.write(struct.pack('B', 0))               # flag_size = 0 (V2+)
+        buf.write(struct.pack('b', base_priority))   # base_priority (V3+, signed)
+        buf.write(b'\x00\x00\x00')                   # reserved (V3+)
+        for e in entries:
+            buf.write(e.ekey)
+            buf.write(struct.pack('>Q', e.size)[3:])
+            buf.write(struct.pack('b', e.priority))
+        for t in tags:
+            buf.write(t.name.encode() + b'\x00')
+            buf.write(struct.pack('>H', t.tag_type))
+            buf.write(b'\x00' * bit_mask_size)
+        return buf.getvalue()
+
+    def test_parse_v2_with_flags(self):
+        """V2 manifest with flag_size=1 parses flags per entry."""
+        entry = DownloadEntry(ekey=b'\x01' * 16, size=500, priority=10, flags=b'\xFF')
+        data = self._build_v2_manifest([entry], flag_size=1)
+        parser = DownloadParser()
+        result = parser.parse(data)
+        assert result.header.version == 2
+        assert result.header.flag_size == 1
+        assert result.entries[0].flags == b'\xFF'
+
+    def test_parse_v3_with_base_priority(self):
+        """V3 manifest parses signed base_priority."""
+        entry = DownloadEntry(ekey=b'\x01' * 16, size=100, priority=0)
+        data = self._build_v3_manifest([entry], base_priority=-5)
+        parser = DownloadParser()
+        result = parser.parse(data)
+        assert result.header.version == 3
+        assert result.header.base_priority == -5
+
+    def test_build_v2_round_trip(self):
+        """V2 manifest with flags round-trips through build+parse."""
+        entry = DownloadEntry(ekey=b'\x02' * 16, size=256, priority=0, flags=b'\xAB')
+        header = DownloadHeader(version=2, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0, flag_size=1, base_priority=0)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+        parser = DownloadParser()
+        binary = parser.build(dl)
+        result = parser.parse(binary)
+        assert result.header.version == 2
+        assert result.header.flag_size == 1
+        assert result.entries[0].flags == b'\xAB'
+
+    def test_build_v3_round_trip(self):
+        """V3 manifest round-trips through build+parse."""
+        entry = DownloadEntry(ekey=b'\x03' * 16, size=128, priority=-10)
+        header = DownloadHeader(version=3, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0, flag_size=0, base_priority=-5)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+        parser = DownloadParser()
+        binary = parser.build(dl)
+        result = parser.parse(binary)
+        assert result.header.version == 3
+        assert result.header.base_priority == -5
+        assert result.entries[0].priority == -10
+
+    def test_parse_from_stream(self):
+        """parse() accepts a BytesIO stream directly (not bytes)."""
+        entry = DownloadEntry(ekey=b'\x04' * 16, size=64, priority=1)
+        header = DownloadHeader(version=1, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+        parser = DownloadParser()
+        binary = parser.build(dl)
+        # Pass as BytesIO stream (covers the `else: stream = data` branch)
+        result = parser.parse(BytesIO(binary))
+        assert result.entries[0].ekey == b'\x04' * 16
+
+    def test_parse_insufficient_flag_size(self):
+        """V2 entry with truncated flags raises ValueError."""
+        # Build a V2 manifest that declares flag_size=2 but only writes 1 flag byte per entry
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 2))   # version 2
+        buf.write(struct.pack('B', 16))  # ekey_size
+        buf.write(struct.pack('B', 0))   # no checksum
+        buf.write(struct.pack('>I', 1))  # 1 entry
+        buf.write(struct.pack('>H', 0))  # no tags
+        buf.write(struct.pack('B', 2))   # flag_size = 2
+        # Entry: ekey (16) + size (5) + priority (1) + only 1 flag byte (truncated!)
+        buf.write(b'\x01' * 16)
+        buf.write(struct.pack('>Q', 100)[3:])
+        buf.write(struct.pack('b', 0))
+        buf.write(b'\xFF')               # only 1 byte instead of 2
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Insufficient data for flags"):
+            parser.parse(buf.getvalue())
+
+    def test_build_flags_size_mismatch_raises(self):
+        """build() raises when flags size doesn't match flag_size."""
+        entry = DownloadEntry(ekey=b'\x05' * 16, size=100, priority=0, flags=b'\xAB\xCD')
+        header = DownloadHeader(version=2, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0, flag_size=1, base_priority=0)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Flags size mismatch"):
+            parser.build(dl)
+
+    def test_build_flags_unexpected_raises(self):
+        """build() raises when flags present but flag_size=0."""
+        entry = DownloadEntry(ekey=b'\x06' * 16, size=100, priority=0, flags=b'\xAB')
+        header = DownloadHeader(version=1, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0, flag_size=0, base_priority=0)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Flags provided but not expected"):
+            parser.build(dl)
+
+    def test_parse_insufficient_file_size_data(self):
+        """Entry with truncated file_size field raises ValueError."""
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 1))
+        buf.write(struct.pack('B', 16))
+        buf.write(struct.pack('B', 0))
+        buf.write(struct.pack('>I', 1))
+        buf.write(struct.pack('>H', 0))
+        buf.write(b'\x01' * 16)  # ekey
+        buf.write(b'\x00\x00')   # only 2 bytes of 5-byte file size
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Insufficient data for file size"):
+            parser.parse(buf.getvalue())
+
+    def test_parse_insufficient_priority_data(self):
+        """Entry with truncated priority field raises ValueError."""
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 1))
+        buf.write(struct.pack('B', 16))
+        buf.write(struct.pack('B', 0))
+        buf.write(struct.pack('>I', 1))
+        buf.write(struct.pack('>H', 0))
+        buf.write(b'\x01' * 16)             # ekey
+        buf.write(struct.pack('>Q', 100)[3:])  # file_size (5 bytes)
+        # no priority byte
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Insufficient data for priority"):
+            parser.parse(buf.getvalue())
+
+    def test_parse_insufficient_checksum_data(self):
+        """Entry with truncated checksum raises ValueError when has_checksum=True."""
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 1))
+        buf.write(struct.pack('B', 16))
+        buf.write(struct.pack('B', 1))         # has_checksum = True
+        buf.write(struct.pack('>I', 1))
+        buf.write(struct.pack('>H', 0))
+        buf.write(b'\x01' * 16)
+        buf.write(struct.pack('>Q', 100)[3:])
+        buf.write(struct.pack('b', 0))
+        buf.write(b'\xAB\xCD')               # only 2 bytes of 4-byte checksum
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Insufficient data for checksum"):
+            parser.parse(buf.getvalue())
+
+    def test_parse_tag_type_insufficient(self):
+        """Tag with truncated tag_type raises ValueError."""
+        buf = BytesIO()
+        buf.write(b'DL')
+        buf.write(struct.pack('B', 1))
+        buf.write(struct.pack('B', 16))
+        buf.write(struct.pack('B', 0))
+        buf.write(struct.pack('>I', 0))      # 0 entries
+        buf.write(struct.pack('>H', 1))      # 1 tag
+        buf.write(b'Win\x00')               # tag name
+        # Only 1 byte of the 2-byte tag_type
+        buf.write(b'\x00')
+        parser = DownloadParser()
+        with pytest.raises(ValueError, match="Insufficient data for tag type"):
+            parser.parse(buf.getvalue())
+
+
+class TestDownloadBuilder:
+    """Tests for DownloadBuilder class methods."""
+
+    def test_builder_build(self):
+        """DownloadBuilder.build() delegates to DownloadParser.build()."""
+        from cascette_tools.formats.download import DownloadBuilder
+        entry = DownloadEntry(ekey=b'\x01' * 16, size=100, priority=0)
+        header = DownloadHeader(version=1, ekey_size=16, has_checksum=False,
+                                entry_count=1, tag_count=0)
+        dl = DownloadFile(header=header, tags=[], entries=[entry])
+
+        builder = DownloadBuilder()
+        result = builder.build(dl)
+        assert result[:2] == b'DL'
+
+    def test_create_empty(self):
+        """DownloadBuilder.create_empty() returns a parseable empty V3 manifest."""
+        from cascette_tools.formats.download import DownloadBuilder
+        dl = DownloadBuilder.create_empty()
+        assert dl.header.version == 3
+        assert len(dl.entries) == 0
+        assert len(dl.tags) == 0
+
+        parser = DownloadParser()
+        binary = parser.build(dl)
+        result = parser.parse(binary)
+        assert result.header.version == 3
+
+    def test_create_with_entries(self):
+        """DownloadBuilder.create_with_entries() populates header from entries."""
+        from cascette_tools.formats.download import DownloadBuilder
+        entry1 = DownloadEntry(ekey=b'\x01' * 16, size=100, priority=0)
+        entry2 = DownloadEntry(ekey=b'\x02' * 16, size=200, priority=1)
+        tag = DownloadTag(name="Win", tag_type=1, file_mask=b'\xC0')
+
+        dl = DownloadBuilder.create_with_entries([entry1, entry2], [tag])
+        assert dl.header.entry_count == 2
+        assert dl.header.tag_count == 1
+        assert dl.header.version == 3

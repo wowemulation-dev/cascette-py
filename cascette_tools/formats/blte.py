@@ -58,7 +58,8 @@ class BLTEChunk(BaseModel):
     compression_mode: CompressionMode = Field(description="Compression mode")
     data: bytes = Field(description="Chunk data")
     encryption_type: EncryptionType | None = Field(default=None, description="Encryption type")
-    encryption_key_name: bytes | None = Field(default=None, description="Encryption key name")
+    encryption_key_name: bytes | None = Field(default=None, description="Encryption key name (8 bytes)")
+    encryption_iv: bytes | None = Field(default=None, description="Encryption IV (up to 8 bytes)")
 
 
 class BLTEHeader(BaseModel):
@@ -267,18 +268,46 @@ class BLTEParser(FormatParser[BLTEFile]):
         )
 
     def _parse_encrypted_chunk(self, data: bytes, comp_size: int, decomp_size: int) -> BLTEChunk:
-        """Parse encrypted chunk."""
-        if len(data) < 1 + self.ENCRYPTION_KEY_NAME_SIZE:
-            raise ValueError("Encrypted chunk too small")
+        """Parse encrypted chunk.
 
-        encryption_type_byte = data[0]
-        try:
-            encryption_type = EncryptionType(encryption_type_byte)
-        except ValueError as e:
-            raise ValueError(f"Unknown encryption type: {encryption_type_byte:02x}") from e
+        Wire format after the leading 'E' mode byte (already consumed):
+          [0]      key_name_length  (must be 8)
+          [1..8]   key_name         (8 bytes)
+          [9]      iv_length        (max 8)
+          [10..]   iv               (iv_length bytes)
+          [10+iv_length]  algorithm ('S' = Salsa20)
+          [11+iv_length..] encrypted payload
+        """
+        # Minimum: key_name_length(1) + key_name(8) + iv_length(1) + algorithm(1) = 11
+        if len(data) < 11:
+            raise ValueError("Encrypted chunk header too small")
+
+        key_name_length = data[0]
+        if key_name_length != self.ENCRYPTION_KEY_NAME_SIZE:
+            raise ValueError(
+                f"Invalid key_name_length {key_name_length}: must be {self.ENCRYPTION_KEY_NAME_SIZE}"
+            )
 
         key_name = data[1:1 + self.ENCRYPTION_KEY_NAME_SIZE]
-        encrypted_data = data[1 + self.ENCRYPTION_KEY_NAME_SIZE:]
+        iv_length = data[1 + self.ENCRYPTION_KEY_NAME_SIZE]
+        if iv_length > 8:
+            raise ValueError(f"iv_length {iv_length} exceeds maximum of 8")
+
+        header_end = 1 + self.ENCRYPTION_KEY_NAME_SIZE + 1 + iv_length
+        if len(data) < header_end + 1:
+            raise ValueError("Encrypted chunk header truncated (missing algorithm byte)")
+
+        iv = data[1 + self.ENCRYPTION_KEY_NAME_SIZE + 1:header_end]
+        # Zero-pad IV to 8 bytes (agent behaviour: read into zero-initialised buffer)
+        iv = iv.ljust(8, b'\x00')
+
+        algorithm_byte = data[header_end]
+        try:
+            encryption_type = EncryptionType(algorithm_byte)
+        except ValueError as e:
+            raise ValueError(f"Unknown encryption algorithm: {algorithm_byte:02x}") from e
+
+        encrypted_data = data[header_end + 1:]
 
         return BLTEChunk(
             compressed_size=comp_size,
@@ -287,7 +316,8 @@ class BLTEParser(FormatParser[BLTEFile]):
             compression_mode=CompressionMode.ENCRYPTED,
             data=encrypted_data,
             encryption_type=encryption_type,
-            encryption_key_name=key_name
+            encryption_key_name=key_name,
+            encryption_iv=iv,
         )
 
     def decompress(self, obj: BLTEFile) -> bytes:
@@ -347,34 +377,36 @@ class BLTEParser(FormatParser[BLTEFile]):
         if not key:
             raise ValueError(f"Encryption key not found: {chunk.encryption_key_name.hex()}")
 
+        iv = chunk.encryption_iv or b'\x00' * 8
+
         # Decrypt based on encryption type
         if chunk.encryption_type == EncryptionType.SALSA20:
-            return self._decrypt_salsa20(chunk.data, key)
+            return self._decrypt_salsa20(chunk.data, key, iv)
         elif chunk.encryption_type == EncryptionType.ARC4:
             return self._decrypt_arc4(chunk.data, key)
         else:
             raise ValueError(f"Unsupported encryption type: {chunk.encryption_type}")
 
-    def _decrypt_salsa20(self, data: bytes, key: bytes) -> bytes:
-        """Decrypt using Salsa20 stream cipher."""
+    def _decrypt_salsa20(self, data: bytes, key: bytes, iv: bytes) -> bytes:
+        """Decrypt using Salsa20 stream cipher.
+
+        The IV comes from the 'E' block header (not prepended to the ciphertext).
+        Key is 16 bytes, doubled to 32 bytes for Salsa20's 256-bit key schedule
+        (Tau constant: "expand 16-byte k").
+        """
         if not has_crypto or Salsa20 is None:
             raise ValueError("Crypto support not available - install pycryptodome")
         if len(key) != 16:
             raise ValueError("Salsa20 key must be 16 bytes")
 
-        # Salsa20 uses first 8 bytes of data as nonce
-        if len(data) < 8:
-            raise ValueError("Encrypted data too short for Salsa20 nonce")
+        nonce = iv[:8].ljust(8, b'\x00')
 
-        nonce = data[:8]
-        encrypted_data = data[8:]
-
-        # Expand key to 32 bytes
+        # Expand 16-byte key to 32 bytes (matches agent's key doubling)
         full_key = key * 2
 
         # Type ignore for optional crypto dependency - cipher type is dynamic
         cipher = Salsa20.new(key=full_key, nonce=nonce)  # type: ignore[attr-defined]
-        return cipher.decrypt(encrypted_data)  # type: ignore[no-any-return]
+        return cipher.decrypt(data)  # type: ignore[no-any-return]
 
     def _decrypt_arc4(self, data: bytes, key: bytes) -> bytes:
         """Decrypt using ARC4 stream cipher."""
@@ -489,8 +521,14 @@ class BLTEParser(FormatParser[BLTEFile]):
             if chunk.compression_mode == CompressionMode.ENCRYPTED:
                 if chunk.encryption_type is None or chunk.encryption_key_name is None:
                     raise ValueError("Encrypted chunk missing encryption info")
-                result.write(struct.pack('B', chunk.encryption_type.value))
+                # Wire format: key_name_length(1) + key_name(8) + iv_length(1) + iv + algorithm(1)
+                iv = chunk.encryption_iv or b'\x00' * 8
+                iv_trimmed = iv.rstrip(b'\x00') or b'\x00'  # keep at least 1 byte if all zero
+                result.write(struct.pack('B', self.ENCRYPTION_KEY_NAME_SIZE))  # key_name_length = 8
                 result.write(chunk.encryption_key_name)
+                result.write(struct.pack('B', len(iv_trimmed)))               # iv_length
+                result.write(iv_trimmed)
+                result.write(struct.pack('B', chunk.encryption_type.value))   # algorithm
 
             result.write(chunk.data)
 
@@ -580,10 +618,11 @@ class BLTEBuilder:
                 compressed_data = bytes(lz4.block.compress(data))  # type: ignore[attr-defined]
 
             # Create chunk
+            # compressed_size includes the 1-byte mode prefix written by build()
             chunk = BLTEChunk(
-                compressed_size=len(compressed_data),
+                compressed_size=len(compressed_data) + 1,
                 decompressed_size=len(data),
-                checksum=hashlib.md5(compressed_data).digest(),
+                checksum=hashlib.md5(compression.encode() + compressed_data).digest(),
                 compression_mode=compression,
                 data=compressed_data
             )
@@ -628,10 +667,11 @@ class BLTEBuilder:
                 compressed_data = bytes(lz4.block.compress(data))  # type: ignore[attr-defined]
 
             # Create chunk with both checksums
+            # compressed_size includes the 1-byte mode prefix written by build()
             chunk = BLTEChunk(
-                compressed_size=len(compressed_data),
+                compressed_size=len(compressed_data) + 1,
                 decompressed_size=len(data),
-                checksum=hashlib.md5(compressed_data).digest(),
+                checksum=hashlib.md5(compression.encode() + compressed_data).digest(),
                 decompressed_checksum=hashlib.md5(data).digest(),
                 compression_mode=compression,
                 data=compressed_data

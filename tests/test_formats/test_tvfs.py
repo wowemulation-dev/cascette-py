@@ -796,3 +796,68 @@ class TestTVFSEdgeCases:
 
         with pytest.raises(ValueError, match="Unsupported TVFS version: 2"):
             parser.parse(data)
+
+    def test_version_zero_rejected(self):
+        """Version 0 is rejected per Agent.exe FileManifestReader::ParseHeader.
+
+        tact::FileManifestReader::ParseHeader (0x6cea7f) rejects version == 0
+        with: 'Unsupported file manifest version: 0. This client only supports
+        non-zero versions <= 1'.
+        """
+        parser = TVFSParser()
+        data = struct.pack(">4sBBBBIII", b"TVFS", 0, 0, 0, 0, 0, 0, 0)
+
+        with pytest.raises(ValueError, match="Unsupported TVFS version: 0"):
+            parser.parse(data)
+
+
+class TestTVFSBuilderAndEdgeCases:
+    """Test TVFSBuilder class methods and other uncovered paths."""
+
+    def test_tvfs_file_str(self):
+        """TVFSFile.__str__ returns a readable string."""
+        from cascette_tools.formats.tvfs import TVFSFile, TVFSHeader
+        header = TVFSHeader(magic=b'TVFS', version=1, flags=0, data_version=1,
+                            block_count=0, entry_count=0, max_file_data_id=0)
+        tvfs = TVFSFile(header=header, entries=[])
+        assert "TVFS" in str(tvfs)
+
+    def test_builder_build(self):
+        """TVFSBuilder.build() delegates to TVFSParser.build()."""
+        from cascette_tools.formats.tvfs import (
+            TVFSBuilder,
+            TVFSFile,
+            TVFSHeader,
+        )
+        header = TVFSHeader(magic=b'TVFS', version=1, flags=0, data_version=1,
+                            block_count=0, entry_count=0, max_file_data_id=0)
+        tvfs = TVFSFile(header=header, entries=[])
+        builder = TVFSBuilder()
+        result = builder.build(tvfs)
+        assert result[:4] == b'TVFS'
+
+    def test_create_empty(self):
+        """TVFSBuilder.create_empty() returns a valid empty TVFSFile."""
+        from cascette_tools.formats.tvfs import TVFSBuilder, TVFSParser
+        tvfs = TVFSBuilder.create_empty()
+        assert tvfs.header.version == 1
+        assert len(tvfs.entries) == 0
+        parser = TVFSParser()
+        binary = parser.build(tvfs)
+        parsed = parser.parse(binary)
+        assert parsed.header.version == 1
+
+    def test_create_with_entries(self):
+        """TVFSBuilder.create_with_entries() sets entry_count and max_file_data_id."""
+        from cascette_tools.formats.tvfs import TVFSBuilder, TVFSEntry, TVFSParser
+        entries = [
+            TVFSEntry(ckey=b'\x01' * 16, path_hash=111, file_data_id=10),
+            TVFSEntry(ckey=b'\x02' * 16, path_hash=222, file_data_id=20),
+        ]
+        tvfs = TVFSBuilder.create_with_entries(entries)
+        assert tvfs.header.entry_count == 2
+        assert tvfs.header.max_file_data_id == 20
+        parser = TVFSParser()
+        binary = parser.build(tvfs)
+        parsed = parser.parse(binary)
+        assert len(parsed.entries) == 2

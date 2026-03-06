@@ -295,6 +295,12 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         if version not in [1, 2]:
             logger.warning("Unexpected PA version", version=version)
 
+        if not (12 <= block_size_bits <= 24):
+            raise ValueError(
+                f"Invalid block_size_bits {block_size_bits}: must be 12-24 "
+                f"(block size = 1 << block_size_bits)"
+            )
+
         header = PatchArchiveHeader(
             magic=magic,
             version=version,

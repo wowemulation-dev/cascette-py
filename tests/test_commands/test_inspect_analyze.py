@@ -25,6 +25,8 @@ from cascette_tools.commands.inspect import (
     _get_context_objects,
     _output_json,
     _output_table,
+)
+from cascette_tools.commands.inspect import (
     inspect as analyze,
 )
 from cascette_tools.core.config import AppConfig

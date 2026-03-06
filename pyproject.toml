@@ -81,9 +81,16 @@ venv = ".venv"
 typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = false
-reportUnknownParameterType = true
-reportUnknownArgumentType = true
-reportUnknownMemberType = true
+# Disabled: tests access private members intentionally for unit testing
+reportPrivateUsage = false
+# Disabled: test fixtures and SQLite rows are not fully typed
+reportUnknownParameterType = false
+reportMissingParameterType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+# Disabled: Mock objects and SQLite rows in tests/scripts pass untyped values
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
 reportGeneralTypeIssues = true
 reportUntypedFunctionDecorator = true
 

@@ -123,7 +123,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Modify test collection to add markers automatically."""
     for item in items:
         # Add unit marker to all tests by default
@@ -204,6 +204,7 @@ def mock_config() -> Mock:
     config.database = Mock()
     config.cdn_timeout = 30
     config.cdn_max_retries = 3
+    config.default_region = "kr"
     return config
 
 

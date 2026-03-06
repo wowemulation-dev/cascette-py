@@ -438,21 +438,34 @@ class ListfileManager:
         """Search for file paths matching pattern.
 
         Args:
-            pattern: Search pattern (supports FTS5 syntax)
+            pattern: Search pattern (glob-style with * and ?, or plain substring)
             limit: Maximum results
 
         Returns:
             List of matching entries
         """
-        # Use FTS for efficient search
-        rows = self.conn.execute("""
-            SELECT e.fdid, e.path, e.verified, e.product
-            FROM file_search s
-            JOIN file_entries e ON s.fdid = e.fdid
-            WHERE s.path MATCH ?
-            ORDER BY rank
-            LIMIT ?
-        """, (pattern, limit)).fetchall()
+        # If the pattern contains glob wildcards, convert to SQL LIKE wildcards
+        # and use path_lower for case-insensitive matching. FTS5 MATCH does not
+        # support leading wildcards (e.g. *.lua). Otherwise use FTS5 for
+        # multi-term search (e.g. "world maps").
+        if "*" in pattern or "?" in pattern:
+            like_pattern = pattern.lower().replace("*", "%").replace("?", "_")
+            rows = self.conn.execute("""
+                SELECT fdid, path, verified, product
+                FROM file_entries
+                WHERE path_lower LIKE ?
+                ORDER BY path_lower
+                LIMIT ?
+            """, (like_pattern, limit)).fetchall()
+        else:
+            rows = self.conn.execute("""
+                SELECT e.fdid, e.path, e.verified, e.product
+                FROM file_search s
+                JOIN file_entries e ON s.fdid = e.fdid
+                WHERE s.path MATCH ?
+                ORDER BY rank
+                LIMIT ?
+            """, (pattern, limit)).fetchall()
 
         entries: list[FileDataEntry] = []
         for row in rows:

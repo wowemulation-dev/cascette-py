@@ -166,13 +166,15 @@ class CDNClient:
         """
         last_error = None
 
-        # Build mirror list: Ribbit servers first, then community fallback mirrors
-        mirrors = self.cdn_servers + self.config.fallback_mirrors
+        # Build mirror list: Ribbit servers first, then community fallback mirrors.
+        # Community mirrors only support WoW products (tpr/wow); skip them for others.
+        fallbacks = self.config.get_fallback_mirrors_for_cdn_path(self.cdn_path or "")
+        mirrors = self.cdn_servers + fallbacks
         logger.info(
             "cdn_mirror_list",
             mirrors=mirrors,
             cdn_servers=self.cdn_servers,
-            fallbacks=self.config.fallback_mirrors,
+            fallbacks=fallbacks,
             cdn_path=self.cdn_path
         )
 
@@ -339,7 +341,9 @@ class CDNClient:
         """
         last_error = None
 
-        mirrors = self.cdn_servers + self.config.fallback_mirrors
+        # Community mirrors only support WoW products (tpr/wow); skip them for others.
+        fallbacks = self.config.get_fallback_mirrors_for_cdn_path(self.cdn_path or "")
+        mirrors = self.cdn_servers + fallbacks
 
         if not mirrors:
             raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")

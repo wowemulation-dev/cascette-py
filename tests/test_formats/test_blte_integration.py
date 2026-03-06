@@ -12,6 +12,7 @@ from cascette_tools.formats.blte_integration import (
     DatabaseTACTKeyStore,
     IntegratedBLTEParser,
     create_integrated_parser,
+    decompress_blte_with_db,
 )
 
 
@@ -161,6 +162,27 @@ class TestIntegratedBLTEParser:
         # key_store is a real DatabaseTACTKeyStore, so isinstance check passes
         # and refresh() calls _load_keys() which calls create_blte_key_store
         assert mock_create.call_count == 2  # init + refresh
+
+
+class TestDecompressBLTEWithDB:
+    """Tests for the decompress_blte_with_db convenience function."""
+
+    @patch("cascette_tools.formats.blte_integration.IntegratedBLTEParser")
+    def test_decompress_blte_with_db(self, mock_parser_cls: MagicMock) -> None:
+        """Test that decompress_blte_with_db uses context manager correctly."""
+        mock_parser = MagicMock()
+        mock_parser.__enter__ = MagicMock(return_value=mock_parser)
+        mock_parser.__exit__ = MagicMock(return_value=False)
+        mock_parser.parse.return_value = MagicMock()
+        mock_parser.decompress.return_value = b"decompressed data"
+        mock_parser_cls.return_value = mock_parser
+
+        result = decompress_blte_with_db(b"\x42\x4C\x54\x45dummy", product_family="wow")
+
+        assert result == b"decompressed data"
+        mock_parser.ensure_keys_synced.assert_called_once()
+        mock_parser.parse.assert_called_once()
+        mock_parser.decompress.assert_called_once()
 
 
 class TestCreateIntegratedParser:

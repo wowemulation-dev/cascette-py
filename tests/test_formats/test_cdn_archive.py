@@ -557,3 +557,21 @@ class TestCdnArchivePageBoundaries:
         assert result.entries[-1].archive_index == 199 % 256
         assert result.entries[-1].offset == 1990
         assert result.entries[-1].size == 995
+
+
+class TestCdnArchiveEdgeCases:
+    """Test uncovered edge cases in cdn_archive.py."""
+
+    def test_unsupported_footer_version_raises(self):
+        """Footer version > 1 raises ValueError when parsing (line 118)."""
+        from cascette_tools.formats.cdn_archive import CdnArchiveParser
+
+        # Build a valid archive blob with no entries, then patch version to 2
+        data = bytearray(_build_footer(version=2))
+        # Prepend a single empty page (4096 bytes)
+        page = bytes(4096)
+        blob = page + bytes(data)
+
+        parser = CdnArchiveParser()
+        with pytest.raises(ValueError, match="Unsupported CDN index footer version"):
+            parser.parse(blob)

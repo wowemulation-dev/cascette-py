@@ -103,13 +103,17 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         # Parse footer structure (big-endian except element_count)
         toc_hash = footer_data[0:8]  # First 8 bytes of MD5 hash of TOC
-        version = footer_data[8]     # Index format version (0 or 1)
+        version = footer_data[8]     # Index format version (must be 0 or 1)
         reserved = footer_data[9:11] # Reserved bytes (must be [0, 0])
         page_size_kb = footer_data[11]   # Page size in KB (always 4)
         offset_bytes = footer_data[12]   # Archive offset field size (4 for archives)
         size_bytes = footer_data[13]     # Compressed size field size (always 4)
         ekey_length = footer_data[14]    # EKey length in bytes (always 16 for full MD5)
         footer_hash_bytes = footer_data[15]  # Footer hash length (always 8)
+
+        # Validate version: Agent.exe CdnIndexFooterValidator requires version <= 1
+        if version > 1:
+            raise ValueError(f"Unsupported CDN index footer version {version}: must be 0 or 1")
 
         # Element count is little-endian (special case!)
         element_count = struct.unpack('<I', footer_data[16:20])[0]
@@ -131,77 +135,78 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         )
 
     def _parse_chunks_and_toc(self, data: bytes, footer: ArchiveIndexFooter) -> tuple[list[ArchiveIndexChunk], list[bytes]]:
-        """Parse chunks and table of contents."""
-        chunk_count = footer.element_count
-        file_size = len(data)
-        non_footer_size = file_size - self.FOOTER_SIZE
+        """Parse chunks and table of contents.
 
-        # Calculate structure sizes
-        toc_size = chunk_count * self.TRUNCATED_KEY_SIZE
-        data_size = non_footer_size - toc_size
+        The footer's element_count is the total number of entries (not chunks).
+        chunk_count = ceil(element_count / records_per_block).
+        TOC has two sections: chunk keys (ekey_length each) then chunk hashes
+        (footer_hash_bytes each). Reference: cascette-rs archive/index.rs.
+        """
+        import math
 
-        # Validate structure
-        if data_size % self.CHUNK_SIZE != 0:
-            raise ValueError("Invalid archive index block structure")
+        block_size = footer.page_size_kb * 1024
+        record_size = footer.ekey_length + footer.size_bytes + footer.offset_bytes
+        records_per_block = block_size // record_size
 
-        # Read table of contents (TOC) - last key of each chunk
+        chunk_count = math.ceil(footer.element_count / records_per_block) if footer.element_count > 0 else 0
+
+        footer_size = 20 + footer.footer_hash_bytes
+        toc_key_size = footer.ekey_length
+        toc_size = chunk_count * (toc_key_size + footer.footer_hash_bytes)
+        data_size = len(data) - footer_size - toc_size
+
+        # Read TOC keys (first section of TOC)
         toc_offset = data_size
-        toc_data = data[toc_offset:toc_offset + toc_size]
-
         toc: list[bytes] = []
         for i in range(chunk_count):
-            key_offset = i * self.TRUNCATED_KEY_SIZE
-            key = toc_data[key_offset:key_offset + self.TRUNCATED_KEY_SIZE]
+            key_offset = toc_offset + i * toc_key_size
+            key = data[key_offset:key_offset + toc_key_size]
             toc.append(key)
 
         # Parse data chunks
         chunks: list[ArchiveIndexChunk] = []
-        for chunk_index in range(data_size // self.CHUNK_SIZE):
-            chunk_offset = chunk_index * self.CHUNK_SIZE
-            chunk_data = data[chunk_offset:chunk_offset + self.CHUNK_SIZE]
-
-            chunk = self._parse_chunk(chunk_index, chunk_data)
+        for chunk_index in range(chunk_count):
+            chunk_offset = chunk_index * block_size
+            # Last chunk may be partial
+            chunk_size = min(block_size, data_size - chunk_offset)
+            chunk_data = data[chunk_offset:chunk_offset + chunk_size]
+            chunk = self._parse_chunk(chunk_index, chunk_data, footer)
             chunks.append(chunk)
 
         return chunks, toc
 
-    def _parse_chunk(self, chunk_index: int, chunk_data: bytes) -> ArchiveIndexChunk:
-        """Parse a single chunk."""
-        if len(chunk_data) != self.CHUNK_SIZE:
-            raise ValueError(f"Invalid chunk size: expected {self.CHUNK_SIZE}, got {len(chunk_data)}")
+    def _parse_chunk(self, chunk_index: int, chunk_data: bytes, footer: ArchiveIndexFooter) -> ArchiveIndexChunk:
+        """Parse a single chunk using dynamic field sizes from footer."""
+        ekey_length = footer.ekey_length
+        size_bytes = footer.size_bytes
+        offset_bytes_count = footer.offset_bytes
+        record_size = ekey_length + size_bytes + offset_bytes_count
 
         entries: list[ArchiveIndexEntry] = []
         last_key = b''
+        pos = 0
 
-        # Parse entries (24 bytes each)
-        for entry_index in range(self.MAX_ENTRIES_PER_CHUNK):
-            entry_offset = entry_index * self.ENTRY_SIZE
-            if entry_offset + self.ENTRY_SIZE > len(chunk_data):
+        while pos + record_size <= len(chunk_data):
+            entry_data = chunk_data[pos:pos + record_size]
+
+            ekey = entry_data[0:ekey_length]
+            # Stop at zero-padded entries
+            if ekey == bytes(ekey_length):
                 break
 
-            entry_data = chunk_data[entry_offset:entry_offset + self.ENTRY_SIZE]
+            # Sizes and offsets are big-endian
+            size_start = ekey_length
+            size_end = size_start + size_bytes
+            offset_start = size_end
+            offset_end = offset_start + offset_bytes_count
 
-            # Entry structure: 9 bytes ekey + 4 bytes offset + 4 bytes size + 7 bytes reserved
-            ekey = entry_data[0:9]
-            offset_bytes = entry_data[9:13]
-            size_bytes = entry_data[13:17]
-            # Reserved: entry_data[17:24]
+            size = int.from_bytes(entry_data[size_start:size_end], 'big')
+            offset = int.from_bytes(entry_data[offset_start:offset_end], 'big')
 
-            # Check for zero entry (end of chunk)
-            if ekey == b'\x00' * 9:
-                break
-
-            offset = struct.unpack('>I', offset_bytes)[0]  # Big-endian
-            size = struct.unpack('>I', size_bytes)[0]      # Big-endian
-
-            entry = ArchiveIndexEntry(
-                ekey=ekey,
-                offset=offset,
-                size=size
-            )
+            entry = ArchiveIndexEntry(ekey=ekey, offset=offset, size=size)
             entries.append(entry)
-
             last_key = ekey
+            pos += record_size
 
         return ArchiveIndexChunk(
             chunk_index=chunk_index,
@@ -214,18 +219,16 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         Args:
             obj: Parsed archive index
-            ekey: Encoding key to find (full 16 bytes or truncated 9 bytes)
+            ekey: Encoding key to find (compared by prefix matching entry ekey length)
 
         Returns:
             Found entry or None
         """
-        # Truncate key to 9 bytes for comparison
-        search_key = ekey[:9]
-
-        # Linear search through all chunks
+        # Linear search through all chunks; compare by the entry's ekey length
         for chunk in obj.chunks:
             for entry in chunk.entries:
-                if entry.ekey == search_key:
+                entry_len = len(entry.ekey)
+                if ekey[:entry_len] == entry.ekey:
                     return entry
 
         return None
@@ -346,30 +349,40 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         """
         result = BytesIO()
 
-        # Write chunks
+        # Write chunks using dynamic field sizes from footer
+        footer = obj.footer
+        ekey_len = footer.ekey_length
+        size_len = footer.size_bytes
+        offset_len = footer.offset_bytes
+        record_size = ekey_len + size_len + offset_len
+        block_size = footer.page_size_kb * 1024
+        records_per_block = block_size // record_size
+
         for chunk in obj.chunks:
-            chunk_data = bytearray(self.CHUNK_SIZE)
+            chunk_data = bytearray(block_size)
 
             for i, entry in enumerate(chunk.entries):
-                if i >= self.MAX_ENTRIES_PER_CHUNK:
+                if i >= records_per_block:
                     break
 
-                entry_offset = i * self.ENTRY_SIZE
-
-                # Write entry: 9 bytes ekey + 4 bytes offset + 4 bytes size + 7 bytes reserved
-                chunk_data[entry_offset:entry_offset + 9] = entry.ekey
-                chunk_data[entry_offset + 9:entry_offset + 13] = struct.pack('>I', entry.offset)
-                chunk_data[entry_offset + 13:entry_offset + 17] = struct.pack('>I', entry.size)
-                # Reserved bytes are already zero from bytearray initialization
+                pos = i * record_size
+                ekey_bytes = entry.ekey[:ekey_len].ljust(ekey_len, b'\x00')
+                chunk_data[pos:pos + ekey_len] = ekey_bytes
+                chunk_data[pos + ekey_len:pos + ekey_len + size_len] = entry.size.to_bytes(size_len, 'big')
+                chunk_data[pos + ekey_len + size_len:pos + record_size] = entry.offset.to_bytes(offset_len, 'big')
 
             result.write(chunk_data)
 
-        # Write table of contents
+        # Write table of contents: keys section then hashes section
+        # TOC layout: all chunk keys (ekey_length each), then all chunk hashes
+        # (footer_hash_bytes each). See cascette-rs archive/index.rs for reference.
         for key in obj.toc:
             result.write(key)
+        # Per-block hashes (zero-filled; actual hash computation not implemented)
+        chunk_count = len(obj.toc)
+        result.write(b'\x00' * (chunk_count * footer.footer_hash_bytes))
 
         # Write footer
-        footer = obj.footer
         result.write(footer.toc_hash)
         result.write(struct.pack('B', footer.version))
         result.write(footer.reserved)

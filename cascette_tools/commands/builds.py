@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -254,45 +253,44 @@ def list_builds(
                 console.print("[yellow]No builds found matching criteria[/yellow]")
                 return
 
+            total = len(builds)
+
             # Apply limit unless --all is specified
-            if not all and len(builds) > limit:
+            if not all and total > limit:
+                console.print(f"[dim]Showing {limit} of {total} builds (use --all to see all)[/dim]\n")
                 builds = builds[:limit]
-                console.print(f"[dim]Showing {limit} of {len(builds)} builds (use --all to see all)[/dim]\n")
+            else:
+                console.print(f"[dim]Showing {len(builds)} of {total} builds (use --all to see all)[/dim]\n")
 
-            # Create table
+            # Create table — keep it narrow by default, show hashes only in verbose mode
             table = Table(title="WoW Builds", show_header=True)
-            table.add_column("Build ID", style="cyan", no_wrap=True)
-            table.add_column("Product", style="green")
-            table.add_column("Version", style="yellow")
-            table.add_column("Build", style="magenta", justify="right")
-            table.add_column("Created", style="blue")
-
-            # Always show config hashes for fetch command usage
-            table.add_column("Build Config", style="dim", no_wrap=True)
-            table.add_column("CDN Config", style="dim", no_wrap=True)
+            table.add_column("Product", style="green", min_width=8)
+            table.add_column("Version", style="yellow", min_width=14)
+            table.add_column("Build", style="magenta", justify="right", min_width=6)
+            table.add_column("Created", style="blue", min_width=10)
 
             if verbose:
+                table.add_column("Build Config", style="dim", no_wrap=True)
+                table.add_column("CDN Config", style="dim", no_wrap=True)
                 table.add_column("Product Config", style="dim", no_wrap=True)
 
             for build in builds:
                 row = [
-                    str(build.id),
                     build.product,
                     build.version or "N/A",
                     build.build or "N/A",
                     build.build_time.strftime('%Y-%m-%d') if build.build_time else "N/A",
-                    # Always show full config hashes for fetch command
-                    build.build_config or "N/A",
-                    build.cdn_config or "N/A",
                 ]
 
                 if verbose:
+                    row.append(build.build_config or "N/A")
+                    row.append(build.cdn_config or "N/A")
                     row.append(build.product_config or "N/A")
 
                 table.add_row(*row)
 
             console.print(table)
-            console.print(f"\n[green]Total: {len(builds)} builds[/green]")
+            console.print(f"\n[green]Total: {total} builds[/green]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -311,11 +309,13 @@ def list_builds(
     default="all",
     help="Field to search in",
 )
+@click.option("--verbose", "-v", is_flag=True, help="Show build/CDN config hashes")
 @click.pass_context
 def search_builds(
     ctx: click.Context,
     query: str,
     field: str,
+    verbose: bool,
 ) -> None:
     """Search for builds matching a query."""
     config_obj, console, _, debug = _get_context_objects(ctx)
@@ -332,22 +332,28 @@ def search_builds(
 
             # Create results table
             table = Table(title=f"Search Results for '{query}'", show_header=True)
-            table.add_column("Build ID", style="cyan", no_wrap=True)
-            table.add_column("Product", style="green")
-            table.add_column("Version", style="yellow")
-            table.add_column("Build", style="magenta", justify="right")
-            table.add_column("Build Config", style="dim", no_wrap=True)
-            table.add_column("CDN Config", style="dim", no_wrap=True)
+            table.add_column("Product", style="green", min_width=8)
+            table.add_column("Version", style="yellow", min_width=14)
+            table.add_column("Build", style="magenta", justify="right", min_width=6)
+            table.add_column("Created", style="dim", min_width=10)
+            if verbose:
+                table.add_column("Build Config", style="dim", no_wrap=True)
+                table.add_column("CDN Config", style="dim", no_wrap=True)
 
             for build in builds:
-                table.add_row(
-                    str(build.id),
+                created = build.build_time.strftime("%Y-%m-%d") if build.build_time else "N/A"
+                row = [
                     build.product,
                     build.version or "N/A",
                     build.build or "N/A",
-                    build.build_config or "N/A",
-                    build.cdn_config or "N/A",
-                )
+                    created,
+                ]
+                if verbose:
+                    row += [
+                        build.build_config or "N/A",
+                        build.cdn_config or "N/A",
+                    ]
+                table.add_row(*row)
 
             console.print(table)
             console.print(f"\n[green]Found {len(builds)} matching builds[/green]")

@@ -1,5 +1,8 @@
 """Tests for build_info format parser."""
 
+from io import BytesIO
+
+import pytest
 
 from cascette_tools.core.types import LocaleConfig
 from cascette_tools.formats.build_info import (
@@ -73,7 +76,7 @@ class TestParseTags:
         """Test parsing tags with multiple locales."""
         tags_str = "Windows x86_64 EU? enUS speech?:Windows x86_64 EU? deDE speech?"
 
-        platform, arch, locale_configs, region = parse_tags(tags_str)
+        platform, _arch, locale_configs, _region = parse_tags(tags_str)
 
         assert platform == "Windows"
         assert len(locale_configs) == 2
@@ -84,7 +87,7 @@ class TestParseTags:
         """Test parsing OSX platform."""
         tags_str = "OSX arm64 US? enUS speech?"
 
-        platform, arch, locale_configs, region = parse_tags(tags_str)
+        platform, arch, _locale_configs, _region = parse_tags(tags_str)
 
         assert platform == "OSX"
         assert arch == "arm64"
@@ -368,6 +371,108 @@ class TestUpdateLastActivated:
         assert updated.last_activated != "2020-01-01T00:00:00Z"
         # New timestamp should be more recent (starts with 202x)
         assert updated.last_activated.startswith("202")
+
+
+class TestBuildInfoParserEdgeCases:
+    """Test edge cases in BuildInfoParser not covered by existing tests."""
+
+    def test_parse_stream_input(self):
+        """Test parse() accepts a BytesIO stream (not just bytes)."""
+        content = (
+            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16\n"
+            "us|1|abc123\n"
+        )
+        parser = BuildInfoParser()
+        stream = BytesIO(content.encode())
+        result = parser.parse(stream)
+        assert result.branch == "us"
+        assert result.active == 1
+
+    def test_parse_dec_field_invalid_value(self):
+        """Test that invalid DEC field value falls back to None without raising."""
+        content = (
+            "Branch!STRING:0|Active!DEC:1|IM Size!DEC:4|Build Key!HEX:16|CDN Key!HEX:16|"
+            "Install Key!HEX:16|CDN Path!STRING:0|CDN Hosts!STRING:0|"
+            "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|Last Activated!STRING:0|"
+            "Version!STRING:0|KeyRing!HEX:16|Product!STRING:0\n"
+            "us|not_a_number|also_bad|||||||||||\n"
+        )
+        parser = BuildInfoParser()
+        result = parser.parse(content.encode())
+        # Invalid int should fall back to None
+        assert result.active is None or result.active == 1  # active may default to 1
+        assert result.im_size is None
+
+    def test_parse_fewer_values_than_fields(self):
+        """Test that parse handles lines with fewer values than declared fields."""
+        # Only 3 values but header has more fields — should stop at available values
+        content = (
+            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|"
+            "Install Key!HEX:16|IM Size!DEC:4|CDN Path!STRING:0|CDN Hosts!STRING:0|"
+            "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|Last Activated!STRING:0|"
+            "Version!STRING:0|KeyRing!HEX:16|Product!STRING:0\n"
+            "us|1|abc123\n"  # Only 3 values
+        )
+        parser = BuildInfoParser()
+        result = parser.parse(content.encode())
+        assert result.branch == "us"
+        assert result.build_key == "abc123"
+        # Fields not in values default to empty
+        assert result.cdn_key == ""
+
+    def test_parse_file_success(self, tmp_path):
+        """Test parse_file() reads from file correctly."""
+        content = (
+            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|"
+            "Install Key!HEX:16|IM Size!DEC:4|CDN Path!STRING:0|CDN Hosts!STRING:0|"
+            "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|Last Activated!STRING:0|"
+            "Version!STRING:0|KeyRing!HEX:16|Product!STRING:0\n"
+            "us|1|abc123|def456|||||||||1.0.0||wow\n"
+        )
+        build_info_file = tmp_path / ".build.info"
+        build_info_file.write_bytes(content.encode())
+
+        parser = BuildInfoParser()
+        result = parser.parse_file(str(build_info_file))
+        assert result.branch == "us"
+        assert result.build_key == "abc123"
+        assert result.product == "wow"
+
+    def test_parse_file_missing_raises(self, tmp_path):
+        """Test parse_file() raises ValueError for missing files."""
+        parser = BuildInfoParser()
+        with pytest.raises(ValueError, match="Cannot read file"):
+            parser.parse_file(str(tmp_path / "nonexistent.info"))
+
+    def test_parse_header_unknown_field_type(self):
+        """Test parse_header() falls back to STRING for unknown field types."""
+        # "UNKNOWN" is not a valid FieldType value
+        fields = parse_header("Test!UNKNOWN:0")
+        assert len(fields) == 1
+        assert fields[0].name == "Test"
+        assert fields[0].field_type == FieldType.STRING
+
+    def test_parse_header_malformed_field_no_format(self):
+        """Test parse_header() handles fields without '!TYPE:SIZE' format."""
+        # A field with no type/size specification hits the else branch
+        fields = parse_header("JustAName")
+        assert len(fields) == 1
+        assert fields[0].name == "JustAName"
+        assert fields[0].field_type == FieldType.STRING
+        assert fields[0].size == 0
+
+    def test_parse_unknown_field_name_skipped(self):
+        """Test that fields not in FIELD_NAME_MAP are silently skipped."""
+        # "UnknownCustomField" is not in FIELD_NAME_MAP — hits the `if not attr_name: continue`
+        content = (
+            "Branch!STRING:0|UnknownCustomField!STRING:0|Active!DEC:1\n"
+            "us|somevalue|1\n"
+        )
+        parser = BuildInfoParser()
+        result = parser.parse(content.encode())
+        # Known fields should still be parsed
+        assert result.branch == "us"
+        assert result.active == 1
 
 
 class TestLocaleConfig:

@@ -113,6 +113,10 @@ class CdnArchiveParser(FormatParser[CdnArchiveIndex]):
         key_bytes = footer_data[14]  # Key length (variable: 9, 16, etc.)
         footer_hash_bytes = footer_data[15]
 
+        # Validate version: Agent.exe CdnIndexFooterValidator requires version <= 1
+        if version > 1:
+            raise ValueError(f"Unsupported CDN index footer version {version}: must be 0 or 1")
+
         # Entry count is little-endian (special case!)
         entry_count = struct.unpack('<I', footer_data[16:20])[0]
 
@@ -418,8 +422,8 @@ def is_cdn_archive_index(data: bytes) -> bool:
         offset_bytes = footer_data[12]
         size_bytes = footer_data[13]
 
-        # Valid if version is 1, size_bytes is 4, and offset_bytes is 4 or 6
-        return (version == 1 and
+        # Valid if version <= 1, size_bytes is 4, and offset_bytes is 4 or 6
+        return (version <= 1 and
                 size_bytes == 4 and
                 offset_bytes in [4, 6])
     except Exception:

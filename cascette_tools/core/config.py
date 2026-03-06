@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from pydantic import BaseModel, Field, field_validator
@@ -59,9 +59,12 @@ class CDNConfig(BaseModel):
     2. casc.wago.tools - Full NGDP mirror
     3. archive.wow.tools - Full NGDP mirror, historic data
 
-    Note: Blizzard CDN is authoritative but may not have all historic builds.
-    Community mirrors preserve historic data that Blizzard may remove.
+    Note: Community mirrors only index WoW products (cdn_path = "tpr/wow").
+    Non-WoW products (agent, bna, etc.) must use official Blizzard CDN servers.
     """
+
+    # CDN paths supported by community mirrors (tpr/wow covers all WoW variants)
+    COMMUNITY_MIRROR_CDN_PATH: ClassVar[str] = "tpr/wow"
 
     fallback_mirrors: list[str] = Field(
         default=[
@@ -69,7 +72,7 @@ class CDNConfig(BaseModel):
             "https://casc.wago.tools",
             "https://archive.wow.tools",
         ],
-        description="Fallback CDN mirrors when Ribbit servers fail"
+        description="Fallback CDN mirrors when Ribbit servers fail (WoW products only)"
     )
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts per mirror")
@@ -79,6 +82,16 @@ class CDNConfig(BaseModel):
     def base_url(self) -> str:
         """Get primary fallback mirror URL for backward compatibility."""
         return f"{self.fallback_mirrors[0]}/tpr/wow/"
+
+    def get_fallback_mirrors_for_cdn_path(self, cdn_path: str) -> list[str]:
+        """Return only the fallback mirrors that support the given CDN path.
+
+        Community mirrors only index WoW products. For non-WoW products,
+        an empty list is returned so only official Blizzard servers are used.
+        """
+        if cdn_path == self.COMMUNITY_MIRROR_CDN_PATH:
+            return list(self.fallback_mirrors)
+        return []
 
     @field_validator("fallback_mirrors")
     @classmethod
@@ -162,6 +175,12 @@ class AppConfig(BaseModel):
     data_dir: Path = Field(
         default=Path.home() / ".local" / "share" / "cascette-tools",
         description="Data directory"
+    )
+
+    # Region settings
+    default_region: str = Field(
+        default="kr",
+        description="Default CDN region (us, eu, kr, tw, cn). kr provides good coverage for Asia-Pacific."
     )
 
     # CDN settings

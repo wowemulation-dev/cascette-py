@@ -260,6 +260,14 @@ class TestInspectExamineCommands:
             with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
+                # load_ckey_page returns a page with entries
+                mock_entry = Mock()
+                mock_entry.content_key = b"\x12\x34\x56\x78" + b"\x00" * 12
+                mock_entry.encoding_keys = [b"\xab\xcd" * 8]
+                mock_entry.file_size = 1024
+                mock_page = Mock()
+                mock_page.entries = [mock_entry]
+                mock_parser.load_ckey_page.return_value = mock_page
                 mock_parser_class.return_value = mock_parser
 
                 result = runner.invoke(examine, ["encoding", str(test_file)])
@@ -280,9 +288,11 @@ class TestInspectExamineCommands:
             with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
+                # find_content_key returns a list of encoding key bytes
+                mock_parser.find_content_key.return_value = [b"\xab\xcd" * 8]
                 mock_parser_class.return_value = mock_parser
 
-                result = runner.invoke(examine, ["encoding", str(test_file), "--search", "12345678"])
+                result = runner.invoke(examine, ["encoding", str(test_file), "--search", "12345678901234567890123456789012"])
                 assert result.exit_code == 0
 
     def test_examine_encoding_json_output(self, runner, tmp_path, sample_encoding_file):
@@ -582,6 +592,13 @@ class TestInspectExamineCommands:
             with patch("cascette_tools.commands.inspect.EncodingParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = sample_encoding_file
+                mock_entry = Mock()
+                mock_entry.content_key = b"\x12\x34\x56\x78" + b"\x00" * 12
+                mock_entry.encoding_keys = [b"\xab\xcd" * 8]
+                mock_entry.file_size = 1024
+                mock_page = Mock()
+                mock_page.entries = [mock_entry]
+                mock_parser.load_ckey_page.return_value = mock_page
                 mock_parser_class.return_value = mock_parser
 
                 result = runner.invoke(examine, ["encoding", str(test_file), "--limit", "5"])

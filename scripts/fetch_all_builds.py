@@ -25,7 +25,7 @@ from rich.table import Table
 console = Console()
 
 
-def get_builds_by_product(product: str) -> list[tuple[int, str]]:
+def get_builds_by_product(product: str) -> list[tuple[str, str]]:
     """Get all builds for a specific product from database.
 
     Returns:

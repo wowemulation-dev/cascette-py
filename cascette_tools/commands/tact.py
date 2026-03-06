@@ -215,30 +215,31 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
             if format == "json":
                 with open(input_file) as f:
                     data: Any = json.load(f)
-                    # Handle both list and dict formats
                     if isinstance(data, list):
-                        # Cast to typed list and append items
-                        data_list = cast(list[dict[str, Any]], data)
-                        keys_to_import.extend(data_list)
+                        keys_to_import.extend(cast(list[dict[str, Any]], data))
                     elif isinstance(data, dict):
-                        # Flatten dict format {"family": [keys...]}
                         data_dict = cast(dict[str, Any], data)
-                        for family_key, family_keys in data_dict.items():
-                            if isinstance(family_keys, list):
-                                family_keys_list = cast(list[dict[str, Any]], family_keys)
-                                for key_item in family_keys_list:
-                                    if not key_item.get("family"):
-                                        key_item["family"] = family_key
-                                    keys_to_import.append(key_item)
+                        # Handle export envelope format: {"exported_at":..., "keys":[...]}
+                        if "keys" in data_dict and isinstance(data_dict["keys"], list):
+                            keys_to_import.extend(cast(list[dict[str, Any]], data_dict["keys"]))
+                        else:
+                            # Legacy dict format: {"family": [keys...]}
+                            for family_key, family_keys in data_dict.items():
+                                if isinstance(family_keys, list):
+                                    family_keys_list = cast(list[dict[str, Any]], family_keys)
+                                    for key_item in family_keys_list:
+                                        if not key_item.get("product_family") and not key_item.get("family"):
+                                            key_item["product_family"] = family_key
+                                        keys_to_import.append(key_item)
             else:  # CSV format
                 with open(input_file, newline='') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         keys_to_import.append({
-                            "key_id": row.get("key_id", ""),
-                            "key": row.get("key", ""),
+                            "key_name": row.get("key_id", row.get("key_name", "")),
+                            "key_value": row.get("key", row.get("key_value", "")),
                             "description": row.get("description", ""),
-                            "family": row.get("family", "wow"),
+                            "product_family": row.get("family", row.get("product_family", "wow")),
                             "verified": row.get("verified", "true").lower() in ("true", "1", "yes")
                         })
 
@@ -247,19 +248,16 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
 
             tact_keys: list[TACTKey] = []
             for key_dict in keys_to_import:
-                # Map field names from import format to TACTKey model
                 tact_key = TACTKey(
-                    key_name=str(key_dict.get("key_id", key_dict.get("key_name", ""))),
-                    key_value=str(key_dict.get("key", key_dict.get("key_value", ""))),
+                    key_name=str(key_dict.get("key_name", key_dict.get("key_id", ""))),
+                    key_value=str(key_dict.get("key_value", key_dict.get("key", ""))),
                     description=str(key_dict.get("description")) if key_dict.get("description") else None,
-                    product_family=str(key_dict.get("family", key_dict.get("product_family", "wow"))),
+                    product_family=str(key_dict.get("product_family", key_dict.get("family", "wow"))),
                     verified=bool(key_dict.get("verified", False))
                 )
                 tact_keys.append(tact_key)
 
-            # Import the keys
             imported = manager.import_keys(tact_keys)
-
             console.print(f"[green]✓[/green] Imported {imported} TACT keys from {input_file}")
 
         except Exception as e:

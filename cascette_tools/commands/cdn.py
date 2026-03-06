@@ -168,8 +168,8 @@ def cdn(ctx: click.Context) -> None:
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--show-metadata",
@@ -183,7 +183,7 @@ def config(
     config_type: str | None,
     output: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     show_metadata: bool,
 ) -> None:
     """Fetch configuration files from CDN.
@@ -191,6 +191,7 @@ def config(
     HASH_STR can be a configuration file hash.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -261,8 +262,8 @@ def config(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--decompress",
@@ -281,7 +282,7 @@ def data(
     index: bool,
     output: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     decompress: bool,
     show_info: bool,
 ) -> None:
@@ -290,6 +291,7 @@ def data(
     HASH_STR can be an archive hash for data or index files.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -386,8 +388,8 @@ def data(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--include-manifests",
@@ -400,7 +402,7 @@ def build(
     build_id: str,
     output_dir: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     include_manifests: bool,
 ) -> None:
     """Fetch complete build information.
@@ -411,6 +413,7 @@ def build(
     If BUILD_ID is a number, looks it up in the build database for the specified product.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Create TACT and CDN clients
@@ -731,8 +734,8 @@ def build(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--decompress",
@@ -750,7 +753,7 @@ def encoding(
     hash_str: str,
     output: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     decompress: bool,
     show_stats: bool,
 ) -> None:
@@ -759,6 +762,7 @@ def encoding(
     HASH_STR must be an encoding file hash.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -784,9 +788,11 @@ def encoding(
             if not output:
                 output = Path(f"{hash_str}.encoding")
 
-            # Handle decompression
+            # CDN always delivers encoding files wrapped in BLTE.
+            # Auto-decompress when stats are requested, or when --decompress is set.
+            should_decompress = decompress or show_stats
             final_data = data
-            if decompress and is_blte(data):
+            if should_decompress and is_blte(data):
                 try:
                     blte_parser = create_integrated_parser(config_obj)
                     blte_file = blte_parser.parse(data)
@@ -795,8 +801,8 @@ def encoding(
                     if verbose:
                         console.print(f"[cyan]Decompressed BLTE: {format_size(len(data))} -> {format_size(len(final_data))}[/cyan]")
 
-                    # Update output path to indicate decompression
-                    if output.suffix != ".decompressed":
+                    # Update output path to indicate decompression only when explicitly requested
+                    if decompress and output.suffix != ".decompressed":
                         output = output.with_suffix(output.suffix + ".decompressed")
 
                 except Exception as e:
@@ -818,7 +824,7 @@ def encoding(
 
                     table.add_row("Hash", hash_str)
                     table.add_row("Size", format_size(len(data)))
-                    if decompress and len(final_data) != len(data):
+                    if len(final_data) != len(data):
                         table.add_row("Decompressed Size", format_size(len(final_data)))
                     table.add_row("CKey Index Size", str(len(encoding_file.ckey_index)))
                     table.add_row("EKey Index Size", str(len(encoding_file.ekey_index)))
@@ -856,8 +862,8 @@ def encoding(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--file-type",
@@ -882,7 +888,7 @@ def batch(
     input_file: Path,
     output_dir: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     file_type: str,
     max_workers: int,
     retry_failed: bool,
@@ -892,6 +898,7 @@ def batch(
     INPUT_FILE should contain one hash per line.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Read hash list
@@ -1064,8 +1071,8 @@ def batch(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--index",
@@ -1083,7 +1090,7 @@ def patch(
     hash_str: str,
     output: Path | None,
     product: str,
-    region: str,
+    region: str | None,
     index: bool,
     show_info: bool,
 ) -> None:
@@ -1092,6 +1099,7 @@ def patch(
     HASH_STR can be a patch manifest or patch archive hash.
     """
     config_obj, console, verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     # Validate hash
     if not validate_hash_string(hash_str):
@@ -1155,8 +1163,8 @@ def patch(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--output-dir",
@@ -1173,7 +1181,7 @@ def patch(
 def manifests(
     ctx: click.Context,
     product: str,
-    region: str,
+    region: str | None,
     output_dir: Path | None,
     latest: bool,
 ) -> None:
@@ -1182,7 +1190,8 @@ def manifests(
     Downloads the core TACT API manifests that list available versions
     and CDN configurations.
     """
-    _, console, _, _ = _get_context_objects(ctx)
+    config_obj, console, _, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     try:
         # Create TACT client
@@ -1267,8 +1276,8 @@ def manifests(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--output-dir",
@@ -1294,7 +1303,7 @@ def manifests(
 def zbsdiff(
     ctx: click.Context,
     product: str,
-    region: str,
+    region: str | None,
     output_dir: Path | None,
     limit: int,
     build_config: str | None,
@@ -1315,7 +1324,8 @@ def zbsdiff(
     from cascette_tools.formats.patch_archive import PatchArchiveParser
     from cascette_tools.formats.zbsdiff import ZbsdiffParser
 
-    config_obj, console, verbose, _ = _get_context_objects(ctx)
+    config_obj, console, _verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     if not output_dir:
         output_dir = Path(f"zbsdiff_{product}")
@@ -1576,8 +1586,8 @@ def zbsdiff(
     "--region",
     "-r",
     type=str,
-    default="us",
-    help="Region code",
+    default=None,
+    help="Region code (default: from config, initially 'kr')",
 )
 @click.option(
     "--version-filter",
@@ -1596,7 +1606,7 @@ def zbsdiff(
 def verify_pa(
     ctx: click.Context,
     products: str,
-    region: str,
+    region: str | None,
     version_filter: str | None,
     use_wago: bool,
 ) -> None:
@@ -1615,7 +1625,8 @@ def verify_pa(
     from cascette_tools.formats.config import CDNConfigParser
     from cascette_tools.formats.patch_archive import PatchArchiveParser
 
-    config_obj, console, verbose, _ = _get_context_objects(ctx)
+    config_obj, console, _verbose, _ = _get_context_objects(ctx)
+    region = region or config_obj.default_region
 
     product_list = [p.strip() for p in products.split(",")]
 
@@ -1640,12 +1651,12 @@ def verify_pa(
 
         if version_filter and use_wago:
             # Use Wago database for historical builds
-            from cascette_tools.database.wago import WagoClient
+            from cascette_tools.database.wago import WagoBuild, WagoClient
 
             console.print(f"[blue]Loading Wago builds for {product_str}...[/blue]")
             with WagoClient(config_obj) as wago_client:
-                all_builds = wago_client.fetch_builds()
-                product_builds = [
+                all_builds: list[WagoBuild] = wago_client.fetch_builds()
+                product_builds: list[WagoBuild] = [
                     b for b in all_builds if b.product == product_str
                 ]
 
@@ -1655,7 +1666,7 @@ def verify_pa(
 
             # Filter by version patterns
             patterns = [p.strip() for p in version_filter.split(",")]
-            matched_builds = []
+            matched_builds: list[WagoBuild] = []
             for b in product_builds:
                 if any(fnmatch.fnmatch(b.version, pat) for pat in patterns):
                     matched_builds.append(b)
