@@ -54,6 +54,12 @@ class BuildConfig(BaseModel):
     build_product_espec: str | None = Field(default=None, description="Build product ESpec")
     build_partial_priority: str | None = Field(default=None, description="Build partial priority")
     patch_config: str | None = Field(default=None, description="Patch config hash")
+    patch_index: str | None = Field(default=None, description="Patch index content and encoding keys")
+    patch_index_size: str | None = Field(default=None, description="Patch index sizes")
+    build_num: str | None = Field(default=None, description="Build number")
+    build_branch: str | None = Field(default=None, description="Build branch")
+    build_attributes: str | None = Field(default=None, description="Build attributes")
+    build_critical_patch_seqn: str | None = Field(default=None, description="Critical patch sequence number")
     extra_fields: dict[str, str] = Field(default_factory=dict, description="Additional fields")
 
     def get_size_info(self) -> ConfigFileInfo | None:
@@ -91,6 +97,12 @@ class BuildConfig(BaseModel):
         if self.patch is None:
             return None
         return _parse_file_info(self.patch, self.patch_size)
+
+    def get_patch_index_info(self) -> ConfigFileInfo | None:
+        """Get patch index file information from patch-index and patch-index-size fields."""
+        if self.patch_index is None:
+            return None
+        return _parse_file_info(self.patch_index, self.patch_index_size)
 
     def get_partial_priorities(self) -> list[PartialPriority]:
         """Parse partial priority from comma-separated key:priority format.
@@ -268,6 +280,9 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             'build-name', 'build-playbuild-installer', 'build-product', 'build-uid',
             'build-playtime-url', 'build-product-espec', 'build-partial-priority',
             'patch-config',
+            'patch-index', 'patch-index-size',
+            'build-num', 'build-branch', 'build-attributes',
+            'build-critical-patch-seqn',
         }
 
         # Map dashed keys to underscore for Python field names
@@ -289,6 +304,12 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             'build-product-espec': 'build_product_espec',
             'build-partial-priority': 'build_partial_priority',
             'patch-config': 'patch_config',
+            'patch-index': 'patch_index',
+            'patch-index-size': 'patch_index_size',
+            'build-num': 'build_num',
+            'build-branch': 'build_branch',
+            'build-attributes': 'build_attributes',
+            'build-critical-patch-seqn': 'build_critical_patch_seqn',
         }
 
         build_config_data: dict[str, Any] = {}
@@ -331,11 +352,17 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             ('patch', 'patch'),
             ('patch_size', 'patch-size'),
             ('patch_config', 'patch-config'),
+            ('patch_index', 'patch-index'),
+            ('patch_index_size', 'patch-index-size'),
             ('partial_priority', 'partial-priority'),
             ('partial_priority_size', 'partial-priority-size'),
             ('build_name', 'build-name'),
             ('build_uid', 'build-uid'),
             ('build_product', 'build-product'),
+            ('build_num', 'build-num'),
+            ('build_branch', 'build-branch'),
+            ('build_attributes', 'build-attributes'),
+            ('build_critical_patch_seqn', 'build-critical-patch-seqn'),
             ('build_playbuild_installer', 'build-playbuild-installer'),
             ('build_partial_priority', 'build-partial-priority'),
             ('build_playtime_url', 'build-playtime-url'),
