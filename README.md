@@ -28,7 +28,7 @@ and parsing game data files.
 - **Async Support**: Efficient concurrent operations for network requests
 - **Caching**: Multi-layer caching for improved performance
 - **CLI Interface**: Rich command-line interface with comprehensive subcommands
-- **Test Coverage**: 1358 tests across 48 test files (80% minimum coverage target)
+- **Test Coverage**: 48 test files with 80% minimum coverage enforced
 
 ## Installation
 
@@ -60,26 +60,33 @@ cascette --help
 # Check version
 cascette version
 
-# Examine various CASC formats
-cascette examine encoding <hash>         # Examine encoding files
-cascette examine blte <file>             # Examine BLTE files
-cascette examine config <file>           # Examine config files
-cascette examine archive <file>          # Examine archive index files
+# Inspect CASC format files
+cascette inspect blte <file>             # Examine BLTE compressed files
+cascette inspect encoding <hash>         # Examine encoding files
+cascette inspect config <file>           # Examine build/CDN config files
+cascette inspect archive <file>          # Examine archive index files
+cascette inspect download --product wow  # Examine download manifest
+cascette inspect stats <file>            # Show file statistics
+cascette inspect compression <file>      # Analyze BLTE compression
+cascette inspect coverage <files...>     # Analyze content coverage
+cascette inspect dependencies <file>     # Trace content key dependencies
 
-# Fetch data from CDN
-cascette fetch config <hash>             # Fetch configuration files
-cascette fetch encoding <hash>           # Fetch encoding files
-cascette fetch data <hash>               # Fetch data archives
-cascette fetch patch <hash>              # Fetch patch files
-cascette fetch build <product> <version> # Fetch complete build data
-cascette fetch manifests <product>       # Fetch TACT manifests (versions/cdns)
-cascette fetch batch <file>              # Batch fetch from hash list
+# Download data from CDN
+cascette cdn config <hash>               # Fetch configuration files
+cascette cdn encoding <hash>             # Fetch encoding files
+cascette cdn data <hash>                 # Fetch data archives
+cascette cdn patch <hash>                # Fetch patch files
+cascette cdn build <product> <version>   # Fetch complete build data
+cascette cdn manifests <product>         # Fetch TACT manifests (versions/cdns)
+cascette cdn batch <file>                # Batch fetch from hash list
 
-# Analyze formats
-cascette analyze stats <file>            # Show file statistics
-cascette analyze compression <file>      # Analyze BLTE compression
-cascette analyze coverage <files...>     # Analyze content coverage
-cascette analyze dependencies <file>     # Trace file dependencies
+# Work with archive indices
+cascette archive examine <file>          # Examine archive index files
+cascette archive find <key> <file>       # Find entry by encoding key
+cascette archive find-key <key> <dir>    # Find which archive contains a key
+cascette archive extract-key <key> <dir> # Extract data for an encoding key
+cascette archive scan <directory>        # Scan for archive-groups
+cascette archive validate-mapping <dir>  # Validate archive index mapping
 
 # Validate formats
 cascette validate format <file>          # Validate individual files
@@ -88,19 +95,25 @@ cascette validate relationships <files>  # Validate cross-references
 cascette validate roundtrip <file>       # Test parse/build cycle
 cascette validate batch <directory>      # Batch validate files
 
+# Install and manage game content
+cascette install resolve-manifests ...   # Resolve all manifests from a build
+cascette install discover-latest <prod>  # Discover latest build for a product
+cascette install scan-state <dir>        # Scan a local installation
+cascette install progress <dir>          # Show installation progress
+
 # Manage TACT keys
 cascette tact list                       # List known TACT keys
-cascette tact search <key_id>           # Search for a specific key
-cascette tact sync                      # Sync with wowdev/TACTKeys repository
-cascette tact export <file>             # Export keys to JSON file
-cascette tact stats                     # Show key database statistics
+cascette tact search <key_id>            # Search for a specific key
+cascette tact sync                       # Sync with wowdev/TACTKeys repository
+cascette tact export <file>              # Export keys to JSON file
+cascette tact stats                      # Show key database statistics
 
 # Manage listfiles
-cascette listfile search <pattern>      # Search for file paths
-cascette listfile lookup <fdid|path>    # Lookup by FDID or path
-cascette listfile sync                  # Sync with wowdev/wow-listfile
-cascette listfile export <file>         # Export listfile to file
-cascette listfile stats                 # Show listfile statistics
+cascette listfile search <pattern>       # Search for file paths
+cascette listfile lookup <fdid|path>     # Lookup by FDID or path
+cascette listfile sync                   # Sync with wowdev/wow-listfile
+cascette listfile export <file>          # Export listfile to file
+cascette listfile stats                  # Show listfile statistics
 ```
 
 ### Python API Usage
@@ -124,7 +137,7 @@ build_info = BuildInfo(
 
 ```text
 cascette_tools/
-├── __main__.py              # CLI entry point, registers 11 command groups
+├── __main__.py              # CLI entry point, registers 8 command groups
 ├── core/                    # Shared functionality
 │   ├── types.py             # Pydantic models (BuildInfo, Product, CDNConfig, etc.)
 │   ├── config.py            # AppConfig with CDN URLs, timeouts, paths
@@ -160,18 +173,15 @@ cascette_tools/
 │   ├── size.py              # Size-related format parsing
 │   ├── zbsdiff.py           # ZBSDIFF binary diff
 │   └── tvfs.py              # TVFS virtual file system
-├── commands/                # Click CLI command groups (11 groups)
-│   ├── examine.py           # examine: blte, encoding, config, archive
-│   ├── analyze.py           # analyze: stats, compression, dependencies, coverage
-│   ├── fetch.py             # fetch: config, data, build, encoding, batch, patch
-│   ├── validate.py          # validate: format, integrity, roundtrip, batch
+├── commands/                # Click CLI command groups (8 groups)
+│   ├── archive.py           # archive: examine, scan, find, find-key, extract-key, validate-mapping
 │   ├── builds.py            # builds: sync, list, search, stats, export, import
-│   ├── archive.py           # archive: examine, scan, find, validate-mapping
-│   ├── archive_search.py    # archive-search: find-key, extract-key
-│   ├── tact.py              # tact: sync, list, search, export, stats, import
+│   ├── cdn.py               # cdn: config, data, build, encoding, batch, patch, manifests
+│   ├── inspect.py           # inspect: blte, encoding, config, archive, stats, compression, coverage, dependencies
+│   ├── install.py           # install: resolve-manifests, discover-latest, scan-state, progress, and more
 │   ├── listfile.py          # listfile: sync, search, lookup, export, stats, import
-│   ├── install_poc.py       # install-poc: resolve-manifests, discover-latest
-│   └── install_analyzer.py  # install-state: scan, progress, show-config
+│   ├── tact.py              # tact: sync, list, search, export, stats, import
+│   └── validate.py          # validate: format, integrity, roundtrip, relationships, batch
 ├── database/                # External data integrations
 │   ├── wago.py              # Wago.tools API client
 │   ├── tact_keys.py         # TACT key database
@@ -179,16 +189,14 @@ cascette_tools/
 └── crypto/                  # Cryptographic utilities
     └── jenkins.py           # Bob Jenkins lookup3 hash
 
-tests/                       # Test suite (48 test files, 1358 tests)
+tests/                       # Test suite (48 test files, 80% coverage minimum)
 ├── conftest.py              # Shared fixtures for CLI mocking and CDN responses
 ├── test_cli.py              # Main CLI integration tests
-├── test_core/               # Core module tests (18 files)
-├── test_formats/            # Format parser tests (16 files)
-├── test_commands/           # CLI command tests (7 files)
-├── test_database/           # Database tests (3 files)
-├── test_crypto/             # Cryptographic utility tests (1 file)
-├── test_wago_client.py      # Wago client tests
-└── test_listfile_manager.py # Listfile manager tests
+├── test_core/               # Core module tests
+├── test_formats/            # Format parser tests
+├── test_commands/           # CLI command tests
+├── test_database/           # Database tests
+└── test_crypto/             # Cryptographic utility tests
 ```
 
 ## Development
@@ -302,10 +310,10 @@ versions across all products.
 
 ```bash
 # Fetch TACT manifests for a product (required for analysis)
-cascette fetch manifests wow
+cascette cdn manifests wow
 
 # Or fetch specific build data
-cascette fetch build wow 11.0.2.56461
+cascette cdn build wow 11.0.2.56461
 
 # This downloads build metadata and manifest files for analysis
 # Products include: wow, wow_classic, wow_classic_era, wow_classic_titan, wow_anniversary, wowt, wow_beta
@@ -330,10 +338,10 @@ After fetching build data:
 cascette validate batch test_data/
 
 # Analyze file statistics
-cascette analyze stats <file>
+cascette inspect stats <file>
 
 # Check compression effectiveness
-cascette analyze compression <blte_file>
+cascette inspect compression <blte_file>
 ```
 
 ## Command Categories
@@ -344,35 +352,23 @@ cascette analyze compression <blte_file>
 
 | Command | Purpose | Usage |
 |---------|---------|--------|
-| **`cascette builds sync`** | **Fetch WoW build database from Wago.tools** | **`cascette builds sync`** |
+| **`cascette builds sync`** | **Fetch build database from Wago.tools and BlizzTrack** | **`cascette builds sync`** |
 
-### Core Examination Commands
+### Core Inspection Commands
 
-These commands examine individual files and builds:
-
-| Command | Purpose | Usage |
-|---------|---------|--------|
-| `cascette examine blte` | BLTE decompression and analysis | `cascette examine blte <input.blte> -o <output.dat>` |
-| `cascette examine encoding` | Encoding file analysis and content key lookup | `cascette examine encoding <encoding_hash>` |
-| `cascette examine root` | Root file structure validation | `cascette examine root <root_hash>` |
-| `cascette examine install` | Install manifest analysis and tag systems | `cascette examine install --product wow` |
-| `cascette examine download` | Download manifest priority and platform tags | `cascette examine download --product wow` |
-| `cascette examine config` | Product and patch configuration analysis | `cascette examine config --config-type patch` |
-| `cascette examine tvfs` | TVFS (virtual file system) manifest analysis | `cascette examine tvfs <tvfs_files>` |
-| `cascette examine build` | Comprehensive build analysis | `cascette examine build wow 11.2.0.62706 <build_config>` |
-| `cascette examine patch` | Patch archive (PA) format examination | `cascette examine patch --limit 5` |
-| `cascette analyze cdn-configs` | CDN configuration and archive analysis | `cascette analyze cdn-configs wow_classic --limit 5` |
-
-### Format Analysis Commands
-
-These commands analyze format characteristics:
+These commands examine individual files:
 
 | Command | Purpose | Usage |
 |---------|---------|--------|
-| `cascette analyze stats` | Show file statistics and metadata | `cascette analyze stats <file>` |
-| `cascette analyze compression` | Analyze BLTE compression effectiveness | `cascette analyze compression <blte_file>` |
-| `cascette analyze coverage` | Analyze content coverage across files | `cascette analyze coverage <files...>` |
-| `cascette analyze dependencies` | Trace file dependencies and references | `cascette analyze dependencies <file>` |
+| `cascette inspect blte` | BLTE decompression and analysis | `cascette inspect blte <input.blte> -o <output.dat>` |
+| `cascette inspect encoding` | Encoding file analysis and content key lookup | `cascette inspect encoding <encoding_hash>` |
+| `cascette inspect config` | Build and CDN configuration analysis | `cascette inspect config <file>` |
+| `cascette inspect archive` | Archive index file analysis | `cascette inspect archive <file>` |
+| `cascette inspect download` | Download manifest priority and platform tags | `cascette inspect download --product wow` |
+| `cascette inspect stats` | Show file statistics and metadata | `cascette inspect stats <file>` |
+| `cascette inspect compression` | Analyze BLTE compression effectiveness | `cascette inspect compression <blte_file>` |
+| `cascette inspect coverage` | Analyze content coverage across files | `cascette inspect coverage <files...>` |
+| `cascette inspect dependencies` | Trace content key to encoding key to archive | `cascette inspect dependencies <file>` |
 
 ### Verification Suite
 
@@ -386,20 +382,24 @@ These commands validate format files:
 | `cascette validate roundtrip` | Test parse/build cycle correctness | `cascette validate roundtrip <file>` |
 | `cascette validate batch` | Batch validate multiple files | `cascette validate batch <directory>` |
 
-### Patch Commands
+### CDN Download Commands
 
-Commands for working with NGDP patches:
+Commands for downloading data from Blizzard's CDN:
 
 | Command | Purpose | Usage |
 |---------|---------|--------|
-| `cascette fetch patch` | Fetch patch files from CDN | `cascette fetch patch <hash>` |
-| `cascette fetch patch --index` | Fetch patch index files | `cascette fetch patch <hash> --index` |
+| `cascette cdn config` | Fetch configuration files from CDN | `cascette cdn config <hash>` |
+| `cascette cdn encoding` | Fetch encoding file by hash | `cascette cdn encoding <hash>` |
+| `cascette cdn data` | Fetch data archives from CDN | `cascette cdn data <hash>` |
+| `cascette cdn patch` | Fetch patch files from CDN | `cascette cdn patch <hash>` |
+| `cascette cdn build` | Fetch complete build information | `cascette cdn build <product> <version>` |
+| `cascette cdn manifests` | Fetch TACT manifests (versions and cdns) | `cascette cdn manifests <product>` |
+| `cascette cdn batch` | Batch fetch from a list of hashes | `cascette cdn batch <file>` |
 
 ### Utility Commands
 
 | Command | Purpose | Usage |
 |---------|---------|--------|
-| `cascette examine archive` | Archive index file analysis | `cascette examine archive <file>` |
 | `cascette tact list` | List known TACT encryption keys | `cascette tact list` |
 | `cascette tact sync` | Sync TACT keys from repository | `cascette tact sync` |
 | `cascette listfile search` | Search FileDataID to path mappings | `cascette listfile search <pattern>` |
@@ -436,19 +436,16 @@ cascette builds sync
 # Step 2: Validate downloaded files
 cascette validate batch test_data/
 
-# Step 4: Analyze file statistics
-cascette analyze stats <file>
+# Step 3: Analyze file statistics
+cascette inspect stats <file>
 
-# Step 5: Check compression effectiveness
-cascette analyze compression <blte_file>
+# Step 4: Check compression effectiveness
+cascette inspect compression <blte_file>
 
-# Step 6: Validate file integrity
+# Step 5: Validate file integrity
 cascette validate integrity <file>
 
-# Step 7: Check results
-ls -la results/
-
-# Step 8: Review data storage
+# Step 6: Review data storage
 ls -lh ~/.local/share/cascette-tools/
 ```
 
@@ -457,10 +454,10 @@ ls -lh ~/.local/share/cascette-tools/
 **REQUIRED** before any analysis:
 
 ```bash
-# Fetch comprehensive WoW build database (1,900+ builds)
+# Fetch build database from Wago.tools and BlizzTrack
 cascette builds sync
 
-# This creates local database with all build metadata
+# This creates a local SQLite database with build metadata
 # All other commands automatically detect and use this data
 ```
 
@@ -475,7 +472,7 @@ Verify the tools are working correctly:
 cascette builds sync
 
 # Test fetching a config file
-cascette fetch config <hash>
+cascette cdn config <hash>
 
 # Validate a downloaded file
 cascette validate format <file>
@@ -490,13 +487,11 @@ properly with appropriate timeouts for network operations.
 To examine a specific build:
 
 ```bash
-# Analyze a complete build (downloads ~50MB of data)
-cascette examine build wow_classic_era 1.13.7.38704 \
-  ae66faee0ac786fdd7d8b4cf90a8d5b9
+# Fetch a complete build (downloads ~50MB of data)
+cascette cdn build wow_classic_era 1.13.7.38704
 
 # Examine specific files from that build
-cascette examine root b98595f5  # Root file hash from build output
-cascette examine encoding bbf06e74  # Encoding file hash from build output
+cascette inspect encoding bbf06e74  # Encoding file hash from build output
 ```
 
 ### 3. Format Analysis
@@ -505,16 +500,16 @@ To analyze format characteristics:
 
 ```bash
 # Analyze file statistics
-cascette analyze stats <file>
+cascette inspect stats <file>
 
 # Analyze BLTE compression effectiveness
-cascette analyze compression <blte_file>
+cascette inspect compression <blte_file>
 
 # Analyze content coverage across files
-cascette analyze coverage <encoding_file> <root_file>
+cascette inspect coverage <encoding_file> <root_file>
 
 # Trace file dependencies
-cascette analyze dependencies <file>
+cascette inspect dependencies <file>
 ```
 
 These scripts examine builds chronologically to identify when format changes
@@ -527,10 +522,10 @@ Examine the NGDP patch system:
 
 ```bash
 # Fetch patch files
-cascette fetch patch <hash>
+cascette cdn patch <hash>
 
 # Fetch patch index files
-cascette fetch patch <hash> --index
+cascette cdn patch <hash> --index
 
 # Validate patch file format
 cascette validate format <patch_file>
@@ -545,13 +540,10 @@ For detailed examination of specific file formats:
 
 ```bash
 # Decompress BLTE files
-cascette examine blte compressed_file.blte -o decompressed.dat
+cascette inspect blte compressed_file.blte -o decompressed.dat
 
-# Search for content keys in encoding files
-cascette examine encoding <encoding_hash> --search <content_key>
-
-# Analyze root file structure
-cascette examine root <root_hash> --verbose
+# Examine encoding files
+cascette inspect encoding <encoding_hash>
 ```
 
 ### 6. Data Management
@@ -741,7 +733,7 @@ For development and testing:
 
 ```bash
 # Use longer timeouts for slow connections
-cascette examine build --timeout 60 wow 11.2.0.62706 <config>
+cascette cdn build --timeout 60 wow 11.2.0.62706
 ```
 
 **Cache Corruption**:
@@ -765,8 +757,8 @@ cascette builds sync
 Most commands support verbose output:
 
 ```bash
-cascette examine build --verbose wow 11.2.0.62706 <config>
-cascette examine root <hash> --debug
+cascette cdn build --verbose wow 11.2.0.62706
+cascette inspect encoding <hash>
 cascette --debug <command>  # Enable debug mode globally
 ```
 
@@ -954,7 +946,7 @@ The examination methodology follows a systematic discovery process:
 2. **Strategic Sampling**: Builds are selected across WoW version transitions
    to identify format changes
 
-3. **Detailed Analysis**: CLI examination commands (`cascette examine`)
+3. **Detailed Analysis**: CLI inspection commands (`cascette inspect`)
    validate format assumptions against real files
 
 4. **Verification**: Format parsers are tested against multiple builds to
@@ -983,8 +975,7 @@ This is currently a nights-and-weekends effort by one person. Funding goals:
 
 ## Contributing
 
-See the [Contributing Guide](CONTRIBUTING.md) for development setup and
-guidelines.
+See [AGENTS.md](AGENTS.md) for development setup and contribution guidelines.
 
 ## License
 
