@@ -99,7 +99,7 @@ class WagoClient:
     PRODUCT_FAMILIES = {
         "wow": ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"],
         "agent": ["agent"],
-        "bna": ["bna"]
+        "bna": ["bna"],
     }
 
     def __init__(self, config: AppConfig | None = None) -> None:

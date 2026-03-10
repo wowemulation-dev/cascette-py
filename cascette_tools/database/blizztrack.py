@@ -17,6 +17,13 @@ logger = structlog.get_logger()
 
 # Products supported for BlizzTrack sync.
 # These are the TACT product codes used in NGDP manifests.
+#
+# Note: "bts" (Battle.net Setup) is intentionally excluded. Unlike other
+# products, bts uses the target product code (e.g. "wow", "d3", "hero") as
+# its region field instead of geographic regions. Each entry represents the
+# installer configuration for a different game, so bts builds don't fit the
+# standard per-product model. If bts support is added, its entries should
+# either be attached to the corresponding product or stored separately.
 BLIZZTRACK_PRODUCTS = [
     "agent",
     "bna",

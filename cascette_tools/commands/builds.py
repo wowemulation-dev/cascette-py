@@ -15,6 +15,7 @@ from cascette_tools.core.config import AppConfig
 from cascette_tools.database.wago import WagoBuild
 
 # All products supported across both sync sources.
+# See blizztrack.py for why "bts" is excluded.
 _ALL_PRODUCTS = [
     "agent",
     "bna",

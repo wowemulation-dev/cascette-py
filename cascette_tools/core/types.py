@@ -40,6 +40,7 @@ class Product(StrEnum):
     CALL_OF_DUTY_MW2 = "wlby"
     AGENT = "agent"
     BNA = "bna"
+    BTS = "bts"
 
 
 class BuildInfo(BaseModel):
