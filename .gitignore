@@ -40,6 +40,13 @@ Pipfile.lock
 # Cache directories
 .cache/
 
+# CDN fetch output (cascette cdn build)
+build_*/
+
+# Script output
+failed_builds_*.csv
+missing_builds*.json
+
 # Verification and local test artifacts
 manifests_*/
 *.build
