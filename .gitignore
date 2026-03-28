@@ -65,7 +65,6 @@ dmypy.json
 # Package managers
 pip-log.txt
 pip-delete-this-directory.txt
-uv.lock
 poetry.lock
 Pipfile.lock
 

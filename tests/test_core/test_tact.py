@@ -121,22 +121,22 @@ class TestTACTClient:
         assert client.region == "invalid"
 
     def test_build_url_versions(self):
-        """Test building URL for versions endpoint."""
+        """Test building URL for versions endpoint (Ribbit HTTPS v2)."""
         client = TACTClient(region="us")
         url = client._build_url("versions", Product.WOW)
-        assert url == "https://us.version.battle.net/wow/versions"
+        assert url == "https://us.version.battle.net/v2/products/wow/versions"
 
     def test_build_url_cdns(self):
-        """Test building URL for CDNs endpoint."""
+        """Test building URL for CDNs endpoint (Ribbit HTTPS v2)."""
         client = TACTClient(region="eu")
         url = client._build_url("cdns", Product.WOW_CLASSIC)
-        assert url == "https://eu.version.battle.net/wow_classic/cdns"
+        assert url == "https://eu.version.battle.net/v2/products/wow_classic/cdns"
 
     def test_build_url_bgdl(self):
-        """Test building URL for BGDL endpoint."""
+        """Test building URL for BGDL endpoint (Ribbit HTTPS v2)."""
         client = TACTClient(region="kr")
         url = client._build_url("bgdl", Product.WOW_CLASSIC_ERA)
-        assert url == "https://kr.version.battle.net/wow_classic_era/bgdl"
+        assert url == "https://kr.version.battle.net/v2/products/wow_classic_era/bgdl"
 
     @patch("httpx.Client.get")
     def test_fetch_with_retry_success(self, mock_get):
