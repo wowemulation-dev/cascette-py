@@ -21,6 +21,28 @@ from cascette_tools.database.wago import WagoBuild, WagoClient
 
 console = Console()
 
+# Product codes that are acceptable when searching for a given target product.
+# Wago uses separate product codes for PTR/Beta, and some products changed
+# codes over time (e.g., Classic Era builds before 1.14 were under wow_classic).
+_ACCEPTABLE_PRODUCTS: dict[str, set[str]] = {
+    'wow': {'wow'},
+    'wow_classic': {'wow_classic'},
+    'wow_classic_era': {'wow_classic_era', 'wow_classic'},  # pre-split 1.13.x
+    'wow_classic_titan': {'wow_classic_titan'},
+    'wow_anniversary': {'wow_anniversary'},
+}
+
+# Additional product codes to accept only when the patch version matches.
+# Build numbers can collide across products (e.g. 42869 is both 9.2.0 retail
+# and 2.5.4 classic), so version verification is required for these.
+_VERSION_VERIFIED_PRODUCTS: dict[str, set[str]] = {
+    'wow': {'wowt', 'wow_beta', 'wowlivetest', 'wowxptr'},
+    'wow_classic': {'wow_classic_ptr', 'wow_classic_beta'},
+    'wow_classic_era': {'wow_classic_era_ptr', 'wow_classic_ptr'},
+    'wow_classic_titan': set(),
+    'wow_anniversary': set(),
+}
+
 
 def parse_wago_search(search_term: str) -> list[dict[str, str]]:
     """Parse Wago.tools search results from HTML.
@@ -86,6 +108,8 @@ def import_missing_builds(test_mode=False):
 
     config = AppConfig()
     all_found_builds = {}
+    # Builds found on Wago but with mismatched version -- need manual review
+    version_mismatches: list[dict[str, str]] = []
 
     # Search for each missing build ID
     with Progress(
@@ -94,45 +118,91 @@ def import_missing_builds(test_mode=False):
         console=console
     ) as progress:
 
-        for product_code, build_ids in missing_builds.items():
-            task = progress.add_task(f"Searching {product_code}", total=len(build_ids))
+        for product_code, build_entries in missing_builds.items():
+            # Support both old format (list of IDs) and new format (dict of ID->version)
+            if isinstance(build_entries, list):
+                build_map: dict[str, str] = {bid: '' for bid in build_entries}
+            else:
+                build_map = build_entries
+
+            task = progress.add_task(f"Searching {product_code}", total=len(build_map))
 
             found_for_product = []
 
-            for build_id in build_ids:
+            for build_id, expected_patch in build_map.items():
                 progress.update(task, description=f"Searching {product_code}: Build {build_id}")
 
                 # Search Wago using build ID
                 builds = parse_wago_search(build_id)
 
                 if builds:
-                    # Filter by matching build ID and product
                     matching_builds = []
-                    for build in builds:
-                        # Check if build ID matches
-                        version = build.get('version', '')
-                        if '.' in version:
-                            # Extract build from version string
-                            parts = version.split('.')
-                            if parts[-1] == build_id:
-                                build_product = build.get('product', '')
+                    acceptable = _ACCEPTABLE_PRODUCTS.get(product_code, {product_code})
+                    version_verified = _VERSION_VERIFIED_PRODUCTS.get(product_code, set())
 
-                                # Only accept builds from the exact product we're searching for
-                                if build_product == product_code:
-                                    matching_builds.append(build)
+                    for build in builds:
+                        version = build.get('version', '')
+                        if '.' not in version:
+                            continue
+                        parts = version.split('.')
+                        if parts[-1] != build_id:
+                            continue
+
+                        build_product = build.get('product', '')
+                        wago_patch = '.'.join(parts[:-1])
+
+                        if build_product in acceptable:
+                            # Direct product match -- accept
+                            build['product'] = product_code
+                            matching_builds.append(build)
+                        elif build_product in version_verified:
+                            # PTR/Beta product -- accept only if patch version
+                            # matches to avoid build number collisions
+                            if expected_patch and wago_patch == expected_patch:
+                                build['product'] = product_code
+                                matching_builds.append(build)
+                                console.print(
+                                    f"  [cyan]~[/cyan] Build {build_id}: "
+                                    f"Matched via {build_product} "
+                                    f"(version {version} verified)"
+                                )
 
                     if matching_builds:
                         found_for_product.extend(matching_builds)
                         console.print(f"  [green]✓[/green] Build {build_id}: Found {len(matching_builds)} matching entries")
                     else:
-                        console.print(f"  [yellow]⚠[/yellow] Build {build_id}: Found entries but none matching product")
+                        # Collect version-mismatched entries for manual review
+                        has_mismatch = False
+                        for build in builds:
+                            version = build.get('version', '')
+                            if '.' not in version:
+                                continue
+                            parts = version.split('.')
+                            if parts[-1] != build_id:
+                                continue
+                            wago_patch = '.'.join(parts[:-1])
+                            build_product = build.get('product', '')
+                            version_mismatches.append({
+                                'target_product': product_code,
+                                'build_id': build_id,
+                                'expected_version': f"{expected_patch}.{build_id}" if expected_patch else f"?.{build_id}",
+                                'wago_version': version,
+                                'wago_product': build_product,
+                                'build_config': build.get('build_config', ''),
+                                'cdn_config': build.get('cdn_config', ''),
+                            })
+                            has_mismatch = True
+                        if has_mismatch:
+                            console.print(f"  [yellow]?[/yellow] Build {build_id}: Version mismatch (needs manual review)")
+                        else:
+                            console.print(f"  [yellow]⚠[/yellow] Build {build_id}: Found entries but none matching product/version")
                 else:
                     console.print(f"  [red]✗[/red] Build {build_id}: No results found")
 
                 progress.advance(task)
 
                 # Be nice to the server
-                time.sleep(0.5)  # Shorter delay since we're searching specific build IDs
+                time.sleep(0.5)
 
             if found_for_product:
                 all_found_builds[product_code] = found_for_product
@@ -204,6 +274,46 @@ def import_missing_builds(test_mode=False):
 
     else:
         console.print("\n[yellow]No builds found to import[/yellow]")
+
+    # Report version-mismatched builds that need manual investigation
+    if version_mismatches:
+        console.print("\n[bold yellow]Builds Requiring Manual Investigation[/bold yellow]")
+        console.print(
+            "These builds are on the wiki as live but Wago has them under a "
+            "different version or product. Build configs may or may not match "
+            "the actual live build. Use 'cascette builds add' to add them "
+            "manually after verification.\n"
+        )
+
+        from rich.table import Table
+
+        table = Table(title="Version Mismatches")
+        table.add_column("Product", style="cyan")
+        table.add_column("Build", style="green")
+        table.add_column("Expected Version", style="yellow")
+        table.add_column("Wago Version", style="red")
+        table.add_column("Wago Product")
+        table.add_column("Build Config")
+        table.add_column("CDN Config")
+
+        for m in version_mismatches:
+            table.add_row(
+                m['target_product'],
+                m['build_id'],
+                m['expected_version'],
+                m['wago_version'],
+                m['wago_product'],
+                m['build_config'][:16] + '...' if m['build_config'] else '',
+                m['cdn_config'][:16] + '...' if m['cdn_config'] else '',
+            )
+
+        console.print(table)
+
+        console.print(
+            "\nTo add a build manually after verifying the config hashes:\n"
+            "  cascette builds add --product wow --version 10.1.5.50793 "
+            "--build-config <hash> --cdn-config <hash>"
+        )
 
 
 def main():

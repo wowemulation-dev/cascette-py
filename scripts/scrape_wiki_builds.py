@@ -18,8 +18,98 @@ from rich.table import Table
 console = Console()
 
 
+def _is_live_build(server: str, phase: str) -> bool:
+    """Check if a build was deployed to a live/production server.
+
+    The Server column is the authoritative source for determining whether a
+    build reached production. The Phase column alone is not sufficient because
+    the wiki uses Phase="Live" for builds that went live *on PTR* as well.
+
+    A build is considered live if the Server column includes at least one
+    production server name (Retail, Classic, Classic Era, Classic Anniversary,
+    Classic Titan) that is not qualified by PTR/Test/Beta/Alpha.
+    """
+    live_server_names = ['retail', 'classic era', 'classic anniversary',
+                         'classic titan', 'classic']
+    test_indicators = ['ptr', 'test', 'beta', 'alpha', 'dev', 'vendor',
+                       'submission', 'demo', 'blizzcon', 'internal',
+                       'event 1', 'live test']
+
+    server_lower = server.lower()
+    server_parts = [s.strip() for s in server_lower.split(',')]
+
+    for part in server_parts:
+        # Skip parts that contain test/ptr indicators
+        is_test = any(indicator in part for indicator in test_indicators)
+        if is_test:
+            continue
+        # Check if this part names a live server
+        if any(name == part for name in live_server_names):
+            return True
+
+    # Fallback: some older tables use "Retail" as the Phase value combined
+    # with "Test, Retail" in Server (where we already matched "Retail" above).
+    # Also handle Phase="Retail" when Server column is absent or empty.
+    if not server.strip():
+        phase_lower = phase.lower()
+        if phase_lower == 'retail' or 'live' in phase_lower:
+            return True
+
+    return False
+
+
+def _get_product_from_server(server: str) -> str | None:
+    """Determine the product code from a Server column value.
+
+    Returns the product key (retail, classic, classic_era, classic_titan,
+    anniversary) or None if the server value doesn't map to a known product.
+    """
+    server_lower = server.lower()
+    parts = [s.strip() for s in server_lower.split(',')]
+
+    for part in parts:
+        if part == 'classic anniversary':
+            return 'anniversary'
+        if part == 'classic titan' or part == 'classic titan reforged':
+            return 'classic_titan'
+        if part == 'classic era':
+            return 'classic_era'
+        if part == 'retail':
+            return 'retail'
+        if part == 'classic':
+            return 'classic'
+
+    return None
+
+
+# Section heading to default product mapping.
+# The h3 heading determines the product for Classic sub-sections.
+# Retail expansion tables (h2-level) all map to 'retail'.
+_SECTION_PRODUCT_MAP: dict[str, str] = {
+    # h3 headings under "Classic"
+    'Mists of Pandaria Classic': 'classic',
+    'Cataclysm Classic': 'classic',
+    'Titan Reforged': 'classic_titan',
+    'Wrath of the Lich King Classic': 'classic',
+    'Burning Crusade Classic': '_mixed_tbc',  # needs per-row Server inspection
+    'Classic Era': 'classic_era',
+}
+
+# h2 headings for retail expansions
+_RETAIL_SECTIONS: set[str] = {
+    'Midnight', 'The War Within', 'Dragonflight', 'Shadowlands',
+    'Battle for Azeroth', 'Legion', 'Warlords of Draenor',
+    'Mists of Pandaria', 'Cataclysm', 'Wrath of the Lich King',
+    'The Burning Crusade', 'World of Warcraft',
+}
+
+
 def scrape_wiki_builds():
     """Scrape public client builds from Warcraft Wiki.
+
+    Uses section headings (h2/h3) to determine which product each table
+    belongs to, and filters out PTR/Beta/Alpha/Test builds by examining
+    the Server and Phase columns.
 
     Returns:
         Dict with product category keys mapping to lists of build IDs.
@@ -32,169 +122,161 @@ def scrape_wiki_builds():
     response.raise_for_status()
 
     soup = BeautifulSoup(response.text, 'html.parser')
+    content = soup.find('div', class_='mw-parser-output')
+    if not content:
+        content = soup
 
-    builds = {
-        'retail': set(),  # Use sets to avoid duplicates
+    # Maps product -> set of (build_id, patch_version) tuples.
+    # patch_version is needed for version-aware matching during import
+    # (build numbers can collide across products/versions).
+    builds: dict[str, set[tuple[str, str]]] = {
+        'retail': set(),
         'classic': set(),
         'classic_era': set(),
         'classic_titan': set(),
-        'anniversary': set()
+        'anniversary': set(),
     }
 
-    # Find all tables with darktable class
-    tables = soup.find_all('table', class_='darktable')
-    console.print(f"Found {len(tables)} tables on page")
+    # Walk through headings and tables in document order to associate each
+    # table with its section heading.
+    current_h2 = ''
+    current_h3 = ''
+    table_num = 0
+    skipped_ptr = 0
+    skipped_no_version = 0
 
-    for _table_num, table in enumerate(tables, 1):
-        # Process each row
-        rows = table.find_all('tr')  # type: ignore[union-attr]
+    for elem in content.find_all(['h2', 'h3', 'table']):  # type: ignore[union-attr]
+        tag = elem.name
+        if tag == 'h2':
+            headline = elem.find('span', class_='mw-headline')
+            if headline:
+                current_h2 = headline.get_text().strip()
+                current_h3 = ''
+            continue
+        if tag == 'h3':
+            headline = elem.find('span', class_='mw-headline')
+            if headline:
+                current_h3 = headline.get_text().strip()
+            continue
 
-        for row in rows:
-            cells = row.find_all('td')  # type: ignore[union-attr]
-            if len(cells) < 2:  # Need at least 2 cells for data
+        if tag != 'table' or 'darktable' not in (elem.get('class') or []):
+            continue
+
+        table_num += 1
+
+        # Skip the summary "Current builds" table (table #1)
+        if current_h2 == 'Current builds' and current_h3 == '':
+            continue
+
+        # Determine the default product for this table from section headings
+        section_product = None
+        if current_h3 and current_h3 in _SECTION_PRODUCT_MAP:
+            section_product = _SECTION_PRODUCT_MAP[current_h3]
+        elif current_h2 in _RETAIL_SECTIONS:
+            section_product = 'retail'
+
+        if section_product is None:
+            # Unknown section, skip
+            continue
+
+        # Find column indices from header row
+        headers = [th.get_text().strip().lower() for th in elem.find_all('th')]
+        col_map: dict[str, int] = {}
+        for i, h in enumerate(headers):
+            if h in ('server', 'phase', 'version', 'patch', 'build'):
+                col_map[h] = i
+
+        server_idx = col_map.get('server')
+        phase_idx = col_map.get('phase')
+        version_idx = col_map.get('version')
+        patch_idx = col_map.get('patch')
+
+        for row in elem.find_all('tr'):
+            cells = row.find_all('td')
+            if len(cells) < 2:
                 continue
 
-            # Extract all text from the row to get full context
-            row_text = ' '.join(cell.get_text().strip() for cell in cells).lower()
+            # Extract Server and Phase values
+            server = ''
+            phase = ''
+            if server_idx is not None and server_idx < len(cells):
+                server = cells[server_idx].get_text().strip()
+            if phase_idx is not None and phase_idx < len(cells):
+                phase = cells[phase_idx].get_text().strip()
 
-            # Look for build ID and version in individual cells
+            # Filter: only keep builds that reached live servers
+            if not _is_live_build(server, phase):
+                skipped_ptr += 1
+                continue
+
+            # Extract build ID from the Version column (build number)
             build_id = None
-            version = None
-
-            for cell in cells:
-                cell_text = cell.get_text().strip()
-
-                # Check for standalone build number (e.g., "19027")
+            if version_idx is not None and version_idx < len(cells):
+                cell_text = cells[version_idx].get_text().strip()
                 if re.match(r'^\d{4,6}$', cell_text):
                     build_id = cell_text
 
-                # Check for version with build (e.g., "6.0.2.19027")
-                version_match = re.match(r'^(\d+\.\d+\.\d+)\.(\d+)$', cell_text)
-                if version_match:
-                    version = version_match.group(1)
-                    if not build_id:  # Extract build from full version if needed
-                        build_id = version_match.group(2)
-
-                # Simple version without build (e.g., "6.0.2")
-                elif re.match(r'^\d+\.\d+\.\d+$', cell_text):
-                    version = cell_text
-
-            # Skip if we don't have a build ID
             if not build_id:
+                # Try extracting from full version strings in any cell
+                for cell in cells:
+                    cell_text = cell.get_text().strip()
+                    version_match = re.match(
+                        r'^(\d+\.\d+\.\d+)\.(\d+)$', cell_text
+                    )
+                    if version_match:
+                        build_id = version_match.group(2)
+                        break
+                    if re.match(r'^\d{4,6}$', cell_text):
+                        build_id = cell_text
+                        break
+
+            if not build_id:
+                skipped_no_version += 1
                 continue
 
-            # Filter based on NGDP support
-            # NGDP was introduced with:
-            # - Retail: 6.0+ (Warlords of Draenor)
-            # - Classic: 1.13+ (2019 re-release uses NGDP)
-            # - Classic Era: 1.13.7+ (also uses NGDP)
-            # We skip pre-6.0 retail builds and builds without versions
-            if not version:
-                # Skip builds without a parseable version - can't verify NGDP support
-                continue
+            # Extract patch version for NGDP filtering on retail tables.
+            # Patch values may have letter suffixes (e.g. "4.0.1a").
+            patch_version = None
+            if patch_idx is not None and patch_idx < len(cells):
+                ptext = cells[patch_idx].get_text().strip()
+                pmatch = re.match(r'^(\d+\.\d+\.\d+)', ptext)
+                if pmatch:
+                    patch_version = pmatch.group(1)
 
-            # Pre-check row text for categorization (needed for 2.x-5.x filtering)
-            is_retail_row = any(term in row_text for term in ['retail', 'live'])
-            is_classic_era_row = 'classic era' in row_text or 'classic-era' in row_text
-            is_anniversary_row = 'anniversary' in row_text
-            is_titan_row = 'titan' in row_text
-            is_classic_row = 'classic' in row_text and not is_classic_era_row and not is_anniversary_row and not is_titan_row
+            # For retail tables, skip pre-NGDP builds (before 6.0)
+            if section_product == 'retail' and patch_version:
+                try:
+                    major = int(patch_version.split('.')[0])
+                    if major < 6:
+                        continue
+                except (ValueError, IndexError):
+                    pass
 
-            try:
-                major_version = int(version.split('.')[0])
+            # Use empty string if patch version is unknown
+            pv = patch_version or ''
 
-                # Check if this is a Classic version (1.x)
-                if major_version == 1:
-                    # Classic 1.13+ uses NGDP, earlier 1.x versions don't
-                    parts = version.split('.')
-                    if len(parts) >= 2:
-                        minor = int(parts[1])
-                        if minor < 13:
-                            continue  # Skip pre-1.13 (original vanilla, uses MPQ)
-                elif major_version >= 2 and major_version < 6:
-                    # 2.x through 5.x versions:
-                    # - Original retail TBC/Wrath/Cata/MoP: NO NGDP (skip)
-                    # - Classic re-releases (TBC Classic, etc.): YES NGDP (keep)
-                    # - Classic Titan (3.80.x): YES NGDP (keep)
-                    # - Anniversary (2.5.5.x): YES NGDP (keep)
-                    # Only keep if explicitly marked as classic/titan/anniversary
-                    if not is_classic_row and not is_classic_era_row and not is_titan_row and not is_anniversary_row:
-                        continue  # Skip original retail 2.x-5.x (pre-NGDP)
-                elif major_version < 6:
-                    # Any other version < 6.0 is pre-NGDP retail
-                    continue
-                # 6.0+ retail uses NGDP - keep these
-            except (ValueError, IndexError):
-                # If we can't parse the version, skip it (safer approach)
-                continue
+            # Determine the product for this specific row
+            if section_product == '_mixed_tbc':
+                # TBC Classic table has mixed Anniversary and Classic Era PTR rows.
+                # Use the Server column to determine the actual product.
+                row_product = _get_product_from_server(server)
+                if row_product and row_product in builds:
+                    builds[row_product].add((build_id, pv))
+            else:
+                builds[section_product].add((build_id, pv))
 
-            # Categorize based on row content and version
-            is_retail = is_retail_row
-            is_classic_era = is_classic_era_row
-            is_classic = is_classic_row
-            is_titan = is_titan_row
-            is_anniversary = is_anniversary_row
+    console.print(f"Processed {table_num} tables")
+    console.print(f"Skipped {skipped_ptr} PTR/Beta/Alpha/Test builds")
+    console.print(f"Skipped {skipped_no_version} rows without build IDs")
 
-            # If no explicit category but we have version, categorize by version number
-            if version and not (is_retail or is_classic or is_classic_era or is_titan or is_anniversary):
-                if version.startswith(('1.13', '1.14', '1.15')):
-                    # Classic Era versions (1.13.7+ is Era, earlier 1.13.x was Classic)
-                    if version.startswith('1.13.'):
-                        parts = version.split('.')
-                        if len(parts) >= 3:
-                            try:
-                                patch = int(parts[2])
-                                if patch >= 7:
-                                    is_classic_era = True
-                                else:
-                                    is_classic = True  # 1.13.0-1.13.6 was original Classic
-                            except ValueError:
-                                is_classic = True  # Default to Classic for 1.13.x
-                    else:
-                        is_classic_era = True  # 1.14.x and 1.15.x are Era
-                elif version.startswith('3.80.'):
-                    # Classic Titan uses 3.80.x (distinct from WotLK Classic 3.4.x)
-                    is_titan = True
-                elif version.startswith(('2.', '3.', '4.', '5.')):
-                    # Classic progression servers (TBC Classic, Wrath Classic, etc.)
-                    is_classic = True
-                else:
-                    # 6.x and higher are retail
-                    try:
-                        major = int(version.split('.')[0])
-                        if major >= 6:
-                            is_retail = True
-                    except (ValueError, IndexError):
-                        pass
-
-            # Add to appropriate categories (a build can be in multiple categories)
-            if is_retail:
-                builds['retail'].add(build_id)
-            if is_classic:
-                builds['classic'].add(build_id)
-            if is_classic_era:
-                builds['classic_era'].add(build_id)
-            if is_titan:
-                builds['classic_titan'].add(build_id)
-            if is_anniversary:
-                builds['anniversary'].add(build_id)
-
-            # If still uncategorized, use version to determine category
-            # Only 6.0+ can be added without explicit category (those are retail NGDP)
-            # 2.x-5.x should already be filtered out if not explicitly "classic"
-            if not (is_retail or is_classic or is_classic_era or is_titan or is_anniversary):
-                if major_version >= 6:
-                    builds['retail'].add(build_id)
-                # Note: 2.x-5.x without explicit "classic" were already skipped above
-
-    # Convert sets to sorted lists
-    result = {
-        'retail': sorted(builds['retail']),
-        'classic': sorted(builds['classic']),
-        'classic_era': sorted(builds['classic_era']),
-        'classic_titan': sorted(builds['classic_titan']),
-        'anniversary': sorted(builds['anniversary'])
-    }
+    # Convert sets to sorted dicts: {build_id: patch_version}
+    result: dict[str, dict[str, str]] = {}
+    for category in ('retail', 'classic', 'classic_era',
+                      'classic_titan', 'anniversary'):
+        result[category] = {
+            bid: pv
+            for bid, pv in sorted(builds[category])
+        }
 
     return result
 
@@ -249,7 +331,8 @@ def find_missing_builds():
     ]:
         count = len(wiki_builds[category])
         if count > 0:
-            examples = ', '.join(wiki_builds[category][:5])
+            example_ids = list(wiki_builds[category].keys())[:5]
+            examples = ', '.join(example_ids)
             console.print(f"  {label}: {count} unique build IDs (e.g. {examples})")
         else:
             console.print(f"  {label}: 0 unique build IDs")
@@ -263,7 +346,7 @@ def find_missing_builds():
         'anniversary': 'wow_anniversary'
     }
 
-    missing_builds = {}
+    missing_builds: dict[str, dict[str, str]] = {}
 
     console.print("\n[cyan]Checking database for missing build IDs...[/cyan]")
 
@@ -272,12 +355,16 @@ def find_missing_builds():
         db_builds = get_database_builds(db_product)
         console.print(f"  {db_product}: {len(db_builds)} builds in database")
 
-        # Find missing
-        wiki_build_ids = set(wiki_builds[wiki_product])
-        missing = wiki_build_ids - db_builds
+        # Find missing: build IDs on wiki but not in database
+        wiki_build_map = wiki_builds[wiki_product]
+        missing_ids = set(wiki_build_map.keys()) - db_builds
 
-        if missing:
-            missing_builds[db_product] = sorted(missing)
+        if missing_ids:
+            # Preserve patch version info for version-aware import
+            missing_builds[db_product] = {
+                bid: wiki_build_map[bid]
+                for bid in sorted(missing_ids)
+            }
 
     # Display results
     console.print("\n[bold]Missing Builds Analysis[/bold]\n")
@@ -289,7 +376,7 @@ def find_missing_builds():
 
     for product, missing in missing_builds.items():
         if missing:
-            examples = missing[:5]
+            examples = list(missing.keys())[:5]
             examples_str = ', '.join(examples)
             if len(missing) > 5:
                 examples_str += f", ... ({len(missing) - 5} more)"
@@ -315,7 +402,7 @@ def main():
         console.print("\n[cyan]Missing build IDs saved to missing_builds.json[/cyan]")
 
         # Show totals
-        total = sum(len(builds) for builds in missing.values())
+        total = sum(len(bids) for bids in missing.values())
         console.print(f"[bold]Total missing builds to search: {total}[/bold]")
 
 
