@@ -1,4 +1,4 @@
-"""Manage WoW build database from Wago.tools and BlizzTrack."""
+"""Manage WoW build database from Wago.tools, BlizzTrack, and Ribbit."""
 
 from __future__ import annotations
 
@@ -38,26 +38,118 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
 
 @click.group("builds", short_help="Manage build database.")
 def builds_group() -> None:
-    """Manage build database from Wago.tools and BlizzTrack.
+    """Manage build database from Wago.tools, BlizzTrack, and Ribbit.
 
-    Syncs build metadata from two sources:
+    Syncs build metadata from three sources:
 
     - Wago.tools: WoW product family (wow, wow_classic, wow_classic_era,
       wow_classic_titan, wow_anniversary) with decoded manifest EKEYs.
     - BlizzTrack: All TACT products including agent and bna. Covers
       current versions and archived seqn history.
+    - Ribbit: Current live versions directly from Blizzard's TACT
+      endpoints for all supported products.
 
-    Both sources write into the same SQLite database; duplicates are
-    resolved on import using (id, product) as the unique key.
+    All sources write into the same SQLite database; duplicates are
+    resolved on import using (product, build, build_config) as the
+    unique key.
     """
     pass
+
+
+_RIBBIT_PRODUCTS = [
+    "agent",
+    "bna",
+    "wow",
+    "wow_classic",
+    "wow_classic_era",
+    "wow_classic_titan",
+    "wow_anniversary",
+]
+
+
+def _fetch_ribbit_builds(
+    config: AppConfig, console: Console, verbose: bool
+) -> list[WagoBuild]:
+    """Fetch current live builds from Blizzard's TACT HTTPS v2 endpoints.
+
+    Queries the Ribbit versions endpoint for each product and returns
+    one WagoBuild per product (deduplicated across regions, since all
+    regions serve the same build).
+    """
+    from cascette_tools.core.tact import TACTClient
+    from cascette_tools.core.types import Product
+
+    region = config.default_region or "us"
+    client = TACTClient(region=region)
+    builds: list[WagoBuild] = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Fetching from Ribbit...", total=len(_RIBBIT_PRODUCTS))
+
+        for product_code in _RIBBIT_PRODUCTS:
+            progress.update(task, description=f"Ribbit: {product_code}")
+            try:
+                product_enum = Product(product_code)
+                manifest = client.fetch_versions(product_enum)
+                entries = client.parse_versions(manifest)
+
+                # Deduplicate: all regions typically serve the same build.
+                # Use the first entry (usually 'us') and skip duplicates
+                # by BuildConfig.
+                seen_configs: set[str] = set()
+                for entry in entries:
+                    build_config = entry.get("BuildConfig", "")
+                    if not build_config or build_config in seen_configs:
+                        continue
+                    seen_configs.add(build_config)
+
+                    build_id = entry.get("BuildId", "")
+                    version = entry.get("VersionsName", "")
+
+                    if not build_id or not version:
+                        continue
+
+                    build = WagoBuild(
+                        id=int(build_id) if build_id.isdigit() else 0,
+                        build=build_id,
+                        version=version,
+                        product=product_code,
+                        build_config=build_config,
+                        cdn_config=entry.get("CDNConfig") or None,
+                        product_config=entry.get("ProductConfig") or None,
+                    )
+                    builds.append(build)
+
+                    if verbose:
+                        console.print(
+                            f"[dim]  {product_code}: {version} "
+                            f"(bc={build_config[:12]}...)[/dim]"
+                        )
+
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Failed to fetch {product_code} from Ribbit: {e}[/yellow]"
+                )
+
+            progress.advance(task)
+
+        progress.update(
+            task, description=f"Ribbit: {len(builds)} builds fetched"
+        )
+
+    return builds
 
 
 @builds_group.command("sync")
 @click.option(
     "--source",
     "-s",
-    type=click.Choice(["wago", "blizztrack", "all"], case_sensitive=False),
+    type=click.Choice(["wago", "blizztrack", "ribbit", "all"], case_sensitive=False),
     default="all",
     show_default=True,
     help="Data source to sync from.",
@@ -86,9 +178,9 @@ def sync_builds(
     history: bool,
     show_stats: bool,
 ) -> None:
-    """Sync build database from Wago.tools and/or BlizzTrack.
+    """Sync build database from Wago.tools, BlizzTrack, and/or Ribbit.
 
-    By default syncs from both sources and deduplicates on import.
+    By default syncs from all three sources and deduplicates on import.
 
     Wago.tools covers WoW products (wow, wow_classic, wow_classic_era,
     wow_classic_titan, wow_anniversary) with decoded metadata.
@@ -96,6 +188,10 @@ def sync_builds(
     BlizzTrack covers all TACT products including agent and bna. Use
     --history to also walk archived seqn snapshots (makes one HTTP
     request per historical snapshot — can be several hundred requests).
+
+    Ribbit fetches current live versions directly from Blizzard's TACT
+    HTTPS v2 endpoints for all supported products. Always returns the
+    latest single build per product per region.
     """
     config_obj, console, verbose, debug = _get_context_objects(ctx)
 
@@ -165,6 +261,11 @@ def sync_builds(
 
                 if verbose:
                     console.print(f"[dim]BlizzTrack: {len(bt_builds)} builds[/dim]")
+
+        # --- Ribbit (TACT HTTPS v2) ---
+        if source in ("ribbit", "all"):
+            ribbit_builds = _fetch_ribbit_builds(config_obj, console, verbose)
+            all_builds.extend(ribbit_builds)
 
         if not all_builds:
             console.print("[yellow]No builds fetched.[/yellow]")
@@ -611,6 +712,162 @@ def import_builds(
             console.print(f"[yellow]Updated {stats['updated']} existing builds[/yellow]")
             console.print(f"[dim]Skipped {stats['skipped']} unchanged builds[/dim]")
 
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+@builds_group.command("add")
+@click.option(
+    "--product",
+    "-p",
+    required=True,
+    type=click.Choice(_ALL_PRODUCTS, case_sensitive=False),
+    help="Product code.",
+)
+@click.option(
+    "--version",
+    "-v",
+    required=True,
+    help="Full version string (e.g. 10.1.5.50793).",
+)
+@click.option(
+    "--build-config",
+    default=None,
+    help="Build config hash (40 hex chars).",
+)
+@click.option(
+    "--cdn-config",
+    default=None,
+    help="CDN config hash (40 hex chars).",
+)
+@click.option(
+    "--product-config",
+    default=None,
+    help="Product config hash (40 hex chars).",
+)
+@click.option(
+    "--encoding-ekey",
+    default=None,
+    help="Encoding manifest EKey.",
+)
+@click.option(
+    "--root-ekey",
+    default=None,
+    help="Root manifest EKey.",
+)
+@click.option(
+    "--install-ekey",
+    default=None,
+    help="Install manifest EKey.",
+)
+@click.option(
+    "--download-ekey",
+    default=None,
+    help="Download manifest EKey.",
+)
+@click.option(
+    "--build-time",
+    default=None,
+    help="Build timestamp (ISO 8601, e.g. 2023-07-11T00:00:00Z).",
+)
+@click.pass_context
+def add_build(
+    ctx: click.Context,
+    product: str,
+    version: str,
+    build_config: str | None,
+    cdn_config: str | None,
+    product_config: str | None,
+    encoding_ekey: str | None,
+    root_ekey: str | None,
+    install_ekey: str | None,
+    download_ekey: str | None,
+    build_time: str | None,
+) -> None:
+    """Manually add a build entry to the database.
+
+    The build number is extracted from the version string (last component).
+    The build ID is auto-generated from build_config + product when a
+    build_config is provided, otherwise from a hash of the version string.
+
+    \b
+    Examples:
+      cascette builds add -p wow -v 10.1.5.50793
+      cascette builds add -p wow -v 10.1.5.50793 \\
+        --build-config abc123... --cdn-config def456...
+      cascette builds add -p wow_classic_era -v 1.14.1.41009 \\
+        --build-time 2022-03-15T00:00:00Z
+    """
+    import hashlib
+    from datetime import datetime as dt
+
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        from cascette_tools.database.wago import WagoClient
+
+        # Extract build number from version string
+        parts = version.split(".")
+        if len(parts) < 2:
+            console.print(
+                "[red]Version must have at least two components "
+                "(e.g. 10.1.5.50793)[/red]"
+            )
+            raise click.Abort()
+
+        build_number = parts[-1]
+
+        # Auto-generate stable ID (same algorithm as blizztrack.py)
+        if build_config:
+            key = f"{build_config}_{product}"
+        else:
+            key = f"{version}_{product}"
+        build_id = int(hashlib.md5(key.encode()).hexdigest()[:8], 16)
+
+        # Parse build time if provided
+        parsed_time = None
+        if build_time:
+            parsed_time = dt.fromisoformat(build_time.replace("Z", "+00:00"))
+
+        build = WagoBuild(
+            id=build_id,
+            build=build_number,
+            version=version,
+            product=product,
+            build_time=parsed_time,
+            build_config=build_config,
+            cdn_config=cdn_config,
+            product_config=product_config,
+            encoding_ekey=encoding_ekey,
+            root_ekey=root_ekey,
+            install_ekey=install_ekey,
+            download_ekey=download_ekey,
+        )
+
+        with WagoClient(config_obj) as wago:
+            stats = wago.import_builds_to_database([build])
+
+            if stats["imported"] > 0:
+                console.print(f"[green]Added {version} ({product})[/green]")
+            elif stats["updated"] > 0:
+                console.print(f"[yellow]Updated {version} ({product})[/yellow]")
+            else:
+                console.print(
+                    f"[dim]Build {version} ({product}) already exists unchanged[/dim]"
+                )
+
+            console.print(f"  ID: {build_id}")
+            if build_config:
+                console.print(f"  Build config: {build_config}")
+            if cdn_config:
+                console.print(f"  CDN config: {cdn_config}")
+
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         if debug:

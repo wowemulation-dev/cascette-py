@@ -427,18 +427,18 @@ class TestWagoClient:
             assert build is None
 
     def test_get_latest_build(self, wago_client):
-        """Test getting latest build by highest ID."""
+        """Test getting latest build by highest build number."""
         builds = [
-            WagoBuild(id=1, build="1.0.0", version="1.0.0", product="wow"),
-            WagoBuild(id=3, build="3.0.0", version="3.0.0", product="wow"),
-            WagoBuild(id=2, build="2.0.0", version="2.0.0", product="wow"),
+            WagoBuild(id=1, build="10000", version="1.0.0.10000", product="wow"),
+            WagoBuild(id=3, build="30000", version="3.0.0.30000", product="wow"),
+            WagoBuild(id=2, build="20000", version="2.0.0.20000", product="wow"),
         ]
 
         with patch.object(wago_client, 'get_builds_for_product', return_value=builds):
             latest = wago_client.get_latest_build("wow")
             assert latest is not None
-            assert latest.id == 3  # Highest ID
-            assert latest.version == "3.0.0"
+            assert latest.build == "30000"  # Highest build number
+            assert latest.version == "3.0.0.30000"
 
     def test_get_latest_build_no_builds(self, wago_client):
         """Test getting latest build when no builds exist."""
@@ -527,29 +527,38 @@ class TestWagoClient:
         assert log_rows[0]["success"] == 1
 
     def test_import_builds_update_existing(self, wago_client):
-        """Test updating existing builds during import."""
+        """Test updating existing builds during import.
+
+        Deduplication key is (product, build, build_config). Re-importing
+        the same build with the same build_config updates the row.
+        """
         # Insert initial build
         initial_build = WagoBuild(
-            id=1, build="1.0.0", version="1.0.0", product="wow",
-            build_config="old_config"
+            id=1, build="12345", version="1.0.0.12345", product="wow",
+            build_config="config_abc"
         )
         wago_client.import_builds_to_database([initial_build])
 
-        # Import updated build
+        # Import same build number with updated metadata, same build_config
         updated_build = WagoBuild(
-            id=1, build="1.0.1", version="1.0.1", product="wow",
-            build_config="new_config"
+            id=2, build="12345", version="1.0.0.12345", product="wow",
+            build_config="config_abc", encoding_ekey="enc123"
         )
         stats = wago_client.import_builds_to_database([updated_build])
 
         assert stats["imported"] == 0
         assert stats["updated"] == 1
 
-        # Verify update
+        # Verify update -- ekey was added, only one row exists
         row = wago_client.conn.execute(
-            "SELECT build_config FROM builds WHERE id = 1"
+            "SELECT encoding_ekey FROM builds WHERE product = 'wow' AND build = '12345'"
         ).fetchone()
-        assert row["build_config"] == "new_config"
+        assert row["encoding_ekey"] == "enc123"
+
+        count = wago_client.conn.execute(
+            "SELECT COUNT(*) FROM builds WHERE product = 'wow' AND build = '12345'"
+        ).fetchone()[0]
+        assert count == 1
 
     def test_get_database_builds(self, wago_client):
         """Test retrieving builds from database."""

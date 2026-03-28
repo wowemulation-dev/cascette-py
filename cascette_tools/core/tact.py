@@ -134,8 +134,8 @@ class TACTClient:
         Returns:
             Full URL for the endpoint
         """
-        # HTTPS TACT v2 uses pattern: /{product}/{endpoint}
-        return f"{self._base_url}/{product.value}/{endpoint}"
+        # Ribbit HTTPS v2: /v2/products/{product}/{endpoint}
+        return f"{self._base_url}/v2/products/{product.value}/{endpoint}"
 
     def _fetch_with_retry(self, url: str) -> str:
         """Fetch URL with retry logic.

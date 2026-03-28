@@ -104,11 +104,12 @@ def fetch_build_with_timeout(build_id: str, product: str, timeout_seconds: int =
     Returns:
         Tuple of (success, error_message)
     """
-    # Check if EKEYs already exist before fetching
-    had_ekeys_before = check_ekeys_in_database(build_id, product)
+    # Skip builds that already have EKEYs -- no need to fetch from CDN
+    if check_ekeys_in_database(build_id, product):
+        return True, "EKEYs already existed"
 
     cmd = [
-        "cascette", "fetch", "build", build_id,
+        "cascette", "cdn", "build", build_id,
         "--product", product,
         "--include-manifests"
     ]
@@ -125,13 +126,8 @@ def fetch_build_with_timeout(build_id: str, product: str, timeout_seconds: int =
         # Check if successful
         if result.returncode == 0:
             # Check if EKEYs were populated after the fetch
-            has_ekeys_after = check_ekeys_in_database(build_id, product)
-
-            if has_ekeys_after:
-                if had_ekeys_before:
-                    return True, "EKEYs already existed"
-                else:
-                    return True, ""  # Successfully populated EKEYs
+            if check_ekeys_in_database(build_id, product):
+                return True, ""  # Successfully populated EKEYs
             else:
                 # Check if download was mentioned in output
                 if "Downloaded" in result.stdout:

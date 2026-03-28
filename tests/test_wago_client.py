@@ -693,14 +693,17 @@ class TestWagoClientDatabase:
         assert log_entry["builds_imported"] == 2
 
     def test_import_builds_update_existing(self, wago_client, sample_builds):
-        """Test updating existing builds in database."""
+        """Test updating existing builds in database.
+
+        Deduplication is based on (product, build, build_config). Reimporting
+        a build with the same build_config updates the existing row.
+        """
         # First import
         wago_client.import_builds_to_database(sample_builds)
 
-        # Modify build and import again
+        # Modify build metadata but keep same build_config
         updated_build = sample_builds[0].model_copy()
         updated_build.version = "11.0.5.56647-updated"
-        updated_build.build_config = "updated_config_hash"
 
         stats = wago_client.import_builds_to_database([updated_build])
 
@@ -710,12 +713,12 @@ class TestWagoClientDatabase:
 
         # Verify update in database
         cursor = wago_client.conn.execute(
-            "SELECT version, build_config FROM builds WHERE id = ?",
-            (updated_build.id,)
+            "SELECT version, build_config FROM builds WHERE product = ? AND build = ?",
+            (updated_build.product, updated_build.build)
         )
         row = cursor.fetchone()
         assert row["version"] == "11.0.5.56647-updated"
-        assert row["build_config"] == "updated_config_hash"
+        assert row["build_config"] == updated_build.build_config
 
     def test_get_database_builds(self, wago_client, sample_builds):
         """Test retrieving builds from database."""
@@ -823,29 +826,29 @@ class TestWagoClientDatabase:
     def test_import_error_logging(self, wago_client, sample_builds):
         """Test error logging during import."""
         # Create a scenario that will cause database constraint violation
-        # by inserting the same build twice without proper handling
+        # by inserting the same (product, build, build_config) twice.
         build = sample_builds[0]
 
         # First insert should succeed
         wago_client.import_builds_to_database([build])
 
-        # Manually insert duplicate to create constraint violation
+        # Manually insert duplicate with same unique key to trigger violation
         try:
             wago_client.conn.execute("""
                 INSERT INTO builds (
-                    id, build, version, product
-                ) VALUES (?, ?, ?, ?)
-            """, (build.id, build.build, build.version, build.product))
+                    id, build, version, product, build_config
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (build.id, build.build, build.version, build.product,
+                  build.build_config))
             wago_client.conn.commit()
         except sqlite3.IntegrityError:
             # Expected - this tests the error logging pathway
             pass
 
-        # The import error logging is tested through exception paths in the code
-        # Let's just verify the database has proper constraints
+        # Verify the database has proper constraints
         cursor = wago_client.conn.execute(
-            "SELECT COUNT(*) FROM builds WHERE id = ? AND product = ?",
-            (build.id, build.product)
+            "SELECT COUNT(*) FROM builds WHERE product = ? AND build = ?",
+            (build.product, build.build)
         )
         count = cursor.fetchone()[0]
         assert count == 1  # Should only have one record despite attempts to duplicate

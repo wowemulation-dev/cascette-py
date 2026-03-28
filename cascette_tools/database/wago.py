@@ -169,12 +169,14 @@ class WagoClient:
                     download_ekey TEXT,
                     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(id, product)
+                    UNIQUE(product, build, build_config)
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_builds_product ON builds(product);
                 CREATE INDEX IF NOT EXISTS idx_builds_version ON builds(version);
                 CREATE INDEX IF NOT EXISTS idx_builds_build_time ON builds(build_time);
+                CREATE INDEX IF NOT EXISTS idx_builds_product_build
+                    ON builds(product, build);
 
                 CREATE TABLE IF NOT EXISTS wago_import_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,6 +190,84 @@ class WagoClient:
                     error_message TEXT
                 );
             """)
+        self._migrate_db()
+
+    def _migrate_db(self) -> None:
+        """Migrate database schema from old UNIQUE(id, product) to
+        UNIQUE(product, build, build_config).
+
+        If the old constraint exists, rebuilds the table with the new
+        constraint and deduplicates rows in the process.
+        """
+        # Check if migration is needed by inspecting the table SQL
+        cursor = self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='builds'"
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return
+
+        table_sql = row[0]
+        if "UNIQUE(id, product)" not in table_sql:
+            # Already migrated or fresh database
+            return
+
+        logger.info("migrating_builds_table", reason="UNIQUE(id, product) -> UNIQUE(product, build, build_config)")
+
+        with self.conn:
+            # Deduplicate: for rows with the same (product, build, build_config),
+            # keep the one with the most ekey data (then lowest row_id as tiebreaker).
+            self.conn.executescript("""
+                CREATE TABLE builds_new (
+                    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER NOT NULL,
+                    build TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    product TEXT NOT NULL,
+                    build_time TIMESTAMP,
+                    build_config TEXT,
+                    cdn_config TEXT,
+                    product_config TEXT,
+                    encoding_ekey TEXT,
+                    root_ekey TEXT,
+                    install_ekey TEXT,
+                    download_ekey TEXT,
+                    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(product, build, build_config)
+                );
+
+                INSERT OR IGNORE INTO builds_new (
+                    id, build, version, product, build_time,
+                    build_config, cdn_config, product_config,
+                    encoding_ekey, root_ekey, install_ekey, download_ekey,
+                    imported_at, updated_at
+                )
+                SELECT
+                    id, build, version, product, build_time,
+                    build_config, cdn_config, product_config,
+                    encoding_ekey, root_ekey, install_ekey, download_ekey,
+                    imported_at, updated_at
+                FROM builds
+                ORDER BY
+                    (CASE WHEN encoding_ekey IS NOT NULL THEN 1 ELSE 0 END
+                     + CASE WHEN root_ekey IS NOT NULL THEN 1 ELSE 0 END
+                     + CASE WHEN install_ekey IS NOT NULL THEN 1 ELSE 0 END
+                     + CASE WHEN download_ekey IS NOT NULL THEN 1 ELSE 0 END) DESC,
+                    row_id ASC;
+
+                DROP TABLE builds;
+                ALTER TABLE builds_new RENAME TO builds;
+
+                CREATE INDEX IF NOT EXISTS idx_builds_product ON builds(product);
+                CREATE INDEX IF NOT EXISTS idx_builds_version ON builds(version);
+                CREATE INDEX IF NOT EXISTS idx_builds_build_time ON builds(build_time);
+                CREATE INDEX IF NOT EXISTS idx_builds_product_build
+                    ON builds(product, build);
+            """)
+
+        old_count = self.conn.execute("SELECT COUNT(*) FROM builds").fetchone()
+        logger.info("migration_complete", row_count=old_count[0] if old_count else 0)
 
     def _is_cache_valid(self) -> bool:
         """Check if cached data is still valid.
@@ -482,8 +562,8 @@ class WagoClient:
         if builds_with_time:
             latest = max(builds_with_time, key=lambda b: b.build_time if b.build_time is not None else datetime.min.replace(tzinfo=UTC))
         else:
-            # Fallback to ID if no builds have timestamps
-            latest = max(builds, key=lambda b: b.id)
+            # Fallback to build number if no builds have timestamps
+            latest = max(builds, key=lambda b: int(b.build) if b.build.isdigit() else 0)
 
         logger.info(
             "latest_build",
@@ -552,8 +632,12 @@ class WagoClient:
     ) -> bool:
         """Update EKEY fields for a specific build.
 
+        Matches by (product, build number) derived from the Wago build_id
+        lookup. Falls back to matching by Wago id if build number lookup
+        fails, for backwards compatibility.
+
         Args:
-            build_id: Build ID to update
+            build_id: Wago internal ID for the build
             product: Product code for the build
             encoding_ekey: Encoding EKEY hash
             root_ekey: Root manifest EKEY hash
@@ -591,8 +675,21 @@ class WagoClient:
             # Add updated_at timestamp
             updates.append("updated_at = CURRENT_TIMESTAMP")
 
-            # Add WHERE clause parameters
-            params.extend([build_id, product])
+            # Resolve the build number from the Wago id so we can match
+            # by the natural key (product, build) instead of the Wago id.
+            build_number_row = self.conn.execute(
+                "SELECT build FROM builds WHERE id = ? AND product = ?",
+                (build_id, product)
+            ).fetchone()
+
+            if build_number_row:
+                build_number = build_number_row[0]
+                params.extend([product, build_number])
+                where_clause = "product = ? AND build = ?"
+            else:
+                # Fallback: try matching by Wago id directly
+                params.extend([build_id, product])
+                where_clause = "id = ? AND product = ?"
 
             # Execute update
             with self.conn:
@@ -600,7 +697,7 @@ class WagoClient:
                     f"""
                     UPDATE builds
                     SET {', '.join(updates)}
-                    WHERE id = ? AND product = ?
+                    WHERE {where_clause}
                     """,
                     params
                 )
@@ -670,41 +767,96 @@ class WagoClient:
                 for build in builds:
                     products_imported.add(build.product)
 
-                    # Check if build already exists
+                    # Check if a row with the same (product, build) exists.
+                    # A build can have multiple rows only when build_config
+                    # differs (different CDN configuration for the same
+                    # build number).
                     existing = self.conn.execute(
-                        "SELECT id, updated_at FROM builds WHERE id = ? AND product = ?",
-                        (build.id, build.product)
-                    ).fetchone()
+                        """SELECT row_id, build_config,
+                                  encoding_ekey, root_ekey,
+                                  install_ekey, download_ekey
+                           FROM builds
+                           WHERE product = ? AND build = ?
+                           ORDER BY row_id""",
+                        (build.product, build.build)
+                    ).fetchall()
 
                     if existing:
-                        # Update existing build
-                        self.conn.execute("""
-                            UPDATE builds SET
-                                build = ?, version = ?, build_time = ?,
-                                build_config = ?, cdn_config = ?, product_config = ?,
-                                encoding_ekey = ?, root_ekey = ?, install_ekey = ?,
-                                download_ekey = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ? AND product = ?
-                        """, (
-                            build.build, build.version, build.build_time,
-                            build.build_config, build.cdn_config, build.product_config,
-                            build.encoding_ekey, build.root_ekey, build.install_ekey,
-                            build.download_ekey, build.id, build.product
-                        ))
-                        stats["updated"] += 1
+                        # Find a row with the same build_config, or with
+                        # NULL build_config (placeholder from an earlier
+                        # import that lacked config data).
+                        matched_row = None
+                        for row in existing:
+                            if row["build_config"] == build.build_config:
+                                matched_row = row
+                                break
+                            if row["build_config"] is None:
+                                matched_row = row
+                                break
+
+                        if matched_row:
+                            # Merge: preserve existing ekeys if the incoming
+                            # build doesn't supply them.
+                            enc = build.encoding_ekey or matched_row["encoding_ekey"]
+                            root = build.root_ekey or matched_row["root_ekey"]
+                            inst = build.install_ekey or matched_row["install_ekey"]
+                            dl = build.download_ekey or matched_row["download_ekey"]
+
+                            self.conn.execute("""
+                                UPDATE builds SET
+                                    id = ?, version = ?, build_time = ?,
+                                    build_config = ?, cdn_config = ?,
+                                    product_config = ?,
+                                    encoding_ekey = ?, root_ekey = ?,
+                                    install_ekey = ?, download_ekey = ?,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE row_id = ?
+                            """, (
+                                build.id, build.version, build.build_time,
+                                build.build_config, build.cdn_config,
+                                build.product_config,
+                                enc, root, inst, dl,
+                                matched_row["row_id"]
+                            ))
+                            stats["updated"] += 1
+                        elif build.build_config is not None:
+                            # Different build_config -- legitimate second row
+                            self.conn.execute("""
+                                INSERT INTO builds (
+                                    id, build, version, product, build_time,
+                                    build_config, cdn_config, product_config,
+                                    encoding_ekey, root_ekey, install_ekey,
+                                    download_ekey
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                build.id, build.build, build.version,
+                                build.product, build.build_time,
+                                build.build_config, build.cdn_config,
+                                build.product_config, build.encoding_ekey,
+                                build.root_ekey, build.install_ekey,
+                                build.download_ekey
+                            ))
+                            stats["imported"] += 1
+                        else:
+                            # Incoming has NULL build_config and a row with
+                            # a real config already exists -- skip.
+                            stats["skipped"] += 1
                     else:
                         # Insert new build
                         self.conn.execute("""
                             INSERT INTO builds (
                                 id, build, version, product, build_time,
                                 build_config, cdn_config, product_config,
-                                encoding_ekey, root_ekey, install_ekey, download_ekey
+                                encoding_ekey, root_ekey, install_ekey,
+                                download_ekey
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
-                            build.id, build.build, build.version, build.product,
-                            build.build_time, build.build_config, build.cdn_config,
-                            build.product_config, build.encoding_ekey, build.root_ekey,
-                            build.install_ekey, build.download_ekey
+                            build.id, build.build, build.version,
+                            build.product, build.build_time,
+                            build.build_config, build.cdn_config,
+                            build.product_config, build.encoding_ekey,
+                            build.root_ekey, build.install_ekey,
+                            build.download_ekey
                         ))
                         stats["imported"] += 1
 
@@ -773,7 +925,7 @@ class WagoClient:
                 product_str = str(product)
             params.append(product_str)
 
-        query += " ORDER BY build_time DESC, id DESC"
+        query += " ORDER BY build_time DESC, CAST(build AS INTEGER) DESC"
 
         if limit:
             query += " LIMIT ?"
@@ -994,10 +1146,10 @@ class WagoClient:
         params: list[Any] = []
 
         if field == "version":
-            sql_query = "SELECT * FROM builds WHERE version LIKE ? ORDER BY id DESC"
+            sql_query = "SELECT * FROM builds WHERE version LIKE ? ORDER BY CAST(build AS INTEGER) DESC"
             params = [f"%{query}%"]
         elif field == "build":
-            sql_query = "SELECT * FROM builds WHERE build LIKE ? ORDER BY id DESC"
+            sql_query = "SELECT * FROM builds WHERE build LIKE ? ORDER BY CAST(build AS INTEGER) DESC"
             params = [f"%{query}%"]
         elif field == "config":
             sql_query = """
@@ -1005,7 +1157,7 @@ class WagoClient:
                 WHERE build_config LIKE ?
                    OR cdn_config LIKE ?
                    OR product_config LIKE ?
-                ORDER BY id DESC
+                ORDER BY CAST(build AS INTEGER) DESC
             """
             params = [f"%{query}%", f"%{query}%", f"%{query}%"]
         else:  # all
@@ -1017,7 +1169,7 @@ class WagoClient:
                    OR cdn_config LIKE ?
                    OR product_config LIKE ?
                    OR product LIKE ?
-                ORDER BY id DESC
+                ORDER BY CAST(build AS INTEGER) DESC
             """
             params = [f"%{query}%"] * 6
 
