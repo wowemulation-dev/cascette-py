@@ -1,4 +1,4 @@
-"""BLTE (Block Table Encoded) format parser."""
+"""BLTE (Block Table Encoding) format parser."""
 
 from __future__ import annotations
 

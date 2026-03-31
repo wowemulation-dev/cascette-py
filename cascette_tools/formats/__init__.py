@@ -2,7 +2,7 @@
 
 This module provides parsers and builders for various binary formats used
 in Blizzard's NGDP/CASC system:
-- BLTE: Block Table Encoded compression/encryption
+- BLTE: Block Table Encoding compression/encryption
 - Encoding: Content key to encoding key mappings
 - Root: File catalog mappings
 - Install: Installation manifests with tag-based filtering
