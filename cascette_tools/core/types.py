@@ -43,6 +43,65 @@ class Product(StrEnum):
     BTS = "bts"
 
 
+class ProductFamily(StrEnum):
+    """Product family groupings.
+
+    Each Product belongs to exactly one family. Products within the same
+    family share CDN infrastructure (same CDN path from Ribbit) and can
+    share mirror configuration.
+    """
+    WOW = "wow"
+    DIABLO = "diablo"
+    OVERWATCH = "overwatch"
+    HEARTHSTONE = "hearthstone"
+    HEROES = "heroes"
+    STARCRAFT = "starcraft"
+    WARCRAFT3 = "warcraft3"
+    CALL_OF_DUTY = "call_of_duty"
+    BATTLENET = "battlenet"
+
+
+PRODUCT_FAMILY_MAP: dict[Product, ProductFamily] = {
+    Product.WOW: ProductFamily.WOW,
+    Product.WOW_CLASSIC: ProductFamily.WOW,
+    Product.WOW_CLASSIC_ERA: ProductFamily.WOW,
+    Product.WOW_CLASSIC_TITAN: ProductFamily.WOW,
+    Product.WOW_ANNIVERSARY: ProductFamily.WOW,
+    Product.WOW_BETA: ProductFamily.WOW,
+    Product.WOW_PTR: ProductFamily.WOW,
+    Product.DIABLO_4: ProductFamily.DIABLO,
+    Product.DIABLO_2_RESURRECTED: ProductFamily.DIABLO,
+    Product.OVERWATCH_2: ProductFamily.OVERWATCH,
+    Product.HEARTHSTONE: ProductFamily.HEARTHSTONE,
+    Product.HEROES: ProductFamily.HEROES,
+    Product.STARCRAFT_2: ProductFamily.STARCRAFT,
+    Product.STARCRAFT_REMASTERED: ProductFamily.STARCRAFT,
+    Product.WARCRAFT_3_REFORGED: ProductFamily.WARCRAFT3,
+    Product.CALL_OF_DUTY_MW2: ProductFamily.CALL_OF_DUTY,
+    Product.AGENT: ProductFamily.BATTLENET,
+    Product.BNA: ProductFamily.BATTLENET,
+    Product.BTS: ProductFamily.BATTLENET,
+}
+
+
+def get_product_family(product: Product | str) -> ProductFamily:
+    """Get the family for a product.
+
+    Args:
+        product: Product enum value or string product code.
+
+    Returns:
+        The ProductFamily for the given product.
+
+    Raises:
+        KeyError: If product is not in PRODUCT_FAMILY_MAP.
+        ValueError: If product string is not a valid Product.
+    """
+    if not isinstance(product, Product):
+        product = Product(product)
+    return PRODUCT_FAMILY_MAP[product]
+
+
 class BuildInfo(BaseModel):
     """Build information structure."""
     build_config: str = Field(..., description="Build config hash")

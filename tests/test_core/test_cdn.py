@@ -144,7 +144,12 @@ class TestCDNClient:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
-        client = CDNClient(Product.WOW)
+        config = CDNConfig(fallback_mirrors=[
+            "https://cdn.arctium.tools",
+            "https://casc.wago.tools",
+            "https://archive.wow.tools",
+        ])
+        client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
         result = client._fetch_from_cdn("abc123def456", "config")
@@ -169,7 +174,12 @@ class TestCDNClient:
 
         mock_get.side_effect = [failed_response, success_response]
 
-        client = CDNClient(Product.WOW)
+        config = CDNConfig(fallback_mirrors=[
+            "https://cdn.arctium.tools",
+            "https://casc.wago.tools",
+            "https://archive.wow.tools",
+        ])
+        client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
         result = client._fetch_from_cdn("abc123def456", "config")
@@ -188,7 +198,12 @@ class TestCDNClient:
         )
         mock_get.return_value = mock_response
 
-        client = CDNClient(Product.WOW)
+        config = CDNConfig(fallback_mirrors=[
+            "https://cdn.arctium.tools",
+            "https://casc.wago.tools",
+            "https://archive.wow.tools",
+        ])
+        client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
         with pytest.raises(httpx.HTTPStatusError):

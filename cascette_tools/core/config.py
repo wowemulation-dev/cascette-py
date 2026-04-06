@@ -4,12 +4,119 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field, field_validator
 
+from cascette_tools.core.types import Product, ProductFamily, get_product_family
+
 logger = structlog.get_logger()
+
+
+# Built-in default mirrors per product family.
+# Used when the user has not configured mirrors for a family.
+DEFAULT_FAMILY_MIRRORS: dict[str, list[str]] = {
+    ProductFamily.WOW: [
+        "https://casc.wago.tools",
+        "https://cdn.arctium.tools",
+        "https://archive.wow.tools",
+    ],
+}
+
+# Fallback mirrors for products with no family-specific defaults.
+# Official Blizzard CDN servers obtained from TACT/Ribbit are tried first;
+# these are used when Ribbit servers are unavailable or fail.
+DEFAULT_FALLBACK_MIRRORS: list[str] = [
+    "http://blzddist1-a.akamaihd.net",
+    "http://level3.blizzard.com",
+    "http://cdn.blizzard.com",
+]
+
+
+class MirrorConfig(BaseModel):
+    """Mirror configuration for a single product family or product code."""
+
+    urls: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of mirror URLs (highest priority first)"
+    )
+
+    @field_validator("urls")
+    @classmethod
+    def validate_urls(cls, v: list[str]) -> list[str]:
+        """Validate that all URLs use http or https."""
+        for url in v:
+            if not url.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"Mirror URL must start with http:// or https://: {url}"
+                )
+        return v
+
+
+class MirrorSettings(BaseModel):
+    """User-configured CDN mirrors.
+
+    Resolution order for a given product:
+    1. product_overrides[product_code] (most specific)
+    2. family_mirrors[product_family]
+    3. Built-in defaults (DEFAULT_FAMILY_MIRRORS / DEFAULT_FALLBACK_MIRRORS)
+    """
+
+    family_mirrors: dict[str, MirrorConfig] = Field(
+        default_factory=dict,
+        description="Mirrors keyed by product family name"
+    )
+    product_overrides: dict[str, MirrorConfig] = Field(
+        default_factory=dict,
+        description="Mirrors keyed by product code, override family config"
+    )
+
+
+def resolve_mirrors_for_product(
+    product: Product | str,
+    settings: MirrorSettings,
+) -> list[str]:
+    """Resolve the ordered mirror list for a product.
+
+    Resolution chain (first non-empty wins):
+    1. settings.product_overrides[product_code]
+    2. settings.family_mirrors[product_family]
+    3. DEFAULT_FAMILY_MIRRORS[product_family]
+    4. DEFAULT_FALLBACK_MIRRORS
+
+    Args:
+        product: Product enum value or string code.
+        settings: User's mirror configuration.
+
+    Returns:
+        Non-empty list of mirror URLs in priority order.
+    """
+    product_str = product.value if isinstance(product, Product) else product
+
+    # 1. Product-specific override
+    if product_str in settings.product_overrides:
+        override = settings.product_overrides[product_str]
+        if override.urls:
+            return list(override.urls)
+
+    # 2. User-configured family mirrors
+    try:
+        family = get_product_family(product_str).value
+    except (KeyError, ValueError):
+        family = None
+
+    if family and family in settings.family_mirrors:
+        family_cfg = settings.family_mirrors[family]
+        if family_cfg.urls:
+            return list(family_cfg.urls)
+
+    # 3. Built-in family defaults
+    if family and family in DEFAULT_FAMILY_MIRRORS:
+        return list(DEFAULT_FAMILY_MIRRORS[family])
+
+    # 4. Generic fallback
+    return list(DEFAULT_FALLBACK_MIRRORS)
 
 
 class CacheConfig(BaseModel):
@@ -53,53 +160,17 @@ class CDNConfig(BaseModel):
     """CDN configuration with fallback mirrors.
 
     Primary CDN servers are obtained dynamically from Blizzard's Ribbit endpoint.
-    These fallback mirrors are used when Ribbit servers are unavailable or fail:
-
-    1. cdn.arctium.tools - Full NGDP mirror, most complete historic data
-    2. casc.wago.tools - Full NGDP mirror
-    3. archive.wow.tools - Full NGDP mirror, historic data
-
-    Note: Community mirrors only index WoW products (cdn_path = "tpr/wow").
-    Non-WoW products (agent, bna, etc.) must use official Blizzard CDN servers.
+    Fallback mirrors are resolved per-product via resolve_mirrors_for_product()
+    and passed in at construction time.
     """
 
-    # CDN paths supported by community mirrors (tpr/wow covers all WoW variants)
-    COMMUNITY_MIRROR_CDN_PATH: ClassVar[str] = "tpr/wow"
-
     fallback_mirrors: list[str] = Field(
-        default=[
-            "https://cdn.arctium.tools",
-            "https://casc.wago.tools",
-            "https://archive.wow.tools",
-        ],
-        description="Fallback CDN mirrors when Ribbit servers fail (WoW products only)"
+        default_factory=list,
+        description="Fallback CDN mirrors (resolved per-product by AppConfig)"
     )
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts per mirror")
     verify_ssl: bool = Field(default=True, description="Verify SSL certificates")
-
-    @property
-    def base_url(self) -> str:
-        """Get primary fallback mirror URL for backward compatibility."""
-        return f"{self.fallback_mirrors[0]}/tpr/wow/"
-
-    def get_fallback_mirrors_for_cdn_path(self, cdn_path: str) -> list[str]:
-        """Return only the fallback mirrors that support the given CDN path.
-
-        Community mirrors only index WoW products. For non-WoW products,
-        an empty list is returned so only official Blizzard servers are used.
-        """
-        if cdn_path == self.COMMUNITY_MIRROR_CDN_PATH:
-            return list(self.fallback_mirrors)
-        return []
-
-    @field_validator("fallback_mirrors")
-    @classmethod
-    def validate_fallback_mirrors(cls, v: list[str]) -> list[str]:
-        """Validate fallback mirrors list."""
-        if not v:
-            raise ValueError("Fallback mirrors list cannot be empty")
-        return v
 
     @field_validator("timeout")
     @classmethod
@@ -202,6 +273,12 @@ class AppConfig(BaseModel):
         description="Cache time to live in seconds"
     )
 
+    # Mirror settings
+    mirrors: MirrorSettings = Field(
+        default_factory=MirrorSettings,
+        description="User-configured CDN mirrors per product family or product code"
+    )
+
     # Output settings
     output_format: str = Field(
         default="rich",
@@ -211,6 +288,22 @@ class AppConfig(BaseModel):
         default="INFO",
         description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
+
+    def create_cdn_config(self, product: Product | str) -> CDNConfig:
+        """Create a CDNConfig with resolved mirrors for the given product.
+
+        Args:
+            product: Product enum value or string code.
+
+        Returns:
+            CDNConfig with fallback mirrors resolved for the product.
+        """
+        mirrors = resolve_mirrors_for_product(product, self.mirrors)
+        return CDNConfig(
+            fallback_mirrors=mirrors,
+            timeout=self.cdn_timeout,
+            max_retries=self.cdn_max_retries,
+        )
 
     def model_post_init(self, __context: Any) -> None:
         """Ensure directories exist."""

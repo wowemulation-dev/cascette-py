@@ -16,6 +16,7 @@ __version__ = pkg_version("cascette-tools")
 from cascette_tools.commands.archive import archive
 from cascette_tools.commands.builds import builds_group
 from cascette_tools.commands.cdn import cdn
+from cascette_tools.commands.config_cmd import config_group
 from cascette_tools.commands.inspect import inspect
 from cascette_tools.commands.install import install
 from cascette_tools.commands.listfile import listfile_group
@@ -143,6 +144,7 @@ def version(ctx: click.Context) -> None:
 main.add_command(archive)
 main.add_command(builds_group)
 main.add_command(cdn)
+main.add_command(config_group)
 main.add_command(inspect)
 main.add_command(install)
 main.add_command(listfile_group)

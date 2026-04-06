@@ -731,15 +731,14 @@ class TestAnalyzeHelperFunctions:
 
     @patch("cascette_tools.commands.inspect.Progress")
     @patch("cascette_tools.commands.inspect.validate_hash_string")
-    @patch("cascette_tools.commands.inspect.CDNConfig")
     @patch("cascette_tools.commands.inspect.CDNClient")
     def test_fetch_from_cdn_or_path_valid_hash(
-        self, mock_cdn_class, mock_cdn_config_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
+        self, mock_cdn_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
     ):
         """Test _fetch_from_cdn_or_path with valid hash."""
         mock_validate_hash.return_value = True
         mock_cdn_config = Mock()
-        mock_cdn_config_class.return_value = mock_cdn_config
+        mock_config.create_cdn_config.return_value = mock_cdn_config
         mock_cdn = Mock()
         mock_cdn.fetch_data.return_value = b"cdn data"
         mock_cdn_class.return_value = mock_cdn
@@ -766,15 +765,14 @@ class TestAnalyzeHelperFunctions:
 
     @patch("cascette_tools.commands.inspect.Progress")
     @patch("cascette_tools.commands.inspect.validate_hash_string")
-    @patch("cascette_tools.commands.inspect.CDNConfig")
     @patch("cascette_tools.commands.inspect.CDNClient")
     def test_fetch_from_cdn_or_path_cdn_error(
-        self, mock_cdn_class, mock_cdn_config_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
+        self, mock_cdn_class, mock_validate_hash, mock_progress_class, mock_config, mock_console
     ):
         """Test _fetch_from_cdn_or_path with CDN fetch error."""
         mock_validate_hash.return_value = True
         mock_cdn_config = Mock()
-        mock_cdn_config_class.return_value = mock_cdn_config
+        mock_config.create_cdn_config.return_value = mock_cdn_config
         mock_cdn = Mock()
         mock_cdn.fetch_data.side_effect = Exception("CDN error")
         mock_cdn_class.return_value = mock_cdn

@@ -16,6 +16,7 @@ around the agent.exe workflow: cdn (fetch), install, update, and maintenance.
 from cascette_tools.commands.archive import archive
 from cascette_tools.commands.builds import builds_group
 from cascette_tools.commands.cdn import cdn
+from cascette_tools.commands.config_cmd import config_group
 from cascette_tools.commands.inspect import inspect
 from cascette_tools.commands.install import install
 from cascette_tools.commands.listfile import listfile_group
@@ -26,6 +27,7 @@ __all__ = [
     "archive",
     "builds_group",
     "cdn",
+    "config_group",
     "inspect",
     "install",
     "listfile_group",

@@ -414,30 +414,25 @@ class TestInspectExamineCommands:
         mock_config.cdn_timeout = 30
         mock_config.cdn_max_retries = 3
 
+        mock_cdn_config = Mock()
+        mock_config.create_cdn_config.return_value = mock_cdn_config
+
         with patch("cascette_tools.commands.inspect.validate_hash_string", return_value=True):
             with patch("cascette_tools.commands.inspect.CDNClient") as mock_cdn_class:
                 mock_cdn = Mock()
                 mock_cdn.fetch_data.return_value = test_data
                 mock_cdn_class.return_value = mock_cdn
 
-                with patch("cascette_tools.commands.inspect.CDNConfig") as mock_cdn_config_class:
-                    with patch("cascette_tools.commands.inspect.Product"):
-                        with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
-                            mock_cdn_config = Mock()
-                            mock_cdn_config_class.return_value = mock_cdn_config
+                with patch("cascette_tools.commands.inspect.Product"):
+                    with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
+                        mock_progress = Mock()
+                        mock_progress.__enter__ = Mock(return_value=mock_progress)
+                        mock_progress.__exit__ = Mock(return_value=None)
+                        mock_progress_class.return_value = mock_progress
 
-                            mock_progress = Mock()
-                            mock_progress.__enter__ = Mock(return_value=mock_progress)
-                            mock_progress.__exit__ = Mock(return_value=None)
-                            mock_progress_class.return_value = mock_progress
-
-                            result = _fetch_from_cdn_or_path(test_hash, mock_console, mock_config)
-                            assert result == test_data
-                            mock_cdn.fetch_data.assert_called_once_with(test_hash)
-                            mock_cdn_config_class.assert_called_once_with(
-                                timeout=mock_config.cdn_timeout,
-                                max_retries=mock_config.cdn_max_retries
-                            )
+                        result = _fetch_from_cdn_or_path(test_hash, mock_console, mock_config)
+                        assert result == test_data
+                        mock_cdn.fetch_data.assert_called_once_with(test_hash)
 
     def test_fetch_from_cdn_or_path_invalid_input(self, tmp_path):
         """Test _fetch_from_cdn_or_path with invalid input."""
@@ -479,25 +474,24 @@ class TestInspectExamineCommands:
         mock_config.cdn_timeout = 30
         mock_config.cdn_max_retries = 3
 
+        mock_cdn_config = Mock()
+        mock_config.create_cdn_config.return_value = mock_cdn_config
+
         with patch("cascette_tools.commands.inspect.validate_hash_string", return_value=True):
             with patch("cascette_tools.commands.inspect.CDNClient") as mock_cdn_class:
                 mock_cdn = Mock()
                 mock_cdn.fetch_data.side_effect = Exception("CDN error")
                 mock_cdn_class.return_value = mock_cdn
 
-                with patch("cascette_tools.commands.inspect.CDNConfig") as mock_cdn_config_class:
-                    with patch("cascette_tools.commands.inspect.Product"):
-                        with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
-                            mock_cdn_config = Mock()
-                            mock_cdn_config_class.return_value = mock_cdn_config
+                with patch("cascette_tools.commands.inspect.Product"):
+                    with patch("cascette_tools.commands.inspect.Progress") as mock_progress_class:
+                        mock_progress = Mock()
+                        mock_progress.__enter__ = Mock(return_value=mock_progress)
+                        mock_progress.__exit__ = Mock(return_value=None)
+                        mock_progress_class.return_value = mock_progress
 
-                            mock_progress = Mock()
-                            mock_progress.__enter__ = Mock(return_value=mock_progress)
-                            mock_progress.__exit__ = Mock(return_value=None)
-                            mock_progress_class.return_value = mock_progress
-
-                            with pytest.raises(click.ClickException, match="Failed to fetch from CDN"):
-                                _fetch_from_cdn_or_path(test_hash, mock_console, mock_config)
+                        with pytest.raises(click.ClickException, match="Failed to fetch from CDN"):
+                            _fetch_from_cdn_or_path(test_hash, mock_console, mock_config)
 
     def test_output_json(self):
         """Test _output_json function."""

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cascette config mirror` CLI command group for managing CDN mirror configuration
+  (add, remove, list, reset subcommands)
+- `ProductFamily` enum and `PRODUCT_FAMILY_MAP` in `core/types.py` mapping each
+  `Product` to its family (wow, diablo, starcraft, battlenet, etc.)
+- `MirrorConfig` and `MirrorSettings` models for user-configurable CDN mirrors
+  with per-family and per-product-code granularity
+- `resolve_mirrors_for_product()` function implementing a 4-level resolution chain:
+  product override, family config, built-in family defaults, generic fallback
+- `AppConfig.create_cdn_config()` method that builds a `CDNConfig` with mirrors
+  resolved for a specific product
 - BlizzTrack API client (`BlizzTrackClient`) for fetching historical and current
   NGDP manifest data across all TACT products
 - Consolidated CLI command structure:
@@ -37,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CDN mirror selection moved from hardcoded `_get_cdn_mirrors_for_product()` in
+  `cdn.py` and `download_zbsdiff_triplets.py` to centralized `resolve_mirrors_for_product()`
+  in `core/config.py`
+- All CDN command callsites now use `AppConfig.create_cdn_config(product)` instead
+  of manually constructing `CDNConfig` with inline mirror lists
+- `CDNConfig.fallback_mirrors` defaults to empty list; mirrors are resolved
+  per-product at construction time instead of carrying WoW-only defaults
+- `CDNConfig` no longer has `base_url` property, `COMMUNITY_MIRROR_CDN_PATH`
+  class variable, or `get_fallback_mirrors_for_cdn_path()` method
+- `CDNClient` reads `config.fallback_mirrors` directly instead of calling
+  `get_fallback_mirrors_for_cdn_path()` per request
 - **BREAKING**: CLI commands restructured into agent.exe workflow:
   - Deleted: `analyze`, `examine`, `fetch`, `install_analyzer`, `install_poc`, `archive_search`
   - New consolidated commands: `cdn`, `inspect`, `install`

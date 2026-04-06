@@ -66,12 +66,7 @@ class TestCDNConfig:
         """Test default fallback mirror configuration."""
         config = CDNConfig()
 
-        expected_mirrors = [
-            "https://cdn.arctium.tools",
-            "https://casc.wago.tools",
-            "https://archive.wow.tools",
-        ]
-        assert config.fallback_mirrors == expected_mirrors
+        assert config.fallback_mirrors == []
         assert config.timeout == 30.0
         assert config.max_retries == 3
         assert config.verify_ssl is True
@@ -90,16 +85,6 @@ class TestCDNConfig:
         assert config.timeout == 60.0
         assert config.max_retries == 5
         assert config.verify_ssl is False
-
-    def test_base_url_property(self):
-        """Test base_url property returns primary fallback mirror."""
-        config = CDNConfig()
-        assert config.base_url == "https://cdn.arctium.tools/tpr/wow/"
-
-        # Test with custom fallback mirrors
-        custom_mirrors = ["https://custom.mirror.com"]
-        config = CDNConfig(fallback_mirrors=custom_mirrors)
-        assert config.base_url == "https://custom.mirror.com/tpr/wow/"
 
     def test_timeout_validation(self):
         """Test timeout validation."""
@@ -125,10 +110,10 @@ class TestCDNConfig:
         with pytest.raises(ValueError):
             CDNConfig(max_retries=-1)
 
-    def test_empty_fallback_mirrors_validation(self):
-        """Test that empty fallback mirrors list is invalid."""
-        with pytest.raises(ValueError):
-            CDNConfig(fallback_mirrors=[])
+    def test_empty_fallback_mirrors_allowed(self):
+        """Test that empty fallback mirrors list is allowed."""
+        config = CDNConfig(fallback_mirrors=[])
+        assert config.fallback_mirrors == []
 
 
 class TestTACTConfig:

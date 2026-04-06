@@ -166,9 +166,9 @@ class CDNClient:
         """
         last_error = None
 
-        # Build mirror list: Ribbit servers first, then community fallback mirrors.
-        # Community mirrors only support WoW products (tpr/wow); skip them for others.
-        fallbacks = self.config.get_fallback_mirrors_for_cdn_path(self.cdn_path or "")
+        # Build mirror list: Ribbit servers first, then configured fallback mirrors.
+        # Fallback mirrors are resolved per-product at CDNConfig construction time.
+        fallbacks = list(self.config.fallback_mirrors)
         mirrors = self.cdn_servers + fallbacks
         logger.info(
             "cdn_mirror_list",
@@ -341,8 +341,8 @@ class CDNClient:
         """
         last_error = None
 
-        # Community mirrors only support WoW products (tpr/wow); skip them for others.
-        fallbacks = self.config.get_fallback_mirrors_for_cdn_path(self.cdn_path or "")
+        # Fallback mirrors are resolved per-product at CDNConfig construction time.
+        fallbacks = list(self.config.fallback_mirrors)
         mirrors = self.cdn_servers + fallbacks
 
         if not mirrors:

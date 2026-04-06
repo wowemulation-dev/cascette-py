@@ -29,7 +29,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
     create_patch_archive_fetcher,
 )
-from cascette_tools.core.config import CDNConfig
+from cascette_tools.core.config import CDNConfig, MirrorSettings, resolve_mirrors_for_product
 from cascette_tools.core.tact import TACTClient
 from cascette_tools.core.types import Product
 from cascette_tools.formats.blte import decompress_blte, is_blte
@@ -38,24 +38,6 @@ from cascette_tools.formats.encoding import EncodingParser
 from cascette_tools.formats.patch_archive import PatchArchiveParser
 
 logger = structlog.get_logger()
-
-
-def _get_cdn_mirrors_for_product(product: str) -> list[str]:
-    wow_products = [
-        "wow", "wow_classic", "wow_classic_era",
-        "wow_classic_titan", "wow_anniversary",
-    ]
-    if product in wow_products:
-        return [
-            "https://casc.wago.tools",
-            "https://cdn.arctium.tools",
-            "https://archive.wow.tools",
-        ]
-    return [
-        "http://blzddist1-a.akamaihd.net",
-        "http://level3.blizzard.com",
-        "http://cdn.blizzard.com",
-    ]
 
 
 def main() -> None:
@@ -80,8 +62,9 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     product_enum = Product(args.product)
+    mirrors = resolve_mirrors_for_product(args.product, MirrorSettings())
     cdn_config = CDNConfig(
-        fallback_mirrors=_get_cdn_mirrors_for_product(args.product),
+        fallback_mirrors=mirrors,
         timeout=30.0,
         max_retries=3,
     )

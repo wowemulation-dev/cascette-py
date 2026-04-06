@@ -21,7 +21,7 @@ from rich.progress import (
 from rich.table import Table
 
 from cascette_tools.core.cdn import CDNClient
-from cascette_tools.core.config import AppConfig, CDNConfig
+from cascette_tools.core.config import AppConfig
 from cascette_tools.core.tact import TACTClient
 from cascette_tools.core.types import Product
 from cascette_tools.core.utils import format_size, validate_hash_string
@@ -50,33 +50,6 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     debug: bool = ctx.obj["debug"]
     return config, console, verbose, debug
 
-
-def _get_cdn_mirrors_for_product(product: str) -> list[str]:
-    """Get appropriate CDN mirrors based on product type.
-
-    Args:
-        product: Product code string
-
-    Returns:
-        List of CDN mirror URLs in priority order
-    """
-    # WoW products use community mirrors
-    wow_products = ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
-
-    if product in wow_products:
-        return [
-            "https://casc.wago.tools",
-            "https://cdn.arctium.tools",
-            "https://archive.wow.tools",
-        ]
-    else:
-        # Non-WoW products use official Blizzard CDNs
-        # These are extracted from the TACT cdns endpoint
-        return [
-            "http://blzddist1-a.akamaihd.net",
-            "http://level3.blizzard.com",
-            "http://cdn.blizzard.com"
-        ]
 
 
 def _save_file(data: bytes, output_path: Path, console: Console, verbose: bool) -> None:
@@ -201,11 +174,7 @@ def config(
     try:
         # Create CDN client
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         with CDNClient(product_enum, region, cdn_config) as cdn_client:
             console.print(f"[blue]Fetching configuration {hash_str}...[/blue]")
@@ -301,11 +270,7 @@ def data(
     try:
         # Create CDN client
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         with CDNClient(product_enum, region, cdn_config) as cdn_client:
             file_type_str = "index" if index else "data"
@@ -419,10 +384,7 @@ def build(
         # Create TACT and CDN clients
         product_enum = Product(product)
         # tact_client = TACTClient(region=region)  # Currently unused
-        cdn_config = CDNConfig(
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         with CDNClient(product_enum, region, cdn_config) as cdn_client:
             console.print(f"[blue]Fetching build information for {build_id}...[/blue]")
@@ -772,11 +734,7 @@ def encoding(
     try:
         # Create CDN client
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         with CDNClient(product_enum, region, cdn_config) as cdn_client:
             console.print(f"[blue]Fetching encoding {hash_str}...[/blue]")
@@ -926,10 +884,7 @@ def batch(
 
         # Create CDN client
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         failed_hashes: list[tuple[str, str]] = []
         successful_downloads = 0
@@ -1109,11 +1064,7 @@ def patch(
     try:
         # Create CDN client
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         with CDNClient(product_enum, region, cdn_config) as cdn_client:
             file_type_str = "patch index" if index else "patch"
@@ -1333,11 +1284,7 @@ def zbsdiff(
 
     try:
         product_enum = Product(product)
-        cdn_config = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config = config_obj.create_cdn_config(product)
 
         build_config_hash = build_config
         cdn_config_hash = None
@@ -1640,11 +1587,7 @@ def verify_pa(
             console.print(f"[yellow]Unknown product: {product_str}, skipping[/yellow]")
             continue
 
-        cdn_config_obj = CDNConfig(
-            fallback_mirrors=_get_cdn_mirrors_for_product(product_str),
-            timeout=config_obj.cdn_timeout,
-            max_retries=config_obj.cdn_max_retries,
-        )
+        cdn_config_obj = config_obj.create_cdn_config(product_str)
 
         # Build list of (version, build_config_hash, cdn_config_hash) to verify
         builds_to_verify: list[tuple[str, str, str | None]] = []

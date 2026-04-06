@@ -14,7 +14,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, track
 from rich.table import Table
 
 from cascette_tools.core.cdn import CDNClient
-from cascette_tools.core.config import AppConfig, CDNConfig
+from cascette_tools.core.config import AppConfig
 from cascette_tools.core.types import Product
 from cascette_tools.core.utils import compute_md5, format_size, validate_hash_string
 from cascette_tools.formats import (
@@ -191,10 +191,7 @@ def _fetch_from_cdn_or_path(
         raise click.ClickException(f"Invalid input: not a valid file path or hash: {input_str}")
 
     try:
-        cdn_config = CDNConfig(
-            timeout=config.cdn_timeout,
-            max_retries=config.cdn_max_retries
-        )
+        cdn_config = config.create_cdn_config(Product.WOW)
         cdn_client = CDNClient(Product.WOW, config=cdn_config)
 
         with Progress(

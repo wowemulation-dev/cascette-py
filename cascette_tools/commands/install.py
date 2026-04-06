@@ -37,7 +37,7 @@ from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
     parse_cdn_config_archives,
 )
-from cascette_tools.core.config import AppConfig, CDNConfig
+from cascette_tools.core.config import AppConfig
 from cascette_tools.core.containerless_storage import ContainerlessStorage
 from cascette_tools.core.containerless_update import (
     classify_containerless_files,
@@ -3832,10 +3832,7 @@ def install_progress(
         ) as prog:
             prog.add_task(description="Fetching download manifest...", total=None)
 
-            cdn_config = CDNConfig(
-                timeout=config.cdn_timeout,
-                max_retries=config.cdn_max_retries
-            )
+            cdn_config = config.create_cdn_config(Product.WOW)
             cdn_client = CDNClient(Product.WOW, config=cdn_config)
             download_data = cdn_client.fetch_data(download_hash)
 
