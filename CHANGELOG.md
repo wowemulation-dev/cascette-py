@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `beautifulsoup4` to dev dependencies for wiki scraping scripts
 - Renamed `mise.toml` to `.mise.toml` (hidden config convention)
 - Expanded `.markdownlint.jsonc` with stricter rules and allowed language list
+- Switched markdown linting from `markdownlint-cli2` to `markdownlint` (DavidAnson/markdownlint);
+  removed `.markdownlint-cli2.jsonc` (config now lives solely in `.markdownlint.jsonc`)
 - Scripts now use `httpx` instead of `requests`
 - `import_missing_builds.py` uses generic product matching instead of hardcoded product list
 
