@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CompressionMode(StrEnum):
     """BLTE compression modes."""
+
     NONE = "N"
     ZLIB = "Z"
     LZ4 = "L"
@@ -16,12 +17,14 @@ class CompressionMode(StrEnum):
 
 class EncryptionType(Enum):
     """BLTE encryption types."""
+
     SALSA20 = 0x53
     ARC4 = 0x41
 
 
 class Product(StrEnum):
     """Supported product codes."""
+
     WOW = "wow"
     WOW_CLASSIC = "wow_classic"
     WOW_CLASSIC_ERA = "wow_classic_era"
@@ -41,6 +44,7 @@ class Product(StrEnum):
     AGENT = "agent"
     BNA = "bna"
     BTS = "bts"
+    CATALOGS = "catalogs"
 
 
 class ProductFamily(StrEnum):
@@ -50,6 +54,7 @@ class ProductFamily(StrEnum):
     family share CDN infrastructure (same CDN path from Ribbit) and can
     share mirror configuration.
     """
+
     WOW = "wow"
     DIABLO = "diablo"
     OVERWATCH = "overwatch"
@@ -59,6 +64,7 @@ class ProductFamily(StrEnum):
     WARCRAFT3 = "warcraft3"
     CALL_OF_DUTY = "call_of_duty"
     BATTLENET = "battlenet"
+    CATALOG = "catalog"
 
 
 PRODUCT_FAMILY_MAP: dict[Product, ProductFamily] = {
@@ -81,6 +87,7 @@ PRODUCT_FAMILY_MAP: dict[Product, ProductFamily] = {
     Product.AGENT: ProductFamily.BATTLENET,
     Product.BNA: ProductFamily.BATTLENET,
     Product.BTS: ProductFamily.BATTLENET,
+    Product.CATALOGS: ProductFamily.CATALOG,
 }
 
 
@@ -104,6 +111,7 @@ def get_product_family(product: Product | str) -> ProductFamily:
 
 class BuildInfo(BaseModel):
     """Build information structure."""
+
     build_config: str = Field(..., description="Build config hash")
     cdn_config: str = Field(..., description="CDN config hash")
     keyring: str | None = Field(None, description="Keyring hash")
@@ -116,6 +124,7 @@ class BuildInfo(BaseModel):
 
 class FileDataId(BaseModel):
     """File Data ID structure."""
+
     id: int = Field(..., description="File Data ID")
     filename: str | None = Field(None, description="File name")
     content_key: str | None = Field(None, description="Content key")
@@ -125,9 +134,12 @@ class FileDataId(BaseModel):
 
 class CDNConfig(BaseModel):
     """CDN configuration structure."""
+
     archives: list[str] = Field(default_factory=list, description="Archive hashes")
     archive_group: str | None = Field(None, description="Archive group")
-    patch_archives: list[str] = Field(default_factory=list, description="Patch archive hashes")
+    patch_archives: list[str] = Field(
+        default_factory=list, description="Patch archive hashes"
+    )
     patch_archive_group: str | None = Field(None, description="Patch archive group")
     builds: list[str] = Field(default_factory=list, description="Build configs")
 
@@ -136,6 +148,7 @@ class CDNConfig(BaseModel):
 
 class TACTKey(BaseModel):
     """TACT encryption key."""
+
     key_name: str = Field(..., description="Key name/identifier")
     key_value: str = Field(..., description="Hex-encoded key value")
     lookup: str = Field(..., description="Lookup value")

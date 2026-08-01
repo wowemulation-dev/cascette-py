@@ -15,6 +15,7 @@ __version__ = pkg_version("cascette-tools")
 
 from cascette_tools.commands.archive import archive
 from cascette_tools.commands.builds import builds_group
+from cascette_tools.commands.catalog import catalog_group
 from cascette_tools.commands.cdn import cdn
 from cascette_tools.commands.config_cmd import config_group
 from cascette_tools.commands.inspect import inspect
@@ -99,11 +100,16 @@ def main(
             cache_logger_on_first_use=True,
         )
 
-    # Create console for rich output
+    # Create console for rich output.
+    # With a TTY, --output rich renders tables/progress with ANSI. When
+    # piped (no TTY), Rich auto-detects and emits plain text instead, so
+    # shell redirects stay readable. --output plain/json disable color
+    # unconditionally.
+    is_tty = sys.stdout.isatty()
     console = Console(
-        force_terminal=output == "rich",
-        no_color=output != "rich",
-        width=None if output == "rich" else 120,
+        force_terminal=output == "rich" and is_tty,
+        no_color=output != "rich" or not is_tty,
+        width=None if (output == "rich" and is_tty) else 120,
     )
 
     # Store config and console in context for subcommands
@@ -143,6 +149,7 @@ def version(ctx: click.Context) -> None:
 # Register commands
 main.add_command(archive)
 main.add_command(builds_group)
+main.add_command(catalog_group)
 main.add_command(cdn)
 main.add_command(config_group)
 main.add_command(inspect)
@@ -152,9 +159,9 @@ main.add_command(tact_group)
 main.add_command(validate)
 
 
-
-
-def handle_exception(exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any) -> None:
+def handle_exception(
+    exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any
+) -> None:
     """Handle uncaught exceptions."""
     if issubclass(exc_type, KeyboardInterrupt):
         logger.info("Operation cancelled by user")
