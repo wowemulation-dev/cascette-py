@@ -102,7 +102,7 @@ def list_keys(ctx: click.Context, family: str | None, limit: int) -> None:
                 key.key_name[:16] + "...",
                 key.product_family,
                 description,
-                "✓" if key.verified else "✗"
+                "✓" if key.verified else "✗",
             )
 
         console.print(table)
@@ -158,7 +158,9 @@ def export_keys(ctx: click.Context, output: Path, family: str | None) -> None:
                 keys = manager.get_all_keys()
                 filter_text = ""
 
-            console.print(f"[green]✓[/green] Exported {len(keys)} TACT keys{filter_text} to {output}")
+            console.print(
+                f"[green]✓[/green] Exported {len(keys)} TACT keys{filter_text} to {output}"
+            )
 
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
@@ -194,10 +196,18 @@ def show_stats(ctx: click.Context) -> None:
 
 @tact_group.command(name="import")
 @click.argument("input_file", type=click.Path(exists=True, path_type=Path))
-@click.option("--format", "-f", type=click.Choice(["json", "csv"], case_sensitive=False), default="json", help="Input file format")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["json", "csv"], case_sensitive=False),
+    default="json",
+    help="Input file format",
+)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing keys")
 @click.pass_context
-def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bool) -> None:
+def import_keys(
+    ctx: click.Context, input_file: Path, format: str, overwrite: bool
+) -> None:
     """Import TACT keys from a file.
 
     Accepts JSON format from export or CSV with columns: key_id,key,description,family
@@ -221,27 +231,38 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
                         data_dict = cast(dict[str, Any], data)
                         # Handle export envelope format: {"exported_at":..., "keys":[...]}
                         if "keys" in data_dict and isinstance(data_dict["keys"], list):
-                            keys_to_import.extend(cast(list[dict[str, Any]], data_dict["keys"]))
+                            keys_to_import.extend(
+                                cast(list[dict[str, Any]], data_dict["keys"])
+                            )
                         else:
                             # Legacy dict format: {"family": [keys...]}
                             for family_key, family_keys in data_dict.items():
                                 if isinstance(family_keys, list):
-                                    family_keys_list = cast(list[dict[str, Any]], family_keys)
+                                    family_keys_list = cast(
+                                        list[dict[str, Any]], family_keys
+                                    )
                                     for key_item in family_keys_list:
-                                        if not key_item.get("product_family") and not key_item.get("family"):
+                                        if not key_item.get(
+                                            "product_family"
+                                        ) and not key_item.get("family"):
                                             key_item["product_family"] = family_key
                                         keys_to_import.append(key_item)
             else:  # CSV format
-                with open(input_file, newline='') as f:
+                with open(input_file, newline="") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        keys_to_import.append({
-                            "key_name": row.get("key_id", row.get("key_name", "")),
-                            "key_value": row.get("key", row.get("key_value", "")),
-                            "description": row.get("description", ""),
-                            "product_family": row.get("family", row.get("product_family", "wow")),
-                            "verified": row.get("verified", "true").lower() in ("true", "1", "yes")
-                        })
+                        keys_to_import.append(
+                            {
+                                "key_name": row.get("key_id", row.get("key_name", "")),
+                                "key_value": row.get("key", row.get("key_value", "")),
+                                "description": row.get("description", ""),
+                                "product_family": row.get(
+                                    "family", row.get("product_family", "wow")
+                                ),
+                                "verified": row.get("verified", "true").lower()
+                                in ("true", "1", "yes"),
+                            }
+                        )
 
             # Convert dicts to TACTKey objects
             from cascette_tools.database.tact_keys import TACTKey
@@ -251,14 +272,20 @@ def import_keys(ctx: click.Context, input_file: Path, format: str, overwrite: bo
                 tact_key = TACTKey(
                     key_name=str(key_dict.get("key_name", key_dict.get("key_id", ""))),
                     key_value=str(key_dict.get("key_value", key_dict.get("key", ""))),
-                    description=str(key_dict.get("description")) if key_dict.get("description") else None,
-                    product_family=str(key_dict.get("product_family", key_dict.get("family", "wow"))),
-                    verified=bool(key_dict.get("verified", False))
+                    description=str(key_dict.get("description"))
+                    if key_dict.get("description")
+                    else None,
+                    product_family=str(
+                        key_dict.get("product_family", key_dict.get("family", "wow"))
+                    ),
+                    verified=bool(key_dict.get("verified", False)),
                 )
                 tact_keys.append(tact_key)
 
             imported = manager.import_keys(tact_keys)
-            console.print(f"[green]✓[/green] Imported {imported} TACT keys from {input_file}")
+            console.print(
+                f"[green]✓[/green] Imported {imported} TACT keys from {input_file}"
+            )
 
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")

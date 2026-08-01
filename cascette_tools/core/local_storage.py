@@ -45,6 +45,7 @@ class LocalIndexEntry:
     - 5 bytes: Archive location (1 byte high + 4 bytes packed)
     - 4 bytes: Size (little-endian)
     """
+
     key: bytes  # 9 bytes truncated encoding key
     archive_id: int  # Archive file number
     archive_offset: int  # Offset within archive
@@ -53,7 +54,7 @@ class LocalIndexEntry:
     def to_bytes(self) -> bytes:
         """Serialize entry to 18 bytes."""
         # Key (9 bytes)
-        key_bytes = self.key[:9].ljust(9, b'\x00')
+        key_bytes = self.key[:9].ljust(9, b"\x00")
 
         # Archive location (5 bytes)
         # High byte: upper bits of archive_id
@@ -63,10 +64,10 @@ class LocalIndexEntry:
         index_low = (archive_low << 30) | (self.archive_offset & 0x3FFFFFFF)
 
         # Pack as big-endian
-        location_bytes = struct.pack('>B', index_high) + struct.pack('>I', index_low)
+        location_bytes = struct.pack(">B", index_high) + struct.pack(">I", index_low)
 
         # Size (4 bytes, little-endian)
-        size_bytes = struct.pack('<I', self.size)
+        size_bytes = struct.pack("<I", self.size)
 
         return key_bytes + location_bytes + size_bytes
 
@@ -80,16 +81,18 @@ class LocalIndexEntry:
 
         # Parse archive location (5 bytes)
         index_high = data[9]
-        index_low = struct.unpack('>I', data[10:14])[0]
+        index_low = struct.unpack(">I", data[10:14])[0]
 
         # Extract archive ID and offset
         archive_id = (index_high << 2) | (index_low >> 30)
         archive_offset = index_low & 0x3FFFFFFF
 
         # Parse size (little-endian)
-        size = struct.unpack('<I', data[14:18])[0]
+        size = struct.unpack("<I", data[14:18])[0]
 
-        return cls(key=key, archive_id=archive_id, archive_offset=archive_offset, size=size)
+        return cls(
+            key=key, archive_id=archive_id, archive_offset=archive_offset, size=size
+        )
 
 
 @dataclass
@@ -115,20 +118,20 @@ class UpdateEntry:
 
     def to_bytes(self) -> bytes:
         """Serialize entry to 24 bytes."""
-        key_bytes = self.key[:9].ljust(9, b'\x00')
+        key_bytes = self.key[:9].ljust(9, b"\x00")
 
         # Archive location (5 bytes, same as LocalIndexEntry)
         index_high = (self.archive_id >> 2) & 0xFF
         archive_low = self.archive_id & 0x03
         index_low = (archive_low << 30) | (self.archive_offset & 0x3FFFFFFF)
-        location_bytes = struct.pack('>B', index_high) + struct.pack('>I', index_low)
+        location_bytes = struct.pack(">B", index_high) + struct.pack(">I", index_low)
 
         return (
-            struct.pack('<I', self.hash_guard)
+            struct.pack("<I", self.hash_guard)
             + key_bytes
             + location_bytes
-            + struct.pack('<I', self.size)
-            + struct.pack('BB', self.status, 0)
+            + struct.pack("<I", self.size)
+            + struct.pack("BB", self.status, 0)
         )
 
     @classmethod
@@ -137,16 +140,16 @@ class UpdateEntry:
         if len(data) < 24:
             raise ValueError(f"Update entry data too small: {len(data)} < 24")
 
-        hash_guard = struct.unpack('<I', data[0:4])[0]
+        hash_guard = struct.unpack("<I", data[0:4])[0]
         key = data[4:13]
 
         # Parse archive location (5 bytes)
         index_high = data[13]
-        index_low = struct.unpack('>I', data[14:18])[0]
+        index_low = struct.unpack(">I", data[14:18])[0]
         archive_id = (index_high << 2) | (index_low >> 30)
         archive_offset = index_low & 0x3FFFFFFF
 
-        size = struct.unpack('<I', data[18:22])[0]
+        size = struct.unpack("<I", data[18:22])[0]
         status = data[22]
 
         return cls(
@@ -165,12 +168,17 @@ class UpdateEntry:
         Computes the hash guard automatically.
         """
         # Build the 20 bytes after the hash guard to compute the guard
-        key_bytes = entry.key[:9].ljust(9, b'\x00')
+        key_bytes = entry.key[:9].ljust(9, b"\x00")
         index_high = (entry.archive_id >> 2) & 0xFF
         archive_low = entry.archive_id & 0x03
         index_low = (archive_low << 30) | (entry.archive_offset & 0x3FFFFFFF)
-        location_bytes = struct.pack('>B', index_high) + struct.pack('>I', index_low)
-        payload = key_bytes + location_bytes + struct.pack('<I', entry.size) + struct.pack('BB', status, 0)
+        location_bytes = struct.pack(">B", index_high) + struct.pack(">I", index_low)
+        payload = (
+            key_bytes
+            + location_bytes
+            + struct.pack("<I", entry.size)
+            + struct.pack("BB", status, 0)
+        )
         hash_guard = hashlittle(payload, 0) | 0x80000000
 
         return cls(
@@ -202,6 +210,7 @@ class LocalIndexHeader:
     - 1 byte: File offset bits (30)
     - 8 bytes: Segment size (little-endian uint64)
     """
+
     version: int = 7
     bucket: int = 0
     extra_bytes: int = 0
@@ -214,7 +223,7 @@ class LocalIndexHeader:
     def to_bytes(self) -> bytes:
         """Serialize header to 16 bytes (without guarded block header)."""
         return struct.pack(
-            '<HBBBBBB',
+            "<HBBBBBB",
             self.version,
             self.bucket,
             self.extra_bytes,
@@ -222,7 +231,7 @@ class LocalIndexHeader:
             self.storage_offset_length,
             self.ekey_length,
             self.file_offset_bits,
-        ) + struct.pack('<Q', self.segment_size)
+        ) + struct.pack("<Q", self.segment_size)
 
 
 def compute_bucket(encoding_key: bytes, seed: int = 0) -> int:
@@ -320,11 +329,11 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         raise ValueError(f"Data too short for local idx file: {len(data)} < 40")
 
     # Parse header guarded block (8 bytes)
-    header_block_size = struct.unpack('<I', data[0:4])[0]
-    header_block_hash = struct.unpack('<I', data[4:8])[0]
+    header_block_size = struct.unpack("<I", data[0:4])[0]
+    header_block_hash = struct.unpack("<I", data[4:8])[0]
 
     # Validate header hash
-    header_data = data[8:8 + header_block_size]
+    header_data = data[8 : 8 + header_block_size]
     actual_header_hash = hashlittle(header_data, 0)
     if actual_header_hash != header_block_hash:
         logger.warning(
@@ -334,14 +343,14 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         )
 
     # Parse IndexHeaderV2 (16 bytes starting at offset 8)
-    version = struct.unpack('<H', data[8:10])[0]
+    version = struct.unpack("<H", data[8:10])[0]
     bucket = data[10]
     # extra_bytes = data[11]  # unused
     encoded_size_length = data[12]
     storage_offset_length = data[13]
     ekey_length = data[14]
     file_offset_bits = data[15]
-    segment_size = struct.unpack('<Q', data[16:24])[0]
+    segment_size = struct.unpack("<Q", data[16:24])[0]
 
     if version not in (7, 8):
         logger.warning(f"Unexpected index version: {version} (expected 7 or 8)")
@@ -356,18 +365,22 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
     entry_block_offset = 0x20
 
     # Parse entry block guarded header (8 bytes)
-    entry_block_size = struct.unpack('<I', data[entry_block_offset:entry_block_offset + 4])[0]
-    entry_block_hash = struct.unpack('<I', data[entry_block_offset + 4:entry_block_offset + 8])[0]
+    entry_block_size = struct.unpack(
+        "<I", data[entry_block_offset : entry_block_offset + 4]
+    )[0]
+    entry_block_hash = struct.unpack(
+        "<I", data[entry_block_offset + 4 : entry_block_offset + 8]
+    )[0]
 
     # Entry data starts at offset 0x28
     entry_data_start = entry_block_offset + 8
-    entry_data = data[entry_data_start:entry_data_start + entry_block_size]
+    entry_data = data[entry_data_start : entry_data_start + entry_block_size]
 
     # Validate sorted section hash using iterative hashlittle2
     pc, pb = 0, 0
     offset = 0
     while offset + entry_size <= len(entry_data):
-        chunk = entry_data[offset:offset + entry_size]
+        chunk = entry_data[offset : offset + entry_size]
         pc, pb = hashlittle2(chunk, pc, pb)
         offset += entry_size
     if pc != entry_block_hash:
@@ -382,10 +395,10 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
     offset = 0
 
     while offset + entry_size <= len(entry_data):
-        entry_bytes = entry_data[offset:offset + entry_size]
+        entry_bytes = entry_data[offset : offset + entry_size]
 
         # Skip empty entries (all zeros in key)
-        if entry_bytes[:ekey_length] == b'\x00' * ekey_length:
+        if entry_bytes[:ekey_length] == b"\x00" * ekey_length:
             offset += entry_size
             continue
 
@@ -406,10 +419,10 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
         uoffset = 0
 
         while uoffset + 24 <= len(update_data):
-            entry_bytes = update_data[uoffset:uoffset + 24]
+            entry_bytes = update_data[uoffset : uoffset + 24]
 
             # Skip empty entries (zero hash guard means unused slot)
-            if entry_bytes[:4] == b'\x00\x00\x00\x00':
+            if entry_bytes[:4] == b"\x00\x00\x00\x00":
                 uoffset += 24
                 continue
 
@@ -464,7 +477,9 @@ class LocalStorage:
         # Track current archive state
         self.current_archive_id = 0
         self.current_archive_offset = 0
-        self.bucket_entries: dict[int, list[LocalIndexEntry]] = {i: [] for i in range(16)}
+        self.bucket_entries: dict[int, list[LocalIndexEntry]] = {
+            i: [] for i in range(16)
+        }
 
         # Track generation numbers for each bucket (starts at 1)
         self.bucket_generations: dict[int, int] = dict.fromkeys(range(16), 1)
@@ -477,7 +492,13 @@ class LocalStorage:
         logger.info(f"Initializing CASC storage at {self.base_path}")
 
         # Create directories
-        for path in [self.data_path, self.indices_path, self.config_path, self.shmem_path, self.ecache_path]:
+        for path in [
+            self.data_path,
+            self.indices_path,
+            self.config_path,
+            self.shmem_path,
+            self.ecache_path,
+        ]:
             path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Created directory: {path}")
 
@@ -492,9 +513,9 @@ class LocalStorage:
             return
 
         # Pattern: {bucket:02x}{generation:08d}.idx
-        idx_pattern = re.compile(r'^([0-9a-f]{2})(\d{8})\.idx$', re.IGNORECASE)
+        idx_pattern = re.compile(r"^([0-9a-f]{2})(\d{8})\.idx$", re.IGNORECASE)
 
-        for idx_file in self.data_path.glob('*.idx'):
+        for idx_file in self.data_path.glob("*.idx"):
             match = idx_pattern.match(idx_file.name)
             if match:
                 bucket = int(match.group(1), 16)
@@ -577,7 +598,7 @@ class LocalStorage:
             data_path = self.data_path / format_data_filename(self.current_archive_id)
 
         # Write content
-        with open(data_path, 'ab') as f:
+        with open(data_path, "ab") as f:
             f.write(data)
 
         # Create index entry
@@ -585,7 +606,7 @@ class LocalStorage:
             key=truncated_key,
             archive_id=self.current_archive_id,
             archive_offset=self.current_archive_offset,
-            size=len(data)
+            size=len(data),
         )
 
         # Update offset and track entry
@@ -617,7 +638,7 @@ class LocalStorage:
         shmem_file = self.data_path / "shmem"
 
         # Build Windows-style path string
-        data_path_str = str(self.data_path).replace('/', '\\')
+        data_path_str = str(self.data_path).replace("/", "\\")
         path_string = f"Global\\{data_path_str}"
 
         # Compute total data size from archive files
@@ -637,7 +658,9 @@ class LocalStorage:
         )
         shmem.write(shmem_file)
 
-    def _write_index_file(self, path: Path, bucket: int, entries: list[LocalIndexEntry]) -> None:
+    def _write_index_file(
+        self, path: Path, bucket: int, entries: list[LocalIndexEntry]
+    ) -> None:
         """Write index file with correct V7 layout.
 
         Layout:
@@ -653,7 +676,7 @@ class LocalStorage:
         header_data = header.to_bytes()  # 16 bytes
 
         # Serialize sorted entries
-        entries_data = b''.join(entry.to_bytes() for entry in entries)
+        entries_data = b"".join(entry.to_bytes() for entry in entries)
 
         # Header hash: hashlittle of header data
         header_hash = hashlittle(header_data, 0)
@@ -664,20 +687,20 @@ class LocalStorage:
             pc, pb = hashlittle2(entry.to_bytes(), pc, pb)
         entries_hash = pc
 
-        with open(path, 'wb') as f:
+        with open(path, "wb") as f:
             # 0x00: Header guarded block (8 bytes)
-            f.write(struct.pack('<I', len(header_data)))
-            f.write(struct.pack('<I', header_hash))
+            f.write(struct.pack("<I", len(header_data)))
+            f.write(struct.pack("<I", header_hash))
 
             # 0x08: Header data (16 bytes)
             f.write(header_data)
 
             # 0x18: Padding to 0x20 (8 bytes)
-            f.write(b'\x00' * 8)
+            f.write(b"\x00" * 8)
 
             # 0x20: Entry guarded block header (8 bytes)
-            f.write(struct.pack('<I', len(entries_data)))
-            f.write(struct.pack('<I', entries_hash))
+            f.write(struct.pack("<I", len(entries_data)))
+            f.write(struct.pack("<I", entries_hash))
 
             # 0x28: Sorted entries
             f.write(entries_data)
@@ -686,12 +709,14 @@ class LocalStorage:
             current_pos = 0x28 + len(entries_data)
             padding_needed = 0x10000 - current_pos
             if padding_needed > 0:
-                f.write(b'\x00' * padding_needed)
+                f.write(b"\x00" * padding_needed)
 
             # 0x10000: Update section (empty, minimum 0x7800 bytes)
-            f.write(b'\x00' * UPDATE_SECTION_MIN_SIZE)
+            f.write(b"\x00" * UPDATE_SECTION_MIN_SIZE)
 
-    def insert_entry(self, bucket: int, entry: LocalIndexEntry, status: int = 0) -> None:
+    def insert_entry(
+        self, bucket: int, entry: LocalIndexEntry, status: int = 0
+    ) -> None:
         """Append an UpdateEntry to the update section of a bucket's .idx file.
 
         This writes a single entry to the update section without rewriting the
@@ -724,7 +749,7 @@ class LocalStorage:
         # Scan for first empty 24-byte slot
         pos = update_offset
         while pos + 24 <= len(file_data):
-            if file_data[pos:pos + 4] == b'\x00\x00\x00\x00':
+            if file_data[pos : pos + 4] == b"\x00\x00\x00\x00":
                 break
             pos += 24
         else:
@@ -732,7 +757,7 @@ class LocalStorage:
             pos = len(file_data)
 
         # Write the update entry at the found position
-        with open(idx_path, 'r+b') as f:
+        with open(idx_path, "r+b") as f:
             f.seek(pos)
             f.write(update_bytes)
 
@@ -802,7 +827,7 @@ class LocalStorage:
             ValueError: If read returned fewer bytes than expected
         """
         data_path = self.data_path / format_data_filename(entry.archive_id)
-        with open(data_path, 'rb') as f:
+        with open(data_path, "rb") as f:
             f.seek(entry.archive_offset)
             data = f.read(entry.size)
         if len(data) != entry.size:
@@ -826,17 +851,17 @@ class LocalStorage:
             entries = self.bucket_entries[bucket]
             if entries:
                 total_size = sum(e.size for e in entries)
-                buckets_stats[f'{bucket:02x}'] = {
-                    'count': len(entries),
-                    'total_size': total_size
+                buckets_stats[f"{bucket:02x}"] = {
+                    "count": len(entries),
+                    "total_size": total_size,
                 }
 
         stats: dict[str, Any] = {
-            'base_path': str(self.base_path),
-            'total_entries': sum(len(entries) for entries in self.bucket_entries.values()),
-            'buckets': buckets_stats,
+            "base_path": str(self.base_path),
+            "total_entries": sum(
+                len(entries) for entries in self.bucket_entries.values()
+            ),
+            "buckets": buckets_stats,
         }
 
         return stats
-
-

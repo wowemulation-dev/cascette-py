@@ -89,7 +89,7 @@ class RootParser(FormatParser[RootFile]):
 
         # Check for MFST magic (or TSFM which is little-endian MFST)
         magic = data[0:4]
-        if magic not in (b'MFST', b'TSFM'):
+        if magic not in (b"MFST", b"TSFM"):
             return 1  # Pre-30080, no magic
 
         if len(data) < 12:
@@ -97,9 +97,9 @@ class RootParser(FormatParser[RootFile]):
 
         # Read potential header_size and version fields
         # TSFM = little-endian, MFST = big-endian header fields
-        endian = '<' if magic == b'TSFM' else '>'
-        value1 = struct.unpack(f'{endian}I', data[4:8])[0]
-        value2 = struct.unpack(f'{endian}I', data[8:12])[0]
+        endian = "<" if magic == b"TSFM" else ">"
+        value1 = struct.unpack(f"{endian}I", data[4:8])[0]
+        value2 = struct.unpack(f"{endian}I", data[8:12])[0]
 
         # V3/V4 have an extended header: header_size (small) + version (2..=4)
         # V2 has total_files + named_files (both typically large)
@@ -127,7 +127,7 @@ class RootParser(FormatParser[RootFile]):
             raise ValueError("Incomplete magic bytes")
 
         # TSFM = little-endian, MFST = big-endian header fields
-        endian = '<' if magic_bytes == b'TSFM' else '>'
+        endian = "<" if magic_bytes == b"TSFM" else ">"
 
         if version == 2:
             # Version 2: Build 30080+
@@ -137,14 +137,14 @@ class RootParser(FormatParser[RootFile]):
             if len(total_files_bytes) != 4 or len(named_files_bytes) != 4:
                 raise ValueError("Incomplete header for version 2")
 
-            total_files = struct.unpack(f'{endian}I', total_files_bytes)[0]
-            named_files = struct.unpack(f'{endian}I', named_files_bytes)[0]
+            total_files = struct.unpack(f"{endian}I", total_files_bytes)[0]
+            named_files = struct.unpack(f"{endian}I", named_files_bytes)[0]
 
             return RootHeader(
                 version=2,
                 magic=magic_bytes,
                 total_files=total_files,
-                named_files=named_files
+                named_files=named_files,
             )
 
         elif version in (3, 4):
@@ -155,16 +155,20 @@ class RootParser(FormatParser[RootFile]):
             named_files_bytes = stream.read(4)
             padding_bytes = stream.read(4)
 
-            if (len(header_size_bytes) != 4 or len(version_field_bytes) != 4 or
-                len(total_files_bytes) != 4 or len(named_files_bytes) != 4 or
-                len(padding_bytes) != 4):
+            if (
+                len(header_size_bytes) != 4
+                or len(version_field_bytes) != 4
+                or len(total_files_bytes) != 4
+                or len(named_files_bytes) != 4
+                or len(padding_bytes) != 4
+            ):
                 raise ValueError(f"Incomplete header for version {version}")
 
-            header_size = struct.unpack(f'{endian}I', header_size_bytes)[0]
-            version_field = struct.unpack(f'{endian}I', version_field_bytes)[0]
-            total_files = struct.unpack(f'{endian}I', total_files_bytes)[0]
-            named_files = struct.unpack(f'{endian}I', named_files_bytes)[0]
-            padding = struct.unpack(f'{endian}I', padding_bytes)[0]
+            header_size = struct.unpack(f"{endian}I", header_size_bytes)[0]
+            version_field = struct.unpack(f"{endian}I", version_field_bytes)[0]
+            total_files = struct.unpack(f"{endian}I", total_files_bytes)[0]
+            named_files = struct.unpack(f"{endian}I", named_files_bytes)[0]
+            padding = struct.unpack(f"{endian}I", padding_bytes)[0]
 
             return RootHeader(
                 version=version,
@@ -173,7 +177,7 @@ class RootParser(FormatParser[RootFile]):
                 version_field=version_field,
                 total_files=total_files,
                 named_files=named_files,
-                padding=padding
+                padding=padding,
             )
 
         raise ValueError(f"Unsupported root version: {version}")
@@ -203,7 +207,7 @@ class RootParser(FormatParser[RootFile]):
         if len(num_records_bytes) != 4:
             return None
 
-        num_records = struct.unpack('<I', num_records_bytes)[0]
+        num_records = struct.unpack("<I", num_records_bytes)[0]
         if num_records > 1000000:  # Sanity check
             return None
 
@@ -216,7 +220,7 @@ class RootParser(FormatParser[RootFile]):
                 return None
 
             # Read 5-byte little-endian content flags
-            content_flags = int.from_bytes(content_flags_bytes, byteorder='little')
+            content_flags = int.from_bytes(content_flags_bytes, byteorder="little")
         else:
             content_flags_bytes = stream.read(4)
             locale_flags_bytes = stream.read(4)
@@ -224,9 +228,9 @@ class RootParser(FormatParser[RootFile]):
             if len(content_flags_bytes) != 4 or len(locale_flags_bytes) != 4:
                 return None
 
-            content_flags = struct.unpack('<I', content_flags_bytes)[0]
+            content_flags = struct.unpack("<I", content_flags_bytes)[0]
 
-        locale_flags = struct.unpack('<I', locale_flags_bytes)[0]
+        locale_flags = struct.unpack("<I", locale_flags_bytes)[0]
 
         # Read FileDataID deltas
         deltas: list[int] = []
@@ -234,7 +238,7 @@ class RootParser(FormatParser[RootFile]):
             delta_bytes = stream.read(4)
             if len(delta_bytes) != 4:
                 return None
-            delta = struct.unpack('<i', delta_bytes)[0]  # Signed int32
+            delta = struct.unpack("<i", delta_bytes)[0]  # Signed int32
             deltas.append(delta)
 
         # Decode FileDataIDs from deltas
@@ -257,19 +261,21 @@ class RootParser(FormatParser[RootFile]):
             if len(content_key_bytes) != 16 or len(name_hash_bytes) != 8:
                 return None
 
-            name_hash = struct.unpack('<Q', name_hash_bytes)[0]  # 64-bit name hash
+            name_hash = struct.unpack("<Q", name_hash_bytes)[0]  # 64-bit name hash
 
-            records.append(RootRecord(
-                file_id=file_ids[i],
-                content_key=content_key_bytes,
-                name_hash=name_hash
-            ))
+            records.append(
+                RootRecord(
+                    file_id=file_ids[i],
+                    content_key=content_key_bytes,
+                    name_hash=name_hash,
+                )
+            )
 
         return RootBlock(
             num_records=num_records,
             content_flags=content_flags,
             locale_flags=locale_flags,
-            records=records
+            records=records,
         )
 
     def find_file_by_id(self, root_file: RootFile, file_id: int) -> RootRecord | None:
@@ -288,7 +294,9 @@ class RootParser(FormatParser[RootFile]):
                     return record
         return None
 
-    def find_files_by_content_key(self, root_file: RootFile, content_key: bytes) -> list[RootRecord]:
+    def find_files_by_content_key(
+        self, root_file: RootFile, content_key: bytes
+    ) -> list[RootRecord]:
         """Find file entries by content key.
 
         Args:
@@ -321,13 +329,15 @@ class RootParser(FormatParser[RootFile]):
         for block in root_file.blocks:
             flag_combo = (block.content_flags, block.locale_flags)
             unique_flags.add(flag_combo)
-            locale_counts[block.locale_flags] = locale_counts.get(block.locale_flags, 0) + block.num_records
+            locale_counts[block.locale_flags] = (
+                locale_counts.get(block.locale_flags, 0) + block.num_records
+            )
 
         return {
-            'total_files': total_files,
-            'total_blocks': len(root_file.blocks),
-            'unique_flag_combinations': len(unique_flags),
-            'files_per_locale': locale_counts
+            "total_files": total_files,
+            "total_blocks": len(root_file.blocks),
+            "unique_flag_combinations": len(unique_flags),
+            "files_per_locale": locale_counts,
         }
 
     def build(self, obj: RootFile) -> bytes:
@@ -346,35 +356,37 @@ class RootParser(FormatParser[RootFile]):
 
         if header.version >= 2:
             # Write magic
-            magic = header.magic if header.magic else b'MFST'
+            magic = header.magic if header.magic else b"MFST"
             result.write(magic)
 
             # TSFM = little-endian, MFST = big-endian header fields
-            endian = '<' if magic == b'TSFM' else '>'
+            endian = "<" if magic == b"TSFM" else ">"
 
             if header.version == 2:
                 # Version 2 header
-                result.write(struct.pack(f'{endian}I', header.total_files or 0))
-                result.write(struct.pack(f'{endian}I', header.named_files or 0))
+                result.write(struct.pack(f"{endian}I", header.total_files or 0))
+                result.write(struct.pack(f"{endian}I", header.named_files or 0))
 
             elif header.version in (3, 4):
                 # Version 3/4 header
-                result.write(struct.pack(f'{endian}I', header.header_size or 24))
-                result.write(struct.pack(f'{endian}I', header.version_field or header.version))
-                result.write(struct.pack(f'{endian}I', header.total_files or 0))
-                result.write(struct.pack(f'{endian}I', header.named_files or 0))
-                result.write(struct.pack(f'{endian}I', header.padding or 0))
+                result.write(struct.pack(f"{endian}I", header.header_size or 24))
+                result.write(
+                    struct.pack(f"{endian}I", header.version_field or header.version)
+                )
+                result.write(struct.pack(f"{endian}I", header.total_files or 0))
+                result.write(struct.pack(f"{endian}I", header.named_files or 0))
+                result.write(struct.pack(f"{endian}I", header.padding or 0))
 
         # Write blocks
         for block in obj.blocks:
             # Write block header
-            result.write(struct.pack('<I', block.num_records))
+            result.write(struct.pack("<I", block.num_records))
             # V4 uses 5-byte (40-bit) content flags, V1-V3 use 4-byte
             if header.version >= 4:
-                result.write(block.content_flags.to_bytes(5, byteorder='little'))
+                result.write(block.content_flags.to_bytes(5, byteorder="little"))
             else:
-                result.write(struct.pack('<I', block.content_flags))
-            result.write(struct.pack('<I', block.locale_flags))
+                result.write(struct.pack("<I", block.content_flags))
+            result.write(struct.pack("<I", block.locale_flags))
 
             # Write FileDataID deltas
             current_id = 0
@@ -384,12 +396,12 @@ class RootParser(FormatParser[RootFile]):
                 else:
                     delta = record.file_id - current_id - 1
                 current_id = record.file_id
-                result.write(struct.pack('<i', delta))
+                result.write(struct.pack("<i", delta))
 
             # Write records
             for record in block.records:
                 result.write(record.content_key)
-                result.write(struct.pack('<Q', record.name_hash))
+                result.write(struct.pack("<Q", record.name_hash))
 
         return result.getvalue()
 
@@ -426,12 +438,16 @@ class RootBuilder:
         if version == 1:
             header = RootHeader(magic=None, version=1, total_files=0, named_files=0)
         elif version == 2:
-            header = RootHeader(magic=b'MFST', version=2, total_files=0, named_files=0)
+            header = RootHeader(magic=b"MFST", version=2, total_files=0, named_files=0)
         elif version in (3, 4):
             header = RootHeader(
-                magic=b'MFST', version=version,
-                header_size=24, version_field=version,
-                total_files=0, named_files=0, padding=0
+                magic=b"MFST",
+                version=version,
+                header_size=24,
+                version_field=version,
+                total_files=0,
+                named_files=0,
+                padding=0,
             )
         else:
             raise ValueError(f"Unsupported root version: {version}")
@@ -439,7 +455,9 @@ class RootBuilder:
         return RootFile(header=header, blocks=[])
 
     @classmethod
-    def create_with_records(cls, records: list[RootRecord], version: int = 1) -> RootFile:
+    def create_with_records(
+        cls, records: list[RootRecord], version: int = 1
+    ) -> RootFile:
         """Create root file with given records.
 
         Args:
@@ -450,10 +468,7 @@ class RootBuilder:
             Root file object
         """
         block = RootBlock(
-            num_records=len(records),
-            content_flags=0,
-            locale_flags=0,
-            records=records
+            num_records=len(records), content_flags=0, locale_flags=0, records=records
         )
 
         total_files = len(records)
@@ -461,19 +476,24 @@ class RootBuilder:
 
         if version == 1:
             header = RootHeader(
-                magic=None, version=1,
-                total_files=total_files, named_files=named_files
+                magic=None, version=1, total_files=total_files, named_files=named_files
             )
         elif version == 2:
             header = RootHeader(
-                magic=b'MFST', version=2,
-                total_files=total_files, named_files=named_files
+                magic=b"MFST",
+                version=2,
+                total_files=total_files,
+                named_files=named_files,
             )
         elif version in (3, 4):
             header = RootHeader(
-                magic=b'MFST', version=version,
-                header_size=24, version_field=version,
-                total_files=total_files, named_files=named_files, padding=0
+                magic=b"MFST",
+                version=version,
+                header_size=24,
+                version_field=version,
+                total_files=total_files,
+                named_files=named_files,
+                padding=0,
             )
         else:
             raise ValueError(f"Unsupported root version: {version}")
@@ -528,7 +548,7 @@ def format_locale_flags(flags: int) -> str:
         0x00000400: "ruRU",
         0x00000800: "ptBR",
         0x00001000: "itIT",
-        0x00002000: "ptPT"
+        0x00002000: "ptPT",
     }
 
     active_locales: list[str] = []
@@ -556,7 +576,7 @@ def is_root(data: bytes) -> bool:
 
     # Check for MFST magic (or TSFM which is little-endian MFST)
     magic = data[:4]
-    if magic in (b'MFST', b'TSFM'):
+    if magic in (b"MFST", b"TSFM"):
         return True
 
     # For version 1 files without magic, we can't reliably detect

@@ -145,16 +145,17 @@ def install() -> None:
 @install.command()
 @click.argument("build_config_hash", type=str)
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
-    help="Product code for Ribbit lookup"
+    help="Product code for Ribbit lookup",
 )
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
     default=None,
-    help="CDN region (default: from config, initially 'kr')"
+    help="CDN region (default: from config, initially 'kr')",
 )
 @click.pass_context
 def resolve_manifests(
@@ -182,7 +183,9 @@ def resolve_manifests(
 
         # Step 1: Fetch and parse BuildConfig
         console.print("[cyan]Step 1:[/cyan] Fetching BuildConfig...")
-        build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build"
+        )
         build_config = BuildConfigParser().parse(build_config_data)
 
         encoding_info = build_config.get_encoding_info()
@@ -195,13 +198,37 @@ def resolve_manifests(
         table.add_row("Build Name", build_config.build_name or "N/A")
         table.add_row("Build UID", build_config.build_uid or "N/A")
         table.add_row("Root Content Key", build_config.root or "N/A")
-        table.add_row("Encoding Content Key", encoding_info.content_key if encoding_info else "N/A")
-        table.add_row("Encoding Encoding Key", encoding_info.encoding_key if encoding_info else "N/A")
-        table.add_row("Encoding Size", f"{encoding_info.size:,}" if encoding_info and encoding_info.size else "N/A")
-        table.add_row("Install Content Key", install_info.content_key if install_info else "N/A")
-        table.add_row("Install Size", f"{install_info.size:,}" if install_info and install_info.size else "N/A")
-        table.add_row("Download Content Key", download_info.content_key if download_info else "N/A")
-        table.add_row("Download Size", f"{download_info.size:,}" if download_info and download_info.size else "N/A")
+        table.add_row(
+            "Encoding Content Key",
+            encoding_info.content_key if encoding_info else "N/A",
+        )
+        table.add_row(
+            "Encoding Encoding Key",
+            encoding_info.encoding_key if encoding_info else "N/A",
+        )
+        table.add_row(
+            "Encoding Size",
+            f"{encoding_info.size:,}"
+            if encoding_info and encoding_info.size
+            else "N/A",
+        )
+        table.add_row(
+            "Install Content Key", install_info.content_key if install_info else "N/A"
+        )
+        table.add_row(
+            "Install Size",
+            f"{install_info.size:,}" if install_info and install_info.size else "N/A",
+        )
+        table.add_row(
+            "Download Content Key",
+            download_info.content_key if download_info else "N/A",
+        )
+        table.add_row(
+            "Download Size",
+            f"{download_info.size:,}"
+            if download_info and download_info.size
+            else "N/A",
+        )
         console.print(table)
 
         if not encoding_info or not encoding_info.encoding_key:
@@ -239,7 +266,9 @@ def resolve_manifests(
             install_ckey = bytes.fromhex(install_info.content_key)
 
             # Find encoding key for install manifest
-            install_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, install_ckey)
+            install_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, install_ckey
+            )
 
             if install_ekeys:
                 install_ekey = install_ekeys[0].hex()
@@ -268,11 +297,17 @@ def resolve_manifests(
 
                 # Calculate sizes
                 total_size = sum(e.size for e in install_manifest.entries)
-                table.add_row("Total Size", f"{total_size:,} bytes ({total_size / (1024**3):.2f} GB)")
+                table.add_row(
+                    "Total Size",
+                    f"{total_size:,} bytes ({total_size / (1024**3):.2f} GB)",
+                )
 
                 # Show tag breakdown
                 tag_names = [t.name for t in install_manifest.tags]
-                table.add_row("Tags", ", ".join(tag_names[:10]) + ("..." if len(tag_names) > 10 else ""))
+                table.add_row(
+                    "Tags",
+                    ", ".join(tag_names[:10]) + ("..." if len(tag_names) > 10 else ""),
+                )
 
                 console.print(table)
 
@@ -282,14 +317,18 @@ def resolve_manifests(
                     for entry in install_manifest.entries[:10]:
                         console.print(f"  {entry.filename} ({entry.size:,} bytes)")
             else:
-                console.print("[yellow]  Install manifest content key not found in encoding file[/yellow]")
+                console.print(
+                    "[yellow]  Install manifest content key not found in encoding file[/yellow]"
+                )
 
         # Step 7: Look up and fetch download manifest
         if download_info:
             console.print("\n[cyan]Step 7:[/cyan] Resolving download manifest...")
             download_ckey = bytes.fromhex(download_info.content_key)
 
-            download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
+            download_ekeys = encoding_parser.find_content_key(
+                encoding_data, encoding_file, download_ckey
+            )
             if download_ekeys:
                 download_ekey = download_ekeys[0].hex()
                 console.print(f"  Found encoding key: {download_ekey}")
@@ -309,7 +348,9 @@ def resolve_manifests(
                 download_manifest = download_parser.parse(download_data)
 
                 # Calculate priority distribution
-                priority_buckets: dict[int, tuple[int, int]] = {}  # priority -> (count, total_size)
+                priority_buckets: dict[
+                    int, tuple[int, int]
+                ] = {}  # priority -> (count, total_size)
                 for entry in download_manifest.entries:
                     if entry.priority not in priority_buckets:
                         priority_buckets[entry.priority] = (0, 0)
@@ -325,7 +366,10 @@ def resolve_manifests(
                 table.add_column("Value", style="green")
                 table.add_row("Total Entries", f"{total_entries:,}")
                 table.add_row("Total Tags", str(len(download_manifest.tags)))
-                table.add_row("Total Size", f"{total_size:,} bytes ({total_size / (1024**3):.2f} GB)")
+                table.add_row(
+                    "Total Size",
+                    f"{total_size:,} bytes ({total_size / (1024**3):.2f} GB)",
+                )
                 table.add_row("Priority Levels", str(len(priority_buckets)))
                 console.print(table)
 
@@ -336,7 +380,9 @@ def resolve_manifests(
                 priority_table.add_column("Size", style="yellow", justify="right")
                 priority_table.add_column("Description", style="dim")
 
-                for priority in sorted(priority_buckets.keys())[:15]:  # Show top 15 priorities
+                for priority in sorted(priority_buckets.keys())[
+                    :15
+                ]:  # Show top 15 priorities
                     count, size = priority_buckets[priority]
                     desc = ""
                     if priority <= 10:
@@ -349,14 +395,13 @@ def resolve_manifests(
                         desc = "Low (optional content)"
 
                     priority_table.add_row(
-                        str(priority),
-                        f"{count:,}",
-                        f"{size / (1024**2):.1f} MB",
-                        desc
+                        str(priority), f"{count:,}", f"{size / (1024**2):.1f} MB", desc
                     )
 
                 if len(priority_buckets) > 15:
-                    priority_table.add_row("...", "...", "...", f"({len(priority_buckets) - 15} more)")
+                    priority_table.add_row(
+                        "...", "...", "...", f"({len(priority_buckets) - 15} more)"
+                    )
 
                 console.print(priority_table)
 
@@ -364,16 +409,20 @@ def resolve_manifests(
                 tag_names = [t.name for t in download_manifest.tags]
                 console.print(f"\n[bold]Available Tags:[/bold] {', '.join(tag_names)}")
             else:
-                console.print("[yellow]  Download manifest content key not found in encoding file[/yellow]")
+                console.print(
+                    "[yellow]  Download manifest content key not found in encoding file[/yellow]"
+                )
 
-        console.print(Panel.fit(
-            "[green]Resolution chain complete![/green]\n\n"
-            "This demonstrates that:\n"
-            "1. Encoding file is available as loose CDN file (using encoding key from BuildConfig)\n"
-            "2. Install/download manifests are resolved via encoding file\n"
-            "3. Archive-groups are NOT needed for manifest resolution",
-            title="Success"
-        ))
+        console.print(
+            Panel.fit(
+                "[green]Resolution chain complete![/green]\n\n"
+                "This demonstrates that:\n"
+                "1. Encoding file is available as loose CDN file (using encoding key from BuildConfig)\n"
+                "2. Install/download manifests are resolved via encoding file\n"
+                "3. Archive-groups are NOT needed for manifest resolution",
+                title="Success",
+            )
+        )
 
         # Close CDN client
         cdn_client.close()
@@ -385,23 +434,21 @@ def resolve_manifests(
 
 @install.command()
 @click.option(
-    "--product", "-p",
+    "--product",
+    "-p",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
-    help="Product code"
+    help="Product code",
 )
 @click.option(
-    "--region", "-r",
+    "--region",
+    "-r",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
     default="us",
-    help="Region"
+    help="Region",
 )
 @click.pass_context
-def discover_latest(
-    ctx: click.Context,
-    product: str,
-    region: str
-) -> None:
+def discover_latest(ctx: click.Context, product: str, region: str) -> None:
     """Discover latest build for a product and resolve its manifests.
 
     This is a convenience command that queries the TACT versions endpoint
@@ -449,7 +496,9 @@ def discover_latest(
             )
 
         # Validate hash format (should be 32-character hex string)
-        if len(build_config_hash) != 32 or not all(c in "0123456789abcdef" for c in build_config_hash.lower()):
+        if len(build_config_hash) != 32 or not all(
+            c in "0123456789abcdef" for c in build_config_hash.lower()
+        ):
             raise click.ClickException(
                 f"Invalid BuildConfig hash format: '{build_config_hash}'. "
                 "Expected 32-character hexadecimal string."
@@ -461,7 +510,7 @@ def discover_latest(
             resolve_manifests,
             build_config_hash=build_config_hash,
             product=product,
-            region=region
+            region=region,
         )
 
     except Exception as e:
@@ -474,28 +523,26 @@ def discover_latest(
 @click.argument("encoding_key", type=str)
 @click.argument("output_path", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
-    help="Product code for Ribbit lookup"
+    help="Product code for Ribbit lookup",
 )
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
     default=None,
-    help="CDN region (default: from config, initially 'kr')"
+    help="CDN region (default: from config, initially 'kr')",
 )
 @click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=0,
-    help="Maximum archives to download (0 = all)"
+    help="Maximum archives to download (0 = all)",
 )
-@click.option(
-    "--no-decompress",
-    is_flag=True,
-    help="Don't decompress BLTE data"
-)
+@click.option("--no-decompress", is_flag=True, help="Don't decompress BLTE data")
 @click.pass_context
 def extract_from_archives(
     ctx: click.Context,
@@ -505,7 +552,7 @@ def extract_from_archives(
     product: str,
     region: str | None,
     max_archives: int,
-    no_decompress: bool
+    no_decompress: bool,
 ) -> None:
     """Extract a file from CDN archives by encoding key.
 
@@ -531,7 +578,9 @@ def extract_from_archives(
         # Parse encoding key
         ekey = bytes.fromhex(encoding_key)
         if len(ekey) != 16:
-            raise click.ClickException("Encoding key must be 32 hex characters (16 bytes)")
+            raise click.ClickException(
+                "Encoding key must be 32 hex characters (16 bytes)"
+            )
 
         # Initialize CDN client
         product_enum = get_product_enum(product)
@@ -552,7 +601,9 @@ def extract_from_archives(
             console.print(f"  Limiting to first {max_archives} archives")
 
         # Step 2: Download archive indices via CDNClient
-        console.print(f"\n[cyan]Step 2:[/cyan] Downloading {len(archives)} archive indices...")
+        console.print(
+            f"\n[cyan]Step 2:[/cyan] Downloading {len(archives)} archive indices..."
+        )
 
         fetcher = CdnArchiveFetcher(cdn_client=cdn_client)
 
@@ -561,7 +612,7 @@ def extract_from_archives(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
-            console=console
+            console=console,
         ) as progress:
             task = progress.add_task("Downloading indices...", total=len(archives))
 
@@ -571,7 +622,9 @@ def extract_from_archives(
                 fetcher.load_index_from_bytes(archive_hash, index_data)
 
         console.print(f"  Loaded {len(archives)} indices")
-        console.print(f"  Total entries in index map: {fetcher.index_map.total_entries:,}")
+        console.print(
+            f"  Total entries in index map: {fetcher.index_map.total_entries:,}"
+        )
 
         # Step 3: Find and extract the file
         console.print("\n[cyan]Step 3:[/cyan] Extracting file...")
@@ -579,14 +632,18 @@ def extract_from_archives(
 
         location = fetcher.index_map.find(ekey)
         if not location:
-            raise click.ClickException("Encoding key not found in any downloaded archive index")
+            raise click.ClickException(
+                "Encoding key not found in any downloaded archive index"
+            )
 
         console.print(f"  Found in archive: {location.archive_hash}")
         console.print(f"  Offset: {location.offset}, Size: {location.size:,} bytes")
 
         # Fetch the file via CDNClient
         console.print("\n[cyan]Step 4:[/cyan] Fetching file from archive...")
-        data = fetcher.fetch_file_via_cdn(cdn_client, ekey, decompress=not no_decompress)
+        data = fetcher.fetch_file_via_cdn(
+            cdn_client, ekey, decompress=not no_decompress
+        )
 
         if data is None:
             raise click.ClickException("Failed to fetch file from archive")
@@ -595,15 +652,17 @@ def extract_from_archives(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(data)
 
-        console.print(Panel.fit(
-            f"[green]File extracted successfully![/green]\n\n"
-            f"Archive: {location.archive_hash}\n"
-            f"Offset: {location.offset}\n"
-            f"Compressed size: {location.size:,} bytes\n"
-            f"Output size: {len(data):,} bytes\n"
-            f"Saved to: {output_path}",
-            title="Success"
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]File extracted successfully![/green]\n\n"
+                f"Archive: {location.archive_hash}\n"
+                f"Offset: {location.offset}\n"
+                f"Compressed size: {location.size:,} bytes\n"
+                f"Output size: {len(data):,} bytes\n"
+                f"Saved to: {output_path}",
+                title="Success",
+            )
+        )
 
         cdn_client.close()
 
@@ -619,34 +678,34 @@ def extract_from_archives(
 @click.argument("cdn_config_hash", type=str)
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
-    help="Product code for Ribbit lookup"
+    help="Product code for Ribbit lookup",
 )
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
     default=None,
-    help="CDN region (default: from config, initially 'kr')"
+    help="CDN region (default: from config, initially 'kr')",
 )
 @click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=100,
-    help="Maximum archives to download (0 = all)"
+    help="Maximum archives to download (0 = all)",
 )
 @click.option(
-    "--max-files", "-f",
-    type=int,
-    default=10,
-    help="Maximum files to extract"
+    "--max-files", "-f", type=int, default=10, help="Maximum files to extract"
 )
 @click.option(
-    "--priority", "-P",
+    "--priority",
+    "-P",
     type=int,
     default=0,
-    help="Only extract files with this priority or lower"
+    help="Only extract files with this priority or lower",
 )
 @click.pass_context
 def extract_priority_files(
@@ -658,7 +717,7 @@ def extract_priority_files(
     region: str | None,
     max_archives: int,
     max_files: int,
-    priority: int
+    priority: int,
 ) -> None:
     """Extract high-priority files from download manifest.
 
@@ -690,7 +749,9 @@ def extract_priority_files(
 
         # Step 1: Fetch and parse BuildConfig
         console.print("[cyan]Step 1:[/cyan] Fetching BuildConfig...")
-        build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build"
+        )
         build_config = BuildConfigParser().parse(build_config_data)
 
         encoding_info = build_config.get_encoding_info()
@@ -718,7 +779,9 @@ def extract_priority_files(
 
         console.print("\n[cyan]Step 3:[/cyan] Resolving download manifest...")
         download_ckey = bytes.fromhex(download_info.content_key)
-        download_ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, download_ckey)
+        download_ekeys = encoding_parser.find_content_key(
+            encoding_data, encoding_file, download_ckey
+        )
 
         if not download_ekeys:
             raise click.ClickException("Download manifest not found in encoding file")
@@ -758,7 +821,7 @@ def extract_priority_files(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
-            console=console
+            console=console,
         ) as progress:
             task = progress.add_task("Downloading indices...", total=len(archives))
 
@@ -781,7 +844,7 @@ def extract_priority_files(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
-            console=console
+            console=console,
         ) as progress:
             task = progress.add_task("Extracting files...", total=len(entries))
 
@@ -789,7 +852,9 @@ def extract_priority_files(
                 progress.update(task, advance=1)
 
                 # Extract file via CDNClient
-                data = fetcher.fetch_file_via_cdn(cdn_client, entry.ekey, decompress=True)
+                data = fetcher.fetch_file_via_cdn(
+                    cdn_client, entry.ekey, decompress=True
+                )
 
                 if data is None:
                     failed += 1
@@ -804,7 +869,9 @@ def extract_priority_files(
                 extracted += 1
 
                 if verbose:
-                    console.print(f"  [green]Extracted:[/green] {entry.ekey.hex()} ({len(data):,} bytes)")
+                    console.print(
+                        f"  [green]Extracted:[/green] {entry.ekey.hex()} ({len(data):,} bytes)"
+                    )
 
         # Summary
         table = Table(title="Extraction Summary")
@@ -895,8 +962,9 @@ def filter_entries_by_tags(
         if is_file_selected(bitmap, i):
             filtered.append(entry)
 
-    logger.debug("Filtered %d entries to %d using query '%s'",
-                 len(entries), len(filtered), query)
+    logger.debug(
+        "Filtered %d entries to %d using query '%s'", len(entries), len(filtered), query
+    )
     return filtered
 
 
@@ -961,9 +1029,7 @@ async def _load_archive_indices(
             TaskProgressColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task(
-                "Downloading indices...", total=len(need_download)
-            )
+            task = progress.add_task("Downloading indices...", total=len(need_download))
 
             semaphore = asyncio.Semaphore(12)
             lock = asyncio.Lock()
@@ -996,7 +1062,10 @@ async def _load_archive_indices(
 
     total_loaded = cached + downloaded
     console.print(f"  Index map: {fetcher.index_map.total_entries:,} entries")
-    parts = [f"{cached} cached" if cached else "", f"{downloaded} downloaded" if downloaded else ""]
+    parts = [
+        f"{cached} cached" if cached else "",
+        f"{downloaded} downloaded" if downloaded else "",
+    ]
     if failed:
         parts.append(f"{failed} failed")
     detail = ", ".join(p for p in parts if p)
@@ -1059,9 +1128,7 @@ async def _download_casc_files(
         integrity_errors = 0
         total_bytes = 0
 
-        queue = DownloadQueue(
-            max_concurrency=12, max_per_host=3, max_retries=3
-        )
+        queue = DownloadQueue(max_concurrency=12, max_per_host=3, max_retries=3)
 
         entry_priority: dict[str, int] = {
             e.ekey.hex(): e.priority for e in pending_entries
@@ -1074,7 +1141,10 @@ async def _download_casc_files(
 
             async def make_factory(ek: bytes = ekey) -> DownloadResult:
                 data = await fetcher.fetch_file_via_cdn_async(
-                    cdn_client, ek, decompress=False, verify=True,
+                    cdn_client,
+                    ek,
+                    decompress=False,
+                    verify=True,
                 )
                 source = ""
                 loc = fetcher.index_map.find(ek)
@@ -1120,9 +1190,7 @@ async def _download_casc_files(
 
             installed += 1
             total_bytes += len(result.data)
-            install_state.mark_downloaded(
-                result.ekey, len(result.data), pri
-            )
+            install_state.mark_downloaded(result.ekey, len(result.data), pri)
             progress.update(task, advance=len(result.data))
 
             if install_state.should_save():
@@ -1234,7 +1302,9 @@ async def _patch_casc_files(
     zbsdiff_parser = ZbsdiffParser()
 
     async def patch_one(
-        ckey: bytes, new_ekey: bytes, old_ekey: bytes,
+        ckey: bytes,
+        new_ekey: bytes,
+        old_ekey: bytes,
     ) -> tuple[bool, int]:
         """Patch a single file. Returns (success, bytes_written)."""
         pa_entry = patch_lookup.get(ckey)
@@ -1245,7 +1315,9 @@ async def _patch_casc_files(
             try:
                 # 1. Fetch old content (decompressed)
                 old_data = await fetcher.fetch_file_via_cdn_async(
-                    cdn_client, old_ekey, decompress=True,
+                    cdn_client,
+                    old_ekey,
+                    decompress=True,
                 )
                 if old_data is None:
                     # Fallback: read from local storage
@@ -1267,7 +1339,8 @@ async def _patch_casc_files(
                 # 2. Fetch patch blob
                 patch_ekey_hex = pa_entry.patch_encoding_key.hex()
                 patch_data = await cdn_client.fetch_patch_async(
-                    patch_ekey_hex, quiet=True,
+                    patch_ekey_hex,
+                    quiet=True,
                 )
 
                 # BLTE-decode patch if needed
@@ -1290,7 +1363,8 @@ async def _patch_casc_files(
 
                 # 5. BLTE-wrap
                 blte_file = BLTEBuilder.create_single_chunk(
-                    new_content, CompressionMode.ZLIB,
+                    new_content,
+                    CompressionMode.ZLIB,
                 )
                 blte_blob = BLTEBuilder().build(blte_file)
 
@@ -1315,7 +1389,8 @@ async def _patch_casc_files(
         console=console,
     ) as progress:
         task = progress.add_task(
-            "Applying patches...", total=len(patchable),
+            "Applying patches...",
+            total=len(patchable),
         )
 
         # Create all patch tasks
@@ -1341,10 +1416,10 @@ async def _patch_casc_files(
 
 def _fmt_size(nbytes: int) -> str:
     """Format byte count as human-readable string."""
-    if nbytes >= 1024 ** 3:
-        return f"{nbytes / (1024 ** 3):.1f} GB"
-    if nbytes >= 1024 ** 2:
-        return f"{nbytes / (1024 ** 2):.1f} MB"
+    if nbytes >= 1024**3:
+        return f"{nbytes / (1024**3):.1f} GB"
+    if nbytes >= 1024**2:
+        return f"{nbytes / (1024**2):.1f} MB"
     if nbytes >= 1024:
         return f"{nbytes / 1024:.1f} KB"
     return f"{nbytes} B"
@@ -1406,7 +1481,11 @@ def _resolve_ekey(
         if entry is not None:
             return [entry.encoding_key]
 
-    if encoding_parser is not None and encoding_data is not None and encoding_file is not None:
+    if (
+        encoding_parser is not None
+        and encoding_data is not None
+        and encoding_file is not None
+    ):
         return encoding_parser.find_content_key(encoding_data, encoding_file, ckey)
 
     return None
@@ -1417,69 +1496,71 @@ def _resolve_ekey(
 @click.argument("cdn_config_hash", type=str)
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
-    help="Product code for Ribbit lookup"
+    help="Product code for Ribbit lookup",
 )
 @click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=0,
-    help="Maximum archives to download indices for (0 = all)"
+    help="Maximum archives to download indices for (0 = all)",
 )
 @click.option(
-    "--max-files", "-f",
-    type=int,
-    default=0,
-    help="Maximum files to install (0 = all)"
+    "--max-files", "-f", type=int, default=0, help="Maximum files to install (0 = all)"
 )
 @click.option(
-    "--priority", "-P",
+    "--priority",
+    "-P",
     type=int,
     default=255,
-    help="Maximum priority level to install (0 = critical, 255 = all)"
+    help="Maximum priority level to install (0 = critical, 255 = all)",
 )
 @click.option(
     "--platform",
     type=click.Choice(["Windows", "OSX", "Android", "iOS"]),
     default="Windows",
-    help="Target platform"
+    help="Target platform",
 )
 @click.option(
     "--arch",
     type=click.Choice(["x86_64", "x86_32", "arm64"]),
     default="x86_64",
-    help="Target architecture"
+    help="Target architecture",
 )
 @click.option(
     "--locale",
-    type=click.Choice(["enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"]),
+    type=click.Choice(
+        ["enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"]
+    ),
     default="enUS",
-    help="Target locale"
+    help="Target locale",
 )
 @click.option(
     "--region",
     type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
     default=None,
-    help="CDN region (default: from config, initially 'kr')"
+    help="CDN region (default: from config, initially 'kr')",
 )
 @click.option(
     "--resume/--no-resume",
     default=True,
-    help="Resume from existing .build.info (default: True)"
+    help="Resume from existing .build.info (default: True)",
 )
 @click.option(
     "--force",
     is_flag=True,
     default=False,
-    help="Override existing .build.info even if config hashes differ"
+    help="Override existing .build.info even if config hashes differ",
 )
 @click.option(
     "--shmem-version",
     type=click.Choice(["4", "5"]),
     default="5",
-    help="Shmem protocol version (4=base, 5=exclusive access + PID tracking)"
+    help="Shmem protocol version (4=base, 5=exclusive access + PID tracking)",
 )
 @click.pass_context
 def install_to_casc(
@@ -1528,9 +1609,14 @@ def install_to_casc(
                 console.print(f"  CDN key: {existing_info.cdn_key}")
 
                 # Validate hashes match
-                if existing_info.build_key != build_config_hash or existing_info.cdn_key != cdn_config_hash:
+                if (
+                    existing_info.build_key != build_config_hash
+                    or existing_info.cdn_key != cdn_config_hash
+                ):
                     if not force:
-                        console.print("[yellow]  Config hashes differ from existing installation:[/yellow]")
+                        console.print(
+                            "[yellow]  Config hashes differ from existing installation:[/yellow]"
+                        )
                         console.print(f"    Existing build: {existing_info.build_key}")
                         console.print(f"    Requested build: {build_config_hash}")
                         console.print(f"    Existing CDN: {existing_info.cdn_key}")
@@ -1538,10 +1624,14 @@ def install_to_casc(
                         raise click.ClickException(
                             "Config hashes differ. Use --force to override or --no-resume to start fresh."
                         )
-                    console.print("[yellow]  --force: Overriding existing configuration[/yellow]")
+                    console.print(
+                        "[yellow]  --force: Overriding existing configuration[/yellow]"
+                    )
                     existing_info = None  # Force fresh installation
                 elif resume:
-                    console.print("  [green]Resuming from existing configuration[/green]")
+                    console.print(
+                        "  [green]Resuming from existing configuration[/green]"
+                    )
                     # Use existing configuration for platform, arch, locale
                     if existing_info.platform:
                         platform = existing_info.platform
@@ -1553,7 +1643,9 @@ def install_to_casc(
                         region = existing_info.region.lower()
 
             except ValueError as e:
-                console.print(f"[yellow]  Failed to parse existing .build.info: {e}[/yellow]")
+                console.print(
+                    f"[yellow]  Failed to parse existing .build.info: {e}[/yellow]"
+                )
                 if not force:
                     raise click.ClickException(
                         "Corrupted .build.info file. Use --force to override."
@@ -1592,7 +1684,9 @@ def install_to_casc(
         console.print("\n[cyan]Step 1:[/cyan] Fetching and saving configs...")
 
         # Build config
-        build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build"
+        )
         console.print(f"  BuildConfig: {build_config_hash}")
         # Also save to local CASC config directory
         storage.save_config(build_config_hash, build_config_data)
@@ -1624,8 +1718,9 @@ def install_to_casc(
 
             # Extract version from build name (e.g., "WOW-65300patch1.15.8" -> "1.15.8.65300")
             import re
+
             if build_config.build_name:
-                match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
+                match = re.search(r"(\d+)patch([\d.]+)", build_config.build_name)
                 if match:
                     build_id, version = match.groups()
                     version_str = f"{version}.{build_id}"
@@ -1691,11 +1786,15 @@ def install_to_casc(
 
             encoding_parser = EncodingParser()
             encoding_file = encoding_parser.parse(encoding_data)
-            console.print(f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages")
+            console.print(
+                f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages"
+            )
 
             # Step 2a: Populate ecache from encoding file
             console.print("\n[cyan]Step 2a:[/cyan] Populating encoding cache...")
-            ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
+            ecache = _populate_ecache(
+                ecache_path, encoding_data, encoding_file, encoding_parser
+            )
             console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
 
         # Step 2b: Fetch and parse size manifest (if present)
@@ -1741,9 +1840,7 @@ def install_to_casc(
                                 size_file.header.tag_count,
                                 len(size_file.entries),
                             )
-                            console.print(
-                                f"  Tags: {len(size_file.tags)}"
-                            )
+                            console.print(f"  Tags: {len(size_file.tags)}")
                 except Exception as e:
                     logger.warning(
                         "Failed to fetch/parse size manifest, continuing without it",
@@ -1751,10 +1848,14 @@ def install_to_casc(
                     )
                     size_file = None
             else:
-                console.print("  [yellow]Size manifest not found in encoding file[/yellow]")
+                console.print(
+                    "  [yellow]Size manifest not found in encoding file[/yellow]"
+                )
         elif size_info:
             # Size manifest has content key but no encoding key - try direct CDN fetch
-            console.print("\n[cyan]Step 2b:[/cyan] Size manifest has no encoding key, skipping")
+            console.print(
+                "\n[cyan]Step 2b:[/cyan] Size manifest has no encoding key, skipping"
+            )
 
         # Step 3: Resolve and fetch download manifest
         if not download_info:
@@ -1767,7 +1868,9 @@ def install_to_casc(
         )
 
         if not download_ekeys:
-            raise click.ClickException("Download manifest not found in encoding file or ecache")
+            raise click.ClickException(
+                "Download manifest not found in encoding file or ecache"
+            )
 
         download_ekey = download_ekeys[0]
         download_ekey_hex = download_ekey.hex()
@@ -1786,7 +1889,9 @@ def install_to_casc(
 
         download_parser = DownloadParser()
         download_manifest = download_parser.parse(download_data)
-        console.print(f"  Total entries in manifest: {len(download_manifest.entries):,}")
+        console.print(
+            f"  Total entries in manifest: {len(download_manifest.entries):,}"
+        )
 
         # Display available tags
         tag_names = [t.name for t in download_manifest.tags]
@@ -1810,7 +1915,9 @@ def install_to_casc(
         download_entries: list[DownloadEntry] = [
             e for e in download_manifest.entries if e.priority <= priority
         ]
-        console.print(f"  After priority filter (<= {priority}): {len(download_entries):,} entries")
+        console.print(
+            f"  After priority filter (<= {priority}): {len(download_entries):,} entries"
+        )
 
         # Filter by tags (platform, arch, locale)
         # Use size manifest tags if available (canonical tag source),
@@ -1843,8 +1950,12 @@ def install_to_casc(
         install_state = InstallState.load(install_path, build_config_hash)
         if install_state is not None:
             already_done = len(install_state.downloaded)
-            console.print(f"\n  [green]Resuming:[/green] {already_done:,} files already downloaded")
-            console.print(f"  Previously written: {_fmt_size(install_state.total_bytes_written)}")
+            console.print(
+                f"\n  [green]Resuming:[/green] {already_done:,} files already downloaded"
+            )
+            console.print(
+                f"  Previously written: {_fmt_size(install_state.total_bytes_written)}"
+            )
         else:
             install_state = InstallState(install_path, build_config_hash)
 
@@ -1869,7 +1980,10 @@ def install_to_casc(
 
         fetcher, _indices_loaded = asyncio.run(
             _load_archive_indices(
-                cdn_client, archives, storage, console,
+                cdn_client,
+                archives,
+                storage,
+                console,
                 max_archives=max_archives,
             )
         )
@@ -1878,7 +1992,9 @@ def install_to_casc(
         # Now we can fetch files using the archive indices
         install_entries_extracted = 0
         if install_info:
-            console.print("\n[cyan]Step 6:[/cyan] Processing install manifest (executables)...")
+            console.print(
+                "\n[cyan]Step 6:[/cyan] Processing install manifest (executables)..."
+            )
             install_ckey = bytes.fromhex(install_info.content_key)
             install_ekeys = _resolve_ekey(
                 install_ckey, ecache, encoding_parser, encoding_data, encoding_file
@@ -1889,7 +2005,9 @@ def install_to_casc(
                 console.print(f"  Encoding key: {install_ekey.hex()}")
 
                 # Try to fetch install manifest from archives first, then loose via CDNClient
-                install_data_raw = fetcher.fetch_file_via_cdn(cdn_client, install_ekey, decompress=False)
+                install_data_raw = fetcher.fetch_file_via_cdn(
+                    cdn_client, install_ekey, decompress=False
+                )
                 if install_data_raw is None:
                     # Fallback to loose file via CDNClient
                     install_data_raw = cdn_client.fetch_data(install_ekey.hex())
@@ -1902,7 +2020,9 @@ def install_to_casc(
 
                 install_parser = InstallParser()
                 install_manifest = install_parser.parse(install_data)
-                console.print(f"  Total install entries: {len(install_manifest.entries):,}")
+                console.print(
+                    f"  Total install entries: {len(install_manifest.entries):,}"
+                )
 
                 # Filter install entries by tags using bitmap operations
                 def filter_install_entries(
@@ -1910,7 +2030,7 @@ def install_to_casc(
                     install_tags: list[InstallTag],
                     plat: str | None,
                     ar: str | None,
-                    loc: str | None
+                    loc: str | None,
                 ) -> list[InstallEntry]:
                     """Filter install entries by platform, arch, locale.
                     Uses bitmap-based tag filtering matching Agent.exe behavior.
@@ -1938,7 +2058,7 @@ def install_to_casc(
                             tag_id=tag.tag_type,
                             tag_type=tag.tag_type,
                             file_indices=[],
-                            bit_mask=tag.bit_mask
+                            bit_mask=tag.bit_mask,
                         )
                         for tag in install_tags
                     ]
@@ -1956,22 +2076,33 @@ def install_to_casc(
                 install_filtered = filter_install_entries(
                     install_manifest.entries,
                     install_manifest.tags,
-                    platform, arch, locale
+                    platform,
+                    arch,
+                    locale,
                 )
-                console.print(f"  After tag filtering: {len(install_filtered):,} entries")
+                console.print(
+                    f"  After tag filtering: {len(install_filtered):,} entries"
+                )
 
                 # Extract install files to filesystem using archive fetcher
                 if install_filtered:
-                    console.print(f"  Extracting {len(install_filtered)} files to filesystem...")
+                    console.print(
+                        f"  Extracting {len(install_filtered)} files to filesystem..."
+                    )
 
                     for inst_entry in install_filtered:
                         # Look up encoding keys for this content key
                         file_ekeys = _resolve_ekey(
-                            inst_entry.md5_hash, ecache, encoding_parser,
-                            encoding_data, encoding_file,
+                            inst_entry.md5_hash,
+                            ecache,
+                            encoding_parser,
+                            encoding_data,
+                            encoding_file,
                         )
                         if not file_ekeys:
-                            console.print(f"    [yellow]Skip:[/yellow] {inst_entry.filename} (not in encoding)")
+                            console.print(
+                                f"    [yellow]Skip:[/yellow] {inst_entry.filename} (not in encoding)"
+                            )
                             continue
 
                         # Try each encoding key until one succeeds
@@ -2006,23 +2137,29 @@ def install_to_casc(
                                 continue  # Try next encoding key
 
                         if file_data is None:
-                            console.print(f"    [yellow]Not found:[/yellow] {inst_entry.filename}")
+                            console.print(
+                                f"    [yellow]Not found:[/yellow] {inst_entry.filename}"
+                            )
                             continue
 
                         try:
                             # Write to filesystem (normalize Windows paths)
-                            fname = inst_entry.filename.replace('\\', '/')
+                            fname = inst_entry.filename.replace("\\", "/")
                             output_file = install_path / fname
                             output_file.parent.mkdir(parents=True, exist_ok=True)
                             output_file.write_bytes(file_data)
                             install_entries_extracted += 1
 
                         except Exception as e:
-                            console.print(f"    [red]Error:[/red] {inst_entry.filename}: {e}")
+                            console.print(
+                                f"    [red]Error:[/red] {inst_entry.filename}: {e}"
+                            )
 
                     console.print(f"  Extracted {install_entries_extracted} files")
             else:
-                console.print("  [yellow]Install manifest not found in encoding file[/yellow]")
+                console.print(
+                    "  [yellow]Install manifest not found in encoding file[/yellow]"
+                )
         else:
             console.print("\n[cyan]Step 6:[/cyan] No install manifest in BuildConfig")
 
@@ -2030,13 +2167,19 @@ def install_to_casc(
         if max_files > 0:
             pending_entries = pending_entries[:max_files]
 
-        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC...")
+        console.print(
+            f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC..."
+        )
         console.print("  Concurrent connections: 12 global, 3 per host")
 
         installed, failed, integrity_errors, total_bytes = asyncio.run(
             _download_casc_files(
-                pending_entries, fetcher, cdn_client, storage,
-                install_state, console,
+                pending_entries,
+                fetcher,
+                cdn_client,
+                storage,
+                install_state,
+                console,
             )
         )
 
@@ -2058,7 +2201,7 @@ def install_to_casc(
         # Show bucket distribution
         # LocalStorage.get_statistics() returns dict without type args
         stats: dict[str, Any] = cast(dict[str, Any], storage.get_statistics())  # type: ignore[reportUnknownMemberType]
-        total_entries_count: int = stats.get('total_entries', 0)
+        total_entries_count: int = stats.get("total_entries", 0)
         console.print(f"  Total entries: {total_entries_count:,}")
 
         bucket_table = Table(title="Bucket Distribution")
@@ -2066,12 +2209,12 @@ def install_to_casc(
         bucket_table.add_column("Entries", style="green", justify="right")
         bucket_table.add_column("Size", style="yellow", justify="right")
 
-        buckets: dict[str, Any] = stats.get('buckets', {})
+        buckets: dict[str, Any] = stats.get("buckets", {})
         for bucket_id, bucket_stats in sorted(buckets.items()):
             bucket_table.add_row(
                 str(bucket_id),
                 f"{bucket_stats.get('count', 0):,}",
-                f"{bucket_stats.get('total_size', 0) / 1024:.1f} KB"
+                f"{bucket_stats.get('total_size', 0) / 1024:.1f} KB",
             )
 
         console.print(bucket_table)
@@ -2097,7 +2240,9 @@ def install_to_casc(
 
         # Per-priority results
         _show_priority_table(
-            console, download_entries, install_state,
+            console,
+            download_entries,
+            install_state,
             title="Per-Priority Results",
         )
 
@@ -2123,19 +2268,23 @@ def install_to_casc(
         # Clean up state file on successful completion (no failures)
         if failed == 0 and integrity_errors == 0:
             install_state.cleanup()
-            console.print("  [dim]Install state file removed (all files succeeded)[/dim]")
+            console.print(
+                "  [dim]Install state file removed (all files succeeded)[/dim]"
+            )
 
-        console.print(Panel.fit(
-            f"[green]Installation complete![/green]\n\n"
-            f"The CASC storage structure has been created at:\n"
-            f"  {install_path}/Data/data/    - Local archives with .idx files\n"
-            f"  {install_path}/Data/indices/ - CDN archive indices\n"
-            f"  {install_path}/Data/config/  - Configuration files\n"
-            f"  {install_path}/.product.db   - Product database\n"
-            f"  {install_path}/.build.info   - Build information\n"
-            f"  {install_path}/Launcher.db   - Launcher state",
-            title="Success"
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]Installation complete![/green]\n\n"
+                f"The CASC storage structure has been created at:\n"
+                f"  {install_path}/Data/data/    - Local archives with .idx files\n"
+                f"  {install_path}/Data/indices/ - CDN archive indices\n"
+                f"  {install_path}/Data/config/  - Configuration files\n"
+                f"  {install_path}/.product.db   - Product database\n"
+                f"  {install_path}/.build.info   - Build information\n"
+                f"  {install_path}/Launcher.db   - Launcher state",
+                title="Success",
+            )
+        )
 
         # Close CDN client
         cdn_client.close()
@@ -2150,7 +2299,8 @@ def install_to_casc(
 @install.command()
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     default="wow_classic_era",
     help="Product code for Ribbit lookup",
@@ -2174,13 +2324,15 @@ def install_to_casc(
     help="New CDN config hash (default: query latest from Ribbit)",
 )
 @click.option(
-    "--priority", "-P",
+    "--priority",
+    "-P",
     type=int,
     default=255,
     help="Maximum priority level to install (0 = critical, 255 = all)",
 )
 @click.option(
-    "--max-files", "-f",
+    "--max-files",
+    "-f",
     type=int,
     default=0,
     help="Maximum files to download (0 = all)",
@@ -2270,7 +2422,9 @@ def update(
         storage = LocalStorage(install_path)
         storage.initialize()
 
-        build_config_data = cdn_client.fetch_config(build_config_hash, config_type="build")
+        build_config_data = cdn_client.fetch_config(
+            build_config_hash, config_type="build"
+        )
         storage.save_config(build_config_hash, build_config_data)
         new_build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  New build: {new_build_config.build_name}")
@@ -2283,7 +2437,9 @@ def update(
         # Step 4: Compare configs (informational)
         console.print("\n[cyan]Step 4:[/cyan] Comparing build configs...")
         try:
-            old_build_config_data = cdn_client.fetch_config(old_build_key, config_type="build")
+            old_build_config_data = cdn_client.fetch_config(
+                old_build_key, config_type="build"
+            )
             old_build_config = BuildConfigParser().parse(old_build_config_data)
             config_diff = compare_configs(old_build_config, new_build_config)
 
@@ -2295,14 +2451,20 @@ def update(
                 for field_name, (old_val, new_val) in config_diff.items():
                     diff_table.add_row(
                         field_name,
-                        (old_val or "")[:32] + "..." if old_val and len(old_val) > 32 else old_val or "",
-                        (new_val or "")[:32] + "..." if new_val and len(new_val) > 32 else new_val or "",
+                        (old_val or "")[:32] + "..."
+                        if old_val and len(old_val) > 32
+                        else old_val or "",
+                        (new_val or "")[:32] + "..."
+                        if new_val and len(new_val) > 32
+                        else new_val or "",
                     )
                 console.print(diff_table)
             else:
                 console.print("  No manifest field changes detected")
         except Exception as e:
-            console.print(f"  [dim]Could not fetch old build config for comparison: {e!s:.80}[/dim]")
+            console.print(
+                f"  [dim]Could not fetch old build config for comparison: {e!s:.80}[/dim]"
+            )
             console.print("  [dim]Skipping config diff (informational only)[/dim]")
 
         # Step 5: Load old ecache
@@ -2342,7 +2504,9 @@ def update(
 
         # Step 7: Classify files (initial pass without patch info)
         console.print("\n[cyan]Step 7:[/cyan] Classifying files...")
-        delta = classify_files(old_ecache, encoding_data, encoding_file, encoding_parser)
+        delta = classify_files(
+            old_ecache, encoding_data, encoding_file, encoding_parser
+        )
 
         # Step 7.5: Fetch patch manifest and reclassify with patch info
         patch_lookup: dict[bytes, PatchEntry] = {}
@@ -2350,14 +2514,18 @@ def update(
             console.print("\n[cyan]Step 7.5:[/cyan] Fetching patch manifest...")
             try:
                 patch_lookup = _fetch_patch_manifest(
-                    cdn_client, new_build_config.patch_config,
+                    cdn_client,
+                    new_build_config.patch_config,
                 )
                 console.print(f"  Loaded {len(patch_lookup):,} patch entries")
 
                 if patch_lookup:
                     # Reclassify with patch awareness
                     delta = classify_files(
-                        old_ecache, encoding_data, encoding_file, encoding_parser,
+                        old_ecache,
+                        encoding_data,
+                        encoding_file,
+                        encoding_parser,
                         patch_lookup=patch_lookup,
                     )
                     console.print(
@@ -2366,8 +2534,12 @@ def update(
                     )
             except Exception as e:
                 logger.warning("Failed to load patch manifest", error=str(e))
-                console.print(f"  [yellow]Patch manifest unavailable: {e!s:.80}[/yellow]")
-                console.print("  [dim]Falling back to full download for changed files[/dim]")
+                console.print(
+                    f"  [yellow]Patch manifest unavailable: {e!s:.80}[/yellow]"
+                )
+                console.print(
+                    "  [dim]Falling back to full download for changed files[/dim]"
+                )
         else:
             console.print("  [dim]No patch config in build config[/dim]")
 
@@ -2386,20 +2558,29 @@ def update(
         patch_bytes = 0
         fetcher: CdnArchiveFetcher | None = None
         if delta.patch_count > 0 and patch_lookup:
-            console.print(f"\n[cyan]Step 7.6:[/cyan] Applying {delta.patch_count:,} patches...")
+            console.print(
+                f"\n[cyan]Step 7.6:[/cyan] Applying {delta.patch_count:,} patches..."
+            )
 
             # Load archive indices (needed for fetching old content)
             console.print("  Loading archive indices...")
             fetcher, _indices_loaded = asyncio.run(
                 _load_archive_indices(
-                    cdn_client, new_cdn_config.archives, storage, console,
+                    cdn_client,
+                    new_cdn_config.archives,
+                    storage,
+                    console,
                 )
             )
 
             patched_count, patch_failed, patch_bytes = asyncio.run(
                 _patch_casc_files(
-                    delta.patchable_ekeys, patch_lookup, fetcher,
-                    cdn_client, storage, console,
+                    delta.patchable_ekeys,
+                    patch_lookup,
+                    fetcher,
+                    cdn_client,
+                    storage,
+                    console,
                 )
             )
 
@@ -2444,7 +2625,9 @@ def update(
             )
 
             if not download_ekeys:
-                raise click.ClickException("Download manifest not found in new encoding file")
+                raise click.ClickException(
+                    "Download manifest not found in new encoding file"
+                )
 
             download_ekey = download_ekeys[0]
             download_data_raw = cdn_client.fetch_data(download_ekey.hex())
@@ -2496,25 +2679,38 @@ def update(
                 if fetcher is None:
                     fetcher, _indices_loaded = asyncio.run(
                         _load_archive_indices(
-                            cdn_client, new_cdn_config.archives, storage, console,
+                            cdn_client,
+                            new_cdn_config.archives,
+                            storage,
+                            console,
                         )
                     )
 
                 installed, failed, _integrity_errors, total_bytes = asyncio.run(
                     _download_casc_files(
-                        update_entries, fetcher, cdn_client, storage,
-                        install_state, console,
+                        update_entries,
+                        fetcher,
+                        cdn_client,
+                        storage,
+                        install_state,
+                        console,
                     )
                 )
                 install_state.save()
 
-                console.print(f"  Installed: {installed:,}, Failed: {failed}, Bytes: {_fmt_size(total_bytes)}")
+                console.print(
+                    f"  Installed: {installed:,}, Failed: {failed}, Bytes: {_fmt_size(total_bytes)}"
+                )
             else:
-                console.print("\n[cyan]Step 9:[/cyan] No matching download entries to fetch")
+                console.print(
+                    "\n[cyan]Step 9:[/cyan] No matching download entries to fetch"
+                )
 
         # Step 10: Mark obsolete files as non-resident
         if delta.obsolete_ekeys:
-            console.print(f"\n[cyan]Step 10:[/cyan] Marking {len(delta.obsolete_ekeys)} obsolete files...")
+            console.print(
+                f"\n[cyan]Step 10:[/cyan] Marking {len(delta.obsolete_ekeys)} obsolete files..."
+            )
             for _ckey, old_ekey in delta.obsolete_ekeys:
                 bucket = compute_bucket(old_ekey)
                 entry = LocalIndexEntry(
@@ -2525,16 +2721,19 @@ def update(
 
         # Step 11: Update ecache from new encoding file
         console.print("\n[cyan]Step 11:[/cyan] Rebuilding encoding cache...")
-        ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
+        ecache = _populate_ecache(
+            ecache_path, encoding_data, encoding_file, encoding_parser
+        )
         console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
 
         # Step 12: Update .build.info
         console.print("\n[cyan]Step 12:[/cyan] Updating .build.info...")
 
         import re
+
         version_str = ""
         if new_build_config.build_name:
-            match = re.search(r'(\d+)patch([\d.]+)', new_build_config.build_name)
+            match = re.search(r"(\d+)patch([\d.]+)", new_build_config.build_name)
             if match:
                 build_id, version = match.groups()
                 version_str = f"{version}.{build_id}"
@@ -2566,16 +2765,18 @@ def update(
         console.print("\n[cyan]Step 13:[/cyan] Flushing indices...")
         storage.flush_indices()
 
-        console.print(Panel.fit(
-            f"[green]Update complete![/green]\n\n"
-            f"Old build: {old_build_key}\n"
-            f"New build: {build_config_hash}\n"
-            f"Unchanged: {delta.unchanged_count:,}\n"
-            f"Patched: {patched_count:,}\n"
-            f"Downloaded: {delta.download_count:,}\n"
-            f"Obsolete: {delta.obsolete_count:,}",
-            title="Success",
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]Update complete![/green]\n\n"
+                f"Old build: {old_build_key}\n"
+                f"New build: {build_config_hash}\n"
+                f"Unchanged: {delta.unchanged_count:,}\n"
+                f"Patched: {patched_count:,}\n"
+                f"Downloaded: {delta.download_count:,}\n"
+                f"Obsolete: {delta.obsolete_count:,}",
+                title="Success",
+            )
+        )
 
         cdn_client.close()
 
@@ -2589,7 +2790,8 @@ def update(
 @install.command("build-ecache")
 @click.argument("install_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--product", "-r",
+    "--product",
+    "-r",
     type=click.Choice(PRODUCT_CHOICES),
     required=True,
     help="Product code for CDN lookup",
@@ -2626,9 +2828,7 @@ def build_ecache(
         build_info_path = install_path / ".build.info"
 
         if not build_info_path.exists():
-            raise click.ClickException(
-                f"No .build.info found at {install_path}."
-            )
+            raise click.ClickException(f"No .build.info found at {install_path}.")
 
         parser = BuildInfoParser()
         existing_info = parser.parse_file(str(build_info_path))
@@ -2673,15 +2873,19 @@ def build_ecache(
         # Step 4: Populate ecache
         console.print("\n[cyan]Step 4:[/cyan] Populating encoding cache...")
         ecache_path = install_path / "Data" / "ecache"
-        ecache = _populate_ecache(ecache_path, encoding_data, encoding_file, encoding_parser)
+        ecache = _populate_ecache(
+            ecache_path, encoding_data, encoding_file, encoding_parser
+        )
 
-        console.print(Panel.fit(
-            f"[green]Encoding cache built.[/green]\n\n"
-            f"Build: {build_config.build_name}\n"
-            f"Entries: {ecache.entry_count():,}\n"
-            f"Path: {ecache_path}",
-            title="build-ecache",
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]Encoding cache built.[/green]\n\n"
+                f"Build: {build_config.build_name}\n"
+                f"Entries: {ecache.entry_count():,}\n"
+                f"Path: {ecache_path}",
+                title="build-ecache",
+            )
+        )
 
         cdn_client.close()
 
@@ -2756,10 +2960,14 @@ async def _download_containerless_files(
     queue = DownloadQueue(max_concurrency=12, max_per_host=3, max_retries=3)
 
     for ekey, _ckey, _rel_path in entries:
+
         async def make_factory(ek: bytes = ekey) -> DownloadResult:
             # Try archive first, then loose
             data = await fetcher.fetch_file_via_cdn_async(
-                cdn_client, ek, decompress=False, verify=True,
+                cdn_client,
+                ek,
+                decompress=False,
+                verify=True,
             )
             if data is None:
                 # Fallback to loose file
@@ -2812,7 +3020,9 @@ async def _download_containerless_files(
                 # Write to filesystem
                 expected_ckey = ckey_lookup.get(result.ekey)
                 storage.write_content(
-                    result.ekey, content, expected_ckey=expected_ckey,
+                    result.ekey,
+                    content,
+                    expected_ckey=expected_ckey,
                 )
                 installed += 1
                 total_bytes += len(content)
@@ -2834,11 +3044,17 @@ async def _download_containerless_files(
 @click.argument("cdn_config_hash", type=str)
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
-    type=click.Choice([
-        "wow", "wow_classic", "wow_classic_era",
-        "wow_classic_titan", "wow_anniversary",
-    ]),
+    "--product",
+    "-r",
+    type=click.Choice(
+        [
+            "wow",
+            "wow_classic",
+            "wow_classic_era",
+            "wow_classic_titan",
+            "wow_anniversary",
+        ]
+    ),
     default="wow_classic_era",
     help="Product code for Ribbit lookup",
 )
@@ -2862,21 +3078,33 @@ async def _download_containerless_files(
 )
 @click.option(
     "--locale",
-    type=click.Choice([
-        "enUS", "deDE", "esES", "esMX", "frFR",
-        "koKR", "ptBR", "ruRU", "zhCN", "zhTW",
-    ]),
+    type=click.Choice(
+        [
+            "enUS",
+            "deDE",
+            "esES",
+            "esMX",
+            "frFR",
+            "koKR",
+            "ptBR",
+            "ruRU",
+            "zhCN",
+            "zhTW",
+        ]
+    ),
     default="enUS",
     help="Target locale",
 )
 @click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=0,
     help="Maximum archives to download indices for (0 = all)",
 )
 @click.option(
-    "--max-files", "-f",
+    "--max-files",
+    "-f",
     type=int,
     default=0,
     help="Maximum files to install (0 = all)",
@@ -2915,7 +3143,8 @@ def install_containerless(
         cdn_client = CDNClient(product_enum, region=region)
 
         build_config_data = cdn_client.fetch_config(
-            build_config_hash, config_type="build",
+            build_config_hash,
+            config_type="build",
         )
         build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  Build: {build_config.build_name}")
@@ -2929,7 +3158,8 @@ def install_containerless(
             )
 
         cdn_config_data = cdn_client.fetch_config(
-            cdn_config_hash, config_type="cdn",
+            cdn_config_hash,
+            config_type="cdn",
         )
         cdn_config = CDNConfigParser().parse(cdn_config_data)
         console.print(f"  Archives: {len(cdn_config.archives)}")
@@ -2963,12 +3193,12 @@ def install_containerless(
         if file_db_raw is None:
             # Resolve via encoding file
             file_db_ekeys = encoding_parser.find_content_key(
-                encoding_data, encoding_file, file_db_ckey,
+                encoding_data,
+                encoding_file,
+                file_db_ckey,
             )
             if not file_db_ekeys:
-                raise click.ClickException(
-                    "File database not found in encoding file"
-                )
+                raise click.ClickException("File database not found in encoding file")
             file_db_raw = cdn_client.fetch_data(file_db_ekeys[0].hex())
 
         # BLTE-decode if needed
@@ -2986,7 +3216,9 @@ def install_containerless(
         # Step 4: Filter by tags
         console.print("\n[cyan]Step 4:[/cyan] Filtering by tags...")
         filtered_entries = file_db.filter_by_tags(
-            platform=platform, arch=arch, locale=locale,
+            platform=platform,
+            arch=arch,
+            locale=locale,
         )
         console.print(f"  After filtering: {len(filtered_entries):,} entries")
 
@@ -2995,7 +3227,9 @@ def install_containerless(
             console.print(f"  Limited to {max_files} files")
 
         # Step 5: Initialize storage
-        console.print(f"\n[cyan]Step 5:[/cyan] Initializing storage at {install_path}...")
+        console.print(
+            f"\n[cyan]Step 5:[/cyan] Initializing storage at {install_path}..."
+        )
         storage = ContainerlessStorage(install_path)
         storage.set_file_database(file_db)
         storage.initialize()
@@ -3007,22 +3241,30 @@ def install_containerless(
         temp_storage.indices_path.mkdir(parents=True, exist_ok=True)
         fetcher, _loaded = asyncio.run(
             _load_archive_indices(
-                cdn_client, cdn_config.archives, temp_storage,
-                console, max_archives,
+                cdn_client,
+                cdn_config.archives,
+                temp_storage,
+                console,
+                max_archives,
             )
         )
 
         # Step 7: Download files
-        console.print(f"\n[cyan]Step 7:[/cyan] Installing {len(filtered_entries)} files...")
+        console.print(
+            f"\n[cyan]Step 7:[/cyan] Installing {len(filtered_entries)} files..."
+        )
 
         download_list: list[tuple[bytes, bytes | None, str]] = [
-            (entry.ekey, entry.ckey, entry.relative_path)
-            for entry in filtered_entries
+            (entry.ekey, entry.ckey, entry.relative_path) for entry in filtered_entries
         ]
 
         installed, failed, total_bytes = asyncio.run(
             _download_containerless_files(
-                download_list, fetcher, cdn_client, storage, console,
+                download_list,
+                fetcher,
+                cdn_client,
+                storage,
+                console,
             )
         )
 
@@ -3034,9 +3276,10 @@ def install_containerless(
         # Step 9: Create .build.info
         console.print("\n[cyan]Step 9:[/cyan] Creating .build.info...")
         import re
+
         version_str = ""
         if build_config.build_name:
-            match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
+            match = re.search(r"(\d+)patch([\d.]+)", build_config.build_name)
             if match:
                 build_id, version = match.groups()
                 version_str = f"{version}.{build_id}"
@@ -3091,14 +3334,16 @@ def install_containerless(
         summary.add_row("Total data written", _fmt_size(total_bytes))
         console.print(summary)
 
-        console.print(Panel.fit(
-            f"[green]Containerless installation complete![/green]\n\n"
-            f"Files are stored directly at:\n"
-            f"  {install_path}/\n"
-            f"File database saved to:\n"
-            f"  {install_path}/.cascette/file_db.sqlite",
-            title="Success",
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]Containerless installation complete![/green]\n\n"
+                f"Files are stored directly at:\n"
+                f"  {install_path}/\n"
+                f"File database saved to:\n"
+                f"  {install_path}/.cascette/file_db.sqlite",
+                title="Success",
+            )
+        )
 
         cdn_client.close()
 
@@ -3106,19 +3351,23 @@ def install_containerless(
         raise
     except Exception as e:
         logger.error("Containerless install failed", error=str(e))
-        raise click.ClickException(
-            f"Containerless install failed: {e}"
-        ) from e
+        raise click.ClickException(f"Containerless install failed: {e}") from e
 
 
 @install.command("update-containerless")
 @click.argument("install_path", type=click.Path(path_type=Path))
 @click.option(
-    "--product", "-r",
-    type=click.Choice([
-        "wow", "wow_classic", "wow_classic_era",
-        "wow_classic_titan", "wow_anniversary",
-    ]),
+    "--product",
+    "-r",
+    type=click.Choice(
+        [
+            "wow",
+            "wow_classic",
+            "wow_classic_era",
+            "wow_classic_titan",
+            "wow_anniversary",
+        ]
+    ),
     default="wow_classic_era",
     help="Product code for Ribbit lookup",
 )
@@ -3141,7 +3390,8 @@ def install_containerless(
     help="New CDN config hash (default: query latest from Ribbit)",
 )
 @click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=0,
     help="Maximum archives to download indices for (0 = all)",
@@ -3179,8 +3429,7 @@ def update_containerless(
 
         if not build_info_path.exists():
             raise click.ClickException(
-                f"No .build.info found at {install_path}. "
-                "Is this a valid installation?"
+                f"No .build.info found at {install_path}. Is this a valid installation?"
             )
 
         existing_info = BuildInfoParser().parse_file(str(build_info_path))
@@ -3209,7 +3458,9 @@ def update_containerless(
             cdn_config_hash = cdn_config_hash or latest.get("CDNConfig", "")
             console.print(f"  New build: {build_config_hash}")
         else:
-            console.print(f"\n[cyan]Step 2:[/cyan] Using provided build: {build_config_hash}")
+            console.print(
+                f"\n[cyan]Step 2:[/cyan] Using provided build: {build_config_hash}"
+            )
 
         if build_config_hash == old_build_key:
             console.print("[green]Already up to date.[/green]")
@@ -3221,7 +3472,8 @@ def update_containerless(
         cdn_client = CDNClient(product_enum, region=region)
 
         build_config_data = cdn_client.fetch_config(
-            build_config_hash, config_type="build",
+            build_config_hash,
+            config_type="build",
         )
         build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  New build: {build_config.build_name}")
@@ -3233,7 +3485,8 @@ def update_containerless(
             )
 
         cdn_config_data = cdn_client.fetch_config(
-            cdn_config_hash, config_type="cdn",
+            cdn_config_hash,
+            config_type="cdn",
         )
         cdn_config = CDNConfigParser().parse(cdn_config_data)
 
@@ -3261,12 +3514,12 @@ def update_containerless(
 
         if file_db_raw is None:
             file_db_ekeys = encoding_parser.find_content_key(
-                encoding_data, encoding_file, file_db_ckey,
+                encoding_data,
+                encoding_file,
+                file_db_ckey,
             )
             if not file_db_ekeys:
-                raise click.ClickException(
-                    "File database not found in encoding file"
-                )
+                raise click.ClickException("File database not found in encoding file")
             file_db_raw = cdn_client.fetch_data(file_db_ekeys[0].hex())
 
         file_db_decoded = file_db_raw
@@ -3287,7 +3540,10 @@ def update_containerless(
         # Step 6: Compute delta
         console.print("\n[cyan]Step 6:[/cyan] Computing delta...")
         delta = classify_containerless_files(
-            install_path, old_file_db, new_file_db, console,
+            install_path,
+            old_file_db,
+            new_file_db,
+            console,
         )
         console.print(f"  Unchanged: {delta.unchanged_count:,}")
         console.print(f"  Need download: {delta.download_count:,}")
@@ -3309,13 +3565,18 @@ def update_containerless(
             temp_storage.indices_path.mkdir(parents=True, exist_ok=True)
             fetcher, _loaded = asyncio.run(
                 _load_archive_indices(
-                    cdn_client, cdn_config.archives, temp_storage,
-                    console, max_archives,
+                    cdn_client,
+                    cdn_config.archives,
+                    temp_storage,
+                    console,
+                    max_archives,
                 )
             )
 
             # Step 8: Download changed files
-            console.print(f"\n[cyan]Step 8:[/cyan] Downloading {delta.download_count} files...")
+            console.print(
+                f"\n[cyan]Step 8:[/cyan] Downloading {delta.download_count} files..."
+            )
             download_list: list[tuple[bytes, bytes | None, str]] = [
                 (entry.ekey, entry.ckey, entry.relative_path)
                 for entry in delta.download_entries
@@ -3323,14 +3584,20 @@ def update_containerless(
 
             installed, failed, total_bytes = asyncio.run(
                 _download_containerless_files(
-                    download_list, fetcher, cdn_client, storage, console,
+                    download_list,
+                    fetcher,
+                    cdn_client,
+                    storage,
+                    console,
                 )
             )
 
         # Step 9: Handle obsolete files
         deleted_count = 0
         if delete_obsolete and delta.obsolete_paths:
-            console.print(f"\n[cyan]Step 9:[/cyan] Deleting {len(delta.obsolete_paths)} obsolete files...")
+            console.print(
+                f"\n[cyan]Step 9:[/cyan] Deleting {len(delta.obsolete_paths)} obsolete files..."
+            )
             for rel_path in delta.obsolete_paths:
                 full_path = install_path / rel_path
                 if full_path.exists():
@@ -3351,9 +3618,10 @@ def update_containerless(
         # Step 11: Update .build.info
         console.print("\n[cyan]Step 11:[/cyan] Updating .build.info...")
         import re
+
         version_str = ""
         if build_config.build_name:
-            match = re.search(r'(\d+)patch([\d.]+)', build_config.build_name)
+            match = re.search(r"(\d+)patch([\d.]+)", build_config.build_name)
             if match:
                 build_id, version = match.groups()
                 version_str = f"{version}.{build_id}"
@@ -3397,15 +3665,17 @@ def update_containerless(
             summary.add_row("Deleted", str(deleted_count))
         console.print(summary)
 
-        console.print(Panel.fit(
-            f"[green]Containerless update complete![/green]\n\n"
-            f"Old build: {old_build_key}\n"
-            f"New build: {build_config_hash}\n"
-            f"Unchanged: {delta.unchanged_count:,}\n"
-            f"Downloaded: {delta.download_count:,}\n"
-            f"Obsolete: {delta.obsolete_count:,}",
-            title="Success",
-        ))
+        console.print(
+            Panel.fit(
+                f"[green]Containerless update complete![/green]\n\n"
+                f"Old build: {old_build_key}\n"
+                f"New build: {build_config_hash}\n"
+                f"Unchanged: {delta.unchanged_count:,}\n"
+                f"Downloaded: {delta.download_count:,}\n"
+                f"Obsolete: {delta.obsolete_count:,}",
+                title="Success",
+            )
+        )
 
         cdn_client.close()
 
@@ -3413,21 +3683,26 @@ def update_containerless(
         raise
     except Exception as e:
         logger.error("Containerless update failed", error=str(e))
-        raise click.ClickException(
-            f"Containerless update failed: {e}"
-        ) from e
+        raise click.ClickException(f"Containerless update failed: {e}") from e
 
 
 # ---------------------------------------------------------------------------
 # Installation state analysis (from install_analyzer.py)
 # ---------------------------------------------------------------------------
 
+
 class BuildInfoTags(BaseModel):
     """Tags parsed from .build.info file."""
 
-    platform: str | None = Field(default=None, description="Target platform (e.g., Windows)")
-    architecture: str | None = Field(default=None, description="Target architecture (e.g., x86_64)")
-    locale_configs: list[LocaleConfig] = Field(default_factory=list, description="Installed locale configurations")  # pyright: ignore[reportUnknownVariableType]
+    platform: str | None = Field(
+        default=None, description="Target platform (e.g., Windows)"
+    )
+    architecture: str | None = Field(
+        default=None, description="Target architecture (e.g., x86_64)"
+    )
+    locale_configs: list[LocaleConfig] = Field(
+        default_factory=list, description="Installed locale configurations"
+    )  # pyright: ignore[reportUnknownVariableType]
     region: str | None = Field(default=None, description="Target region (e.g., EU)")
     raw_tags: str = Field(default="", description="Raw tag string from .build.info")
 
@@ -3456,11 +3731,21 @@ class InstallationState(BaseModel):
     product_code: str = Field(description="Product code (e.g., wow_classic_era)")
     build_config_hash: str | None = Field(default=None, description="Build config hash")
     cdn_config_hash: str | None = Field(default=None, description="CDN config hash")
-    local_entries: dict[str, LocalIndexEntry] = Field(default_factory=dict, description="Local idx entries by hex key")
-    local_data_size: int = Field(default=0, description="Total size of local .data files")
-    local_entry_count: int = Field(default=0, description="Total number of local entries")
-    tags: BuildInfoTags = Field(default_factory=BuildInfoTags, description="Tags from .build.info")
-    shmem_version: int | None = Field(default=None, description="Detected shmem protocol version")
+    local_entries: dict[str, LocalIndexEntry] = Field(
+        default_factory=dict, description="Local idx entries by hex key"
+    )
+    local_data_size: int = Field(
+        default=0, description="Total size of local .data files"
+    )
+    local_entry_count: int = Field(
+        default=0, description="Total number of local entries"
+    )
+    tags: BuildInfoTags = Field(
+        default_factory=BuildInfoTags, description="Tags from .build.info"
+    )
+    shmem_version: int | None = Field(
+        default=None, description="Detected shmem protocol version"
+    )
 
 
 class InstallationProgress(BaseModel):
@@ -3470,9 +3755,15 @@ class InstallationProgress(BaseModel):
     downloaded_entries: int = Field(description="Entries already downloaded")
     total_size: int = Field(description="Total size needed in bytes")
     downloaded_size: int = Field(description="Size already downloaded")
-    priority_breakdown: dict[int, dict[str, int | float]] = Field(description="Breakdown by priority level")
-    missing_entries: list[str] = Field(default_factory=list, description="Missing encoding keys (first 100)")
-    tags_used: BuildInfoTags | None = Field(default=None, description="Tags used for filtering")
+    priority_breakdown: dict[int, dict[str, int | float]] = Field(
+        description="Breakdown by priority level"
+    )
+    missing_entries: list[str] = Field(
+        default_factory=list, description="Missing encoding keys (first 100)"
+    )
+    tags_used: BuildInfoTags | None = Field(
+        default=None, description="Tags used for filtering"
+    )
 
 
 def _parse_build_info_tags(install_path: Path) -> BuildInfoTags:
@@ -3498,35 +3789,40 @@ def _parse_build_info_tags(install_path: Path) -> BuildInfoTags:
         return BuildInfoTags()
 
 
-def _scan_local_installation(install_path: Path, product_code: str) -> InstallationState:
+def _scan_local_installation(
+    install_path: Path, product_code: str
+) -> InstallationState:
     """Scan a local installation and gather state information."""
-    state = InstallationState(
-        install_path=install_path,
-        product_code=product_code
-    )
+    state = InstallationState(install_path=install_path, product_code=product_code)
 
     state.tags = _parse_build_info_tags(install_path)
     if state.tags.platform:
-        logger.info(f"Detected tags: {state.tags.platform} {state.tags.architecture} {state.tags.locale_display}")
+        logger.info(
+            f"Detected tags: {state.tags.platform} {state.tags.architecture} {state.tags.locale_display}"
+        )
 
     # Support multiple CASC root layouts:
     #   WoW:    <install>/Data/
     #   agent:  <install>/data/<product_code>/   (lowercase, product subdir)
     #   bna:    <install>/.battle.net/<product_code>/
     data_path_candidates = [
-        install_path / ".battle.net" / product_code,       # bna: .battle.net/bna/
+        install_path / ".battle.net" / product_code,  # bna: .battle.net/bna/
         install_path / "Data" / product_code,
         install_path / "Data",
-        install_path / "data" / product_code,              # agent: data/agent/
+        install_path / "data" / product_code,  # agent: data/agent/
         install_path / "data",
     ]
-    data_path = next((p for p in data_path_candidates if p.exists()), install_path / "Data")
+    data_path = next(
+        (p for p in data_path_candidates if p.exists()), install_path / "Data"
+    )
 
     logger.info(f"Scanning installation at {data_path}")
 
     # Config files live under the shared CASC root (parent of the product subdir),
     # or directly under the product subdir for dedicated installs.
-    config_roots = [data_path, data_path.parent] if data_path.name == product_code else [data_path]
+    config_roots = (
+        [data_path, data_path.parent] if data_path.name == product_code else [data_path]
+    )
     for config_root in config_roots:
         config_path = config_root / "config"
         if config_path.exists():
@@ -3562,7 +3858,9 @@ def _scan_local_installation(install_path: Path, product_code: str) -> Installat
                         hex_key = entry.key.hex()
                         state.local_entries[hex_key] = entry
 
-                    logger.debug(f"Parsed {idx_file.name}: {len(idx_info.entries)} entries (v{idx_info.version})")
+                    logger.debug(
+                        f"Parsed {idx_file.name}: {len(idx_info.entries)} entries (v{idx_info.version})"
+                    )
 
             except Exception as e:
                 logger.warning(f"Failed to parse {idx_file}: {e}")
@@ -3594,12 +3892,16 @@ def _scan_local_installation(install_path: Path, product_code: str) -> Installat
                 shmem_data = shmem_path.read_bytes()
                 if len(shmem_data) >= 1:
                     state.shmem_version = shmem_data[0]
-                    logger.debug(f"Detected shmem protocol version: {state.shmem_version}")
+                    logger.debug(
+                        f"Detected shmem protocol version: {state.shmem_version}"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to read shmem file: {e}")
             break
 
-    logger.info(f"Found {state.local_entry_count} local entries, {format_size(state.local_data_size)} data")
+    logger.info(
+        f"Found {state.local_entry_count} local entries, {format_size(state.local_data_size)} data"
+    )
 
     return state
 
@@ -3612,7 +3914,18 @@ def _filter_entries_by_build_info_tags(
     """Filter download manifest entries by tags from .build.info."""
     platform_tags = {"Windows", "OSX", "Android", "iOS", "PS5", "Web", "XBSX"}
     arch_tags = {"x86_32", "x86_64", "arm64"}
-    locale_tags = {"enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"}
+    locale_tags = {
+        "enUS",
+        "deDE",
+        "esES",
+        "esMX",
+        "frFR",
+        "koKR",
+        "ptBR",
+        "ruRU",
+        "zhCN",
+        "zhTW",
+    }
 
     required_tags: list[str] = []
     if build_info_tags.platform:
@@ -3705,7 +4018,7 @@ def _calculate_progress(
             "downloaded_entries": group_downloaded,
             "total_size": group_size,
             "downloaded_size": group_downloaded_size,
-            "percent": (group_downloaded / group_total * 100) if group_total > 0 else 0
+            "percent": (group_downloaded / group_total * 100) if group_total > 0 else 0,
         }
 
     return InstallationProgress(
@@ -3722,10 +4035,11 @@ def _calculate_progress(
 @install.command("scan-state")
 @click.argument("install_path", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--product", "-p",
+    "--product",
+    "-p",
     type=str,
     default="wow_classic_era",
-    help="Product code (e.g., wow_classic_era)"
+    help="Product code (e.g., wow_classic_era)",
 )
 @click.pass_context
 def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
@@ -3740,7 +4054,7 @@ def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as progress:
             progress.add_task(description="Scanning installation...", total=None)
             state = _scan_local_installation(install_path, product)
@@ -3775,7 +4089,9 @@ def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
             sample_table.add_column("Size", style="green")
 
             for key, entry in list(state.local_entries.items())[:10]:
-                sample_table.add_row(key, f"data.{entry.archive_id:03d}", format_size(entry.size))
+                sample_table.add_row(
+                    key, f"data.{entry.archive_id:03d}", format_size(entry.size)
+                )
 
             console.print(sample_table)
 
@@ -3788,16 +4104,18 @@ def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
 @click.argument("install_path", type=click.Path(exists=True, path_type=Path))
 @click.argument("download_hash", type=str)
 @click.option(
-    "--product", "-p",
+    "--product",
+    "-p",
     type=str,
     default="wow_classic_era",
-    help="Product code (e.g., wow_classic_era)"
+    help="Product code (e.g., wow_classic_era)",
 )
 @click.option(
-    "--tags", "-t",
+    "--tags",
+    "-t",
     type=str,
     multiple=True,
-    help="Tags to filter by (e.g., Windows, enUS)"
+    help="Tags to filter by (e.g., Windows, enUS)",
 )
 @click.pass_context
 def install_progress(
@@ -3805,7 +4123,7 @@ def install_progress(
     install_path: Path,
     download_hash: str,
     product: str,
-    tags: tuple[str, ...]
+    tags: tuple[str, ...],
 ) -> None:
     """Calculate installation progress against download manifest.
 
@@ -3819,7 +4137,7 @@ def install_progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as prog:
             prog.add_task(description="Scanning local installation...", total=None)
             state = _scan_local_installation(install_path, product)
@@ -3828,7 +4146,7 @@ def install_progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as prog:
             prog.add_task(description="Fetching download manifest...", total=None)
 
@@ -3837,22 +4155,31 @@ def install_progress(
             download_data = cdn_client.fetch_data(download_hash)
 
         from cascette_tools.formats.download import DownloadParser as _DP
+
         parser = _DP()
         download_manifest = parser.parse(download_data)
 
         tag_list = list(tags) if tags else None
         prog_result = _calculate_progress(state, download_manifest, tag_list)
 
-        overall_pct = (prog_result.downloaded_size / prog_result.total_size * 100) if prog_result.total_size > 0 else 0
+        overall_pct = (
+            (prog_result.downloaded_size / prog_result.total_size * 100)
+            if prog_result.total_size > 0
+            else 0
+        )
 
         summary_table = Table(title="Installation Progress")
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="white")
 
         summary_table.add_row("Total Entries", f"{prog_result.total_entries:,}")
-        summary_table.add_row("Downloaded Entries", f"{prog_result.downloaded_entries:,}")
+        summary_table.add_row(
+            "Downloaded Entries", f"{prog_result.downloaded_entries:,}"
+        )
         summary_table.add_row("Total Size", format_size(prog_result.total_size))
-        summary_table.add_row("Downloaded Size", format_size(prog_result.downloaded_size))
+        summary_table.add_row(
+            "Downloaded Size", format_size(prog_result.downloaded_size)
+        )
         summary_table.add_row("Overall Progress", f"{overall_pct:.1f}%")
 
         console.print(summary_table)
@@ -3869,7 +4196,7 @@ def install_progress(
                 str(priority),
                 f"{breakdown['downloaded_entries']:,}/{breakdown['total_entries']:,}",
                 f"{format_size(int(breakdown['downloaded_size']))}/{format_size(int(breakdown['total_size']))}",
-                f"{breakdown['percent']:.1f}%"
+                f"{breakdown['percent']:.1f}%",
             )
 
         console.print(priority_table)
@@ -3897,13 +4224,14 @@ def show_config(ctx: click.Context, build_config_path: Path) -> None:
     try:
         data = build_config_path.read_bytes()
         from cascette_tools.formats.config import BuildConfigParser as _BCP
+
         build_config = _BCP().parse(data)
 
         table = Table(title="Build Configuration")
         table.add_column("Key", style="cyan")
         table.add_column("Value", style="white")
 
-        if hasattr(build_config, 'model_dump'):
+        if hasattr(build_config, "model_dump"):
             for key, value in build_config.model_dump().items():
                 if value is not None:
                     if isinstance(value, list):

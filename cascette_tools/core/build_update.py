@@ -50,9 +50,7 @@ class BuildDelta:
     classifications: dict[bytes, FileClassification] = field(
         default_factory=lambda: dict[bytes, FileClassification]()
     )
-    new_ekeys: dict[bytes, bytes] = field(
-        default_factory=lambda: dict[bytes, bytes]()
-    )
+    new_ekeys: dict[bytes, bytes] = field(default_factory=lambda: dict[bytes, bytes]())
     obsolete_ekeys: list[tuple[bytes, bytes]] = field(
         default_factory=lambda: list[tuple[bytes, bytes]]()
     )

@@ -30,7 +30,9 @@ class DatabaseTACTKeyStore(TACTKeyStore):
         """Load keys from database."""
         key_dict = create_blte_key_store(self.manager, self.product_family)
         self.keys = key_dict
-        logger.info("tact_keys_loaded", count=len(self.keys), family=self.product_family)
+        logger.info(
+            "tact_keys_loaded", count=len(self.keys), family=self.product_family
+        )
 
     def get_key(self, key_name: bytes) -> bytes | None:
         """Get a TACT key by name, checking database if not in memory.
@@ -56,9 +58,9 @@ class DatabaseTACTKeyStore(TACTKeyStore):
                 logger.debug("tact_key_loaded_from_db", key_name=key_name.hex())
                 return key_value
             except ValueError as e:
-                logger.warning("invalid_tact_key_value",
-                             key_name=key_name.hex(),
-                             error=str(e))
+                logger.warning(
+                    "invalid_tact_key_value", key_name=key_name.hex(), error=str(e)
+                )
 
         logger.warning("tact_key_not_found", key_name=key_name.hex())
         return None
@@ -99,14 +101,19 @@ class IntegratedBLTEParser(BLTEParser):
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Context manager exit."""
         self.close()
 
 
-def decompress_blte_with_db(data: bytes,
-                            config: AppConfig | None = None,
-                            product_family: str = "wow") -> bytes:
+def decompress_blte_with_db(
+    data: bytes, config: AppConfig | None = None, product_family: str = "wow"
+) -> bytes:
     """Convenience function to decompress BLTE data with database key lookup.
 
     Args:
@@ -126,9 +133,9 @@ def decompress_blte_with_db(data: bytes,
         return parser.decompress(blte_file)
 
 
-def create_integrated_parser(config: AppConfig | None = None,
-                            product_family: str = "wow",
-                            sync_keys: bool = True) -> IntegratedBLTEParser:
+def create_integrated_parser(
+    config: AppConfig | None = None, product_family: str = "wow", sync_keys: bool = True
+) -> IntegratedBLTEParser:
     """Create an integrated BLTE parser with TACT key database.
 
     Args:

@@ -34,8 +34,9 @@ class TestMainCLI:
         assert result.exit_code == 0
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "cascette-tools 0.2.0" in clean_output
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "cascette-tools 0.3.0" in clean_output
 
     def test_version_command_verbose(self) -> None:
         """Test version command with verbose flag."""
@@ -43,8 +44,9 @@ class TestMainCLI:
         assert result.exit_code == 0
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
-        assert "cascette-tools 0.2.0" in clean_output
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "cascette-tools 0.3.0" in clean_output
         assert "Python" in clean_output
         assert "Platform:" in clean_output
 
@@ -56,7 +58,7 @@ class TestMainCLI:
         # Parse JSON output - strip whitespace
         json_output = json.loads(result.output.strip())
         assert json_output["name"] == "cascette-tools"
-        assert json_output["version"] == "0.2.0"
+        assert json_output["version"] == "0.3.0"
         assert "python_version" in json_output
         assert "platform" in json_output
 
@@ -84,7 +86,7 @@ class TestMainCLI:
 
     def test_configuration_loading_default(self) -> None:
         """Test configuration loading with defaults."""
-        with patch.object(AppConfig, 'load') as mock_load:
+        with patch.object(AppConfig, "load") as mock_load:
             mock_load.return_value = AppConfig()
             result = self.runner.invoke(main, ["version"])
             assert result.exit_code == 0
@@ -92,11 +94,8 @@ class TestMainCLI:
 
     def test_configuration_loading_with_file(self) -> None:
         """Test configuration loading with custom file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            config_data = {
-                "output_format": "json",
-                "log_level": "DEBUG"
-            }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            config_data = {"output_format": "json", "log_level": "DEBUG"}
             json.dump(config_data, f)
             config_path = Path(f.name)
 
@@ -108,7 +107,7 @@ class TestMainCLI:
 
     def test_configuration_loading_failure(self) -> None:
         """Test configuration loading failure handling."""
-        with patch.object(AppConfig, 'load') as mock_load:
+        with patch.object(AppConfig, "load") as mock_load:
             mock_load.side_effect = Exception("Config load failed")
             result = self.runner.invoke(main, ["version"])
             assert result.exit_code == 1
@@ -126,7 +125,7 @@ class TestMainCLI:
             "archive",
             "validate",
             "tact",
-            "listfile"
+            "listfile",
         ]
 
         for command in expected_commands:
@@ -139,7 +138,8 @@ class TestMainCLI:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "Inspect and analyze NGDP/CASC format files." in clean_output
         assert "Commands:" in clean_output
         assert "blte" in clean_output
@@ -155,7 +155,8 @@ class TestMainCLI:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "Download data from Blizzard" in clean_output
         assert "Commands:" in clean_output
         assert "batch" in clean_output
@@ -173,7 +174,8 @@ class TestMainCLI:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "Validate NGDP/CASC format files and integrity" in clean_output
         assert "Commands:" in clean_output
         assert "format" in clean_output
@@ -189,7 +191,8 @@ class TestMainCLI:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "Manage TACT encryption keys" in clean_output
         assert "Commands:" in clean_output
         assert "export" in clean_output
@@ -205,7 +208,8 @@ class TestMainCLI:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "Manage FileDataID to path mappings" in clean_output
         assert "Commands:" in clean_output
         assert "export" in clean_output
@@ -216,7 +220,7 @@ class TestMainCLI:
 
     def test_configuration_override_with_verbose(self) -> None:
         """Test that CLI options override configuration."""
-        with patch.object(AppConfig, 'load') as mock_load:
+        with patch.object(AppConfig, "load") as mock_load:
             config = AppConfig(log_level="ERROR")
             mock_load.return_value = config
 
@@ -228,7 +232,7 @@ class TestMainCLI:
 
     def test_configuration_override_with_debug(self) -> None:
         """Test that debug option overrides configuration."""
-        with patch.object(AppConfig, 'load') as mock_load:
+        with patch.object(AppConfig, "load") as mock_load:
             config = AppConfig(log_level="ERROR")
             mock_load.return_value = config
 
@@ -240,7 +244,7 @@ class TestMainCLI:
 
     def test_configuration_override_with_output(self) -> None:
         """Test that output option overrides configuration."""
-        with patch.object(AppConfig, 'load') as mock_load:
+        with patch.object(AppConfig, "load") as mock_load:
             config = AppConfig(output_format="rich")
             mock_load.return_value = config
 
@@ -254,8 +258,8 @@ class TestMainCLI:
         """Test keyboard interrupt handling."""
         from cascette_tools.__main__ import handle_exception
 
-        with patch('sys.exit') as mock_exit:
-            with patch('cascette_tools.__main__.logger') as mock_logger:
+        with patch("sys.exit") as mock_exit:
+            with patch("cascette_tools.__main__.logger") as mock_logger:
                 handle_exception(KeyboardInterrupt, KeyboardInterrupt(), None)
                 mock_exit.assert_called_with(1)
                 mock_logger.info.assert_called_once()
@@ -264,22 +268,23 @@ class TestMainCLI:
         """Test general exception handling."""
         from cascette_tools.__main__ import handle_exception
 
-        with patch('sys.exit') as mock_exit:
+        with patch("sys.exit") as mock_exit:
             handle_exception(Exception, Exception("test error"), None)
             mock_exit.assert_called_once_with(1)
 
     def test_main_execution_exception_handling(self) -> None:
         """Test main execution exception handling."""
-        with patch('cascette_tools.__main__.main') as mock_main:
+        with patch("cascette_tools.__main__.main") as mock_main:
             mock_main.side_effect = Exception("CLI failed")
 
             # This test simulates running the CLI as a module
-            with patch('sys.exit') as mock_exit:
-                with patch('cascette_tools.__main__.logger') as mock_logger:
+            with patch("sys.exit") as mock_exit:
+                with patch("cascette_tools.__main__.logger") as mock_logger:
                     # Import and run the main block
-                    with patch('cascette_tools.__main__.__name__', '__main__'):
+                    with patch("cascette_tools.__main__.__name__", "__main__"):
                         try:
-                            exec("""
+                            exec(
+                                """
 if __name__ == "__main__":
     sys.excepthook = handle_exception
     try:
@@ -287,13 +292,15 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error("CLI execution failed", error=str(e))
         sys.exit(1)
-""", {
-                                'main': mock_main,
-                                'handle_exception': lambda *args: None,  # type: ignore[reportUnknownLambdaType]
-                                'sys': sys,
-                                'logger': mock_logger,
-                                '__name__': '__main__'
-                            })
+""",
+                                {
+                                    "main": mock_main,
+                                    "handle_exception": lambda *args: None,  # type: ignore[reportUnknownLambdaType]
+                                    "sys": sys,
+                                    "logger": mock_logger,
+                                    "__name__": "__main__",
+                                },
+                            )
                         except SystemExit:
                             pass
 
@@ -325,7 +332,15 @@ class TestCLIIntegration:
         assert "Commands:" in result.output
 
         # Test that command groups have help
-        for cmd in ["cdn", "inspect", "install", "archive", "validate", "tact", "listfile"]:
+        for cmd in [
+            "cdn",
+            "inspect",
+            "install",
+            "archive",
+            "validate",
+            "tact",
+            "listfile",
+        ]:
             result = self.runner.invoke(main, [cmd, "--help"])
             assert result.exit_code == 0
 
@@ -337,7 +352,8 @@ class TestCLIIntegration:
         assert result.exit_code in (0, 2)
         # Remove ANSI color codes for testing
         import re
-        clean_output = re.sub(r'\x1b\[[0-9;]*m', '', result.output)
+
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         # The help output should work, indicating context was passed correctly
         assert "Inspect and analyze NGDP/CASC format files." in clean_output
         assert "Commands:" in clean_output

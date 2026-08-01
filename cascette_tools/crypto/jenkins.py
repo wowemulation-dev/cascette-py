@@ -98,7 +98,7 @@ def hashlittle(data: bytes, initval: int = 0) -> int:
     length = len(data)
 
     # Set up the internal state
-    a = b = c = (0xdeadbeef + length + initval) & 0xFFFFFFFF
+    a = b = c = (0xDEADBEEF + length + initval) & 0xFFFFFFFF
 
     # Process data in 12-byte chunks
     offset = 0
@@ -245,7 +245,7 @@ def hashlittle2(data: bytes, pc: int = 0, pb: int = 0) -> tuple[int, int]:
     length = len(data)
 
     # Set up the internal state
-    a = b = c = (0xdeadbeef + length + pc) & 0xFFFFFFFF
+    a = b = c = (0xDEADBEEF + length + pc) & 0xFFFFFFFF
     c = (c + pb) & 0xFFFFFFFF
 
     # Process data in 12-byte chunks

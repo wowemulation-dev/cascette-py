@@ -26,39 +26,53 @@ class TestListfileCommands:
         """Create mock listfile manager."""
         manager = Mock()
         manager.fetch_listfile.return_value = [
-            {"file_data_id": 123456, "path": "Interface/Icons/Spell_Shadow_SoulBurn.blp"},
-            {"file_data_id": 789012, "path": "World/Maps/Azeroth/Azeroth_1_1.adt"}
+            {
+                "file_data_id": 123456,
+                "path": "Interface/Icons/Spell_Shadow_SoulBurn.blp",
+            },
+            {"file_data_id": 789012, "path": "World/Maps/Azeroth/Azeroth_1_1.adt"},
         ]
         manager.import_entries.return_value = 2
         manager.get_statistics.return_value = {
             "total_entries": 1000000,
             "verified": 950000,
-            "unverified": 50000
+            "unverified": 50000,
         }
         # Create mock FileDataEntry objects for search_paths
         from cascette_tools.database.listfile import FileDataEntry
+
         mock_entries = [
-            FileDataEntry(fdid=123456, path="Interface/Icons/Spell_Shadow_SoulBurn.blp", verified=True),
-            FileDataEntry(fdid=123457, path="Interface/Icons/Spell_Shadow_SoulBurn2.blp", verified=False)
+            FileDataEntry(
+                fdid=123456,
+                path="Interface/Icons/Spell_Shadow_SoulBurn.blp",
+                verified=True,
+            ),
+            FileDataEntry(
+                fdid=123457,
+                path="Interface/Icons/Spell_Shadow_SoulBurn2.blp",
+                verified=False,
+            ),
         ]
         manager.search_paths.return_value = mock_entries
         manager.search_by_pattern.return_value = [
             {
                 "file_data_id": 123456,
                 "path": "Interface/Icons/Spell_Shadow_SoulBurn.blp",
-                "verified": True
+                "verified": True,
             },
             {
                 "file_data_id": 123457,
                 "path": "Interface/Icons/Spell_Shadow_SoulBurn2.blp",
-                "verified": False
-            }
+                "verified": False,
+            },
         ]
         # Set up proper return values for get_path and get_fdid methods
         manager.get_path.return_value = "Interface/Icons/Spell_Shadow_SoulBurn.blp"
         manager.get_fdid.return_value = 123456
         # Set up export_listfile method
-        manager.export_listfile.return_value = None  # export methods usually return None
+        manager.export_listfile.return_value = (
+            None  # export methods usually return None
+        )
         # Add context manager support
         manager.__enter__ = Mock(return_value=manager)
         manager.__exit__ = Mock(return_value=None)
@@ -100,11 +114,7 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_sync_listfile_default(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test sync command with default options."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -113,37 +123,34 @@ class TestListfileCommands:
             result = runner.invoke(listfile_group, ["sync"], obj=mock_cli_context.obj)
 
             assert result.exit_code == 0
-            mock_listfile_manager.fetch_listfile.assert_called_once_with(force_refresh=False)
+            mock_listfile_manager.fetch_listfile.assert_called_once_with(
+                force_refresh=False
+            )
             mock_listfile_manager.import_entries.assert_called_once()
             mock_listfile_manager.get_statistics.assert_called_once()
             # Check console output
-            console_output = ' '.join(mock_cli_context.obj['console'].printed_lines)
+            console_output = " ".join(mock_cli_context.obj["console"].printed_lines)
             assert "Synced 2 file entries" in console_output
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_sync_listfile_force_refresh(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test sync command with force refresh."""
         mock_manager_class.return_value = mock_listfile_manager
 
         with runner.isolated_filesystem():
-            result = runner.invoke(listfile_group, ["sync", "--force"], obj=mock_cli_context.obj)
+            result = runner.invoke(
+                listfile_group, ["sync", "--force"], obj=mock_cli_context.obj
+            )
 
             assert result.exit_code == 0
-            mock_listfile_manager.fetch_listfile.assert_called_once_with(force_refresh=True)
+            mock_listfile_manager.fetch_listfile.assert_called_once_with(
+                force_refresh=True
+            )
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_sync_listfile_error(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_sync_listfile_error(self, mock_manager_class, runner, mock_cli_context):
         """Test sync command with error during sync."""
         mock_manager = Mock()
         mock_manager.fetch_listfile.side_effect = Exception("Network error")
@@ -158,11 +165,7 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_search_paths_pattern_match(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test search command with pattern matching."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -171,20 +174,18 @@ class TestListfileCommands:
             result = runner.invoke(
                 listfile_group,
                 ["search", "Interface/Icons/*.blp"],
-                obj=mock_cli_context.obj
+                obj=mock_cli_context.obj,
             )
 
             assert result.exit_code == 0
-            mock_listfile_manager.search_paths.assert_called_once_with("Interface/Icons/*.blp", 20)
+            mock_listfile_manager.search_paths.assert_called_once_with(
+                "Interface/Icons/*.blp", 20
+            )
             mock_listfile_manager.close.assert_called_once()
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_search_paths_with_limit(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test search command with result limit."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -193,17 +194,14 @@ class TestListfileCommands:
             result = runner.invoke(
                 listfile_group,
                 ["search", "Interface/*", "--limit", "50"],
-                obj=mock_cli_context.obj
+                obj=mock_cli_context.obj,
             )
 
             assert result.exit_code == 0
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_search_paths_no_results(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_cli_context
     ):
         """Test search command with no results."""
         mock_manager = Mock()
@@ -213,23 +211,16 @@ class TestListfileCommands:
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["search", "nonexistent/*"],
-                obj=mock_cli_context.obj
+                listfile_group, ["search", "nonexistent/*"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code == 0
             # Check console output
-            console_output = ' '.join(mock_cli_context.obj['console'].printed_lines)
+            console_output = " ".join(mock_cli_context.obj["console"].printed_lines)
             assert "No files matching" in console_output
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_search_paths_error(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_search_paths_error(self, mock_manager_class, runner, mock_cli_context):
         """Test search command with database error."""
         mock_manager = Mock()
         self._add_context_manager_support(mock_manager)
@@ -239,9 +230,7 @@ class TestListfileCommands:
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["search", "test/*"],
-                obj=mock_cli_context.obj
+                listfile_group, ["search", "test/*"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code != 0
@@ -250,20 +239,14 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_lookup_file_by_id(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test lookup command by FileDataID."""
         mock_manager_class.return_value = mock_listfile_manager
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["lookup", "123456"],
-                obj=mock_cli_context.obj
+                listfile_group, ["lookup", "123456"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code == 0
@@ -271,11 +254,7 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_lookup_file_by_path(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test lookup command by file path."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -284,7 +263,7 @@ class TestListfileCommands:
             result = runner.invoke(
                 listfile_group,
                 ["lookup", "Interface/Icons/Spell_Shadow_SoulBurn.blp"],
-                obj=mock_cli_context.obj
+                obj=mock_cli_context.obj,
             )
 
             assert result.exit_code == 0
@@ -293,12 +272,7 @@ class TestListfileCommands:
             )
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_lookup_file_not_found(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_lookup_file_not_found(self, mock_manager_class, runner, mock_cli_context):
         """Test lookup command with file not found."""
         mock_manager = Mock()
         self._add_context_manager_support(mock_manager)
@@ -309,23 +283,16 @@ class TestListfileCommands:
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["lookup", "999999"],
-                obj=mock_cli_context.obj
+                listfile_group, ["lookup", "999999"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code == 0
             # Check console output properly - actual output is "Not found: {identifier}"
-            console_output = ' '.join(mock_cli_context.obj['console'].printed_lines)
+            console_output = " ".join(mock_cli_context.obj["console"].printed_lines)
             assert "Not found: 999999" in console_output
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_lookup_file_error(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_lookup_file_error(self, mock_manager_class, runner, mock_cli_context):
         """Test lookup command with database error."""
         mock_manager = Mock()
         self._add_context_manager_support(mock_manager)
@@ -335,9 +302,7 @@ class TestListfileCommands:
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["lookup", "123456"],
-                obj=mock_cli_context.obj
+                listfile_group, ["lookup", "123456"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code != 0
@@ -351,7 +316,7 @@ class TestListfileCommands:
         runner,
         mock_listfile_manager,
         mock_cli_context,
-        tmp_path
+        tmp_path,
     ):
         """Test export command in CSV format."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -361,7 +326,7 @@ class TestListfileCommands:
             result = runner.invoke(
                 listfile_group,
                 ["export", str(output_file), "--format", "csv"],
-                obj=mock_cli_context.obj
+                obj=mock_cli_context.obj,
             )
 
             assert result.exit_code == 0
@@ -374,7 +339,7 @@ class TestListfileCommands:
         runner,
         mock_listfile_manager,
         mock_cli_context,
-        tmp_path
+        tmp_path,
     ):
         """Test export command in JSON format."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -384,18 +349,14 @@ class TestListfileCommands:
             result = runner.invoke(
                 listfile_group,
                 ["export", str(output_file), "--format", "json"],
-                obj=mock_cli_context.obj
+                obj=mock_cli_context.obj,
             )
 
             assert result.exit_code == 0
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_export_listfile_write_error(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test export command with file write error."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -406,9 +367,7 @@ class TestListfileCommands:
         with runner.isolated_filesystem():
             # Try to export with mock error
             result = runner.invoke(
-                listfile_group,
-                ["export", "test.csv"],
-                obj=mock_cli_context.obj
+                listfile_group, ["export", "test.csv"], obj=mock_cli_context.obj
             )
 
             assert result.exit_code != 0
@@ -417,11 +376,7 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_show_stats(
-        self,
-        mock_manager_class,
-        runner,
-        mock_listfile_manager,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_listfile_manager, mock_cli_context
     ):
         """Test stats command."""
         mock_manager_class.return_value = mock_listfile_manager
@@ -433,12 +388,7 @@ class TestListfileCommands:
             mock_listfile_manager.get_statistics.assert_called_once()
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_show_stats_error(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_show_stats_error(self, mock_manager_class, runner, mock_cli_context):
         """Test stats command with database error."""
         mock_manager = Mock()
         self._add_context_manager_support(mock_manager)
@@ -508,10 +458,7 @@ class TestListfileCommands:
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_sync_listfile_no_new_entries(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
+        self, mock_manager_class, runner, mock_cli_context
     ):
         """Test sync command when no new entries are imported."""
         mock_manager = Mock()
@@ -522,7 +469,7 @@ class TestListfileCommands:
         mock_manager.get_statistics.return_value = {
             "total_entries": 1000000,
             "verified": 950000,
-            "unverified": 50000
+            "unverified": 50000,
         }
         mock_manager.close = Mock()
 
@@ -531,16 +478,12 @@ class TestListfileCommands:
 
             assert result.exit_code == 0
             # Check console output
-            console_output = ' '.join(mock_cli_context.obj['console'].printed_lines)
+            console_output = " ".join(mock_cli_context.obj["console"].printed_lines)
             assert "Synced 0 file entries" in console_output
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
     def test_export_listfile_empty_result(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context,
-        tmp_path
+        self, mock_manager_class, runner, mock_cli_context, tmp_path
     ):
         """Test export command with no entries to export."""
         mock_manager = Mock()
@@ -550,16 +493,14 @@ class TestListfileCommands:
         mock_manager.get_statistics.return_value = {
             "total_entries": 0,
             "verified": 0,
-            "unverified": 0
+            "unverified": 0,
         }
         mock_manager.close = Mock()
         output_file = tmp_path / "empty_listfile.csv"
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["export", str(output_file)],
-                obj=mock_cli_context.obj
+                listfile_group, ["export", str(output_file)], obj=mock_cli_context.obj
             )
 
             assert result.exit_code == 0
@@ -567,12 +508,7 @@ class TestListfileCommands:
             mock_manager.export_listfile.assert_called_once()
 
     @patch("cascette_tools.commands.listfile.ListfileManager")
-    def test_lookup_file_invalid_id(
-        self,
-        mock_manager_class,
-        runner,
-        mock_cli_context
-    ):
+    def test_lookup_file_invalid_id(self, mock_manager_class, runner, mock_cli_context):
         """Test lookup command with invalid FileDataID."""
         mock_manager = Mock()
         self._add_context_manager_support(mock_manager)
@@ -583,11 +519,8 @@ class TestListfileCommands:
 
         with runner.isolated_filesystem():
             result = runner.invoke(
-                listfile_group,
-                ["lookup", "invalid_id"],
-                obj=mock_cli_context.obj
+                listfile_group, ["lookup", "invalid_id"], obj=mock_cli_context.obj
             )
 
             # Should try lookup_by_path since ID parsing failed
             assert result.exit_code == 0
-

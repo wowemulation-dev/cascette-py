@@ -21,15 +21,15 @@ class TestInstallParser:
     def test_is_install_function(self):
         """Test is_install detection function."""
         # Valid install data with IN magic
-        assert is_install(b'IN\x01\x10\x00\x01\x00\x00\x00\x01')
+        assert is_install(b"IN\x01\x10\x00\x01\x00\x00\x00\x01")
 
         # Invalid magic
-        assert not is_install(b'XX\x01\x10')
-        assert not is_install(b'EN\x01\x10')
+        assert not is_install(b"XX\x01\x10")
+        assert not is_install(b"EN\x01\x10")
 
         # Too short
-        assert not is_install(b'I')
-        assert not is_install(b'')
+        assert not is_install(b"I")
+        assert not is_install(b"")
 
     def test_install_tag_has_file(self):
         """Test InstallTag.has_file method with MSB bit ordering.
@@ -42,12 +42,12 @@ class TestInstallParser:
 
         tag = InstallTag(name="test", tag_type=1, bit_mask=bytes(bitmask))
 
-        assert tag.has_file(0) is True   # 0x80
+        assert tag.has_file(0) is True  # 0x80
         assert tag.has_file(1) is False
-        assert tag.has_file(2) is True   # 0x20
+        assert tag.has_file(2) is True  # 0x20
         assert tag.has_file(3) is False
         assert tag.has_file(4) is False
-        assert tag.has_file(5) is True   # 0x04
+        assert tag.has_file(5) is True  # 0x04
         assert tag.has_file(6) is False
         assert tag.has_file(7) is False
         assert tag.has_file(8) is False  # out of range
@@ -60,18 +60,20 @@ class TestInstallParser:
         data = BytesIO()
 
         # Header: IN + version=1 + hash_size=16 + tag_count=0 + entry_count=1
-        data.write(b'IN')  # magic
-        data.write(struct.pack('B', 1))  # version
-        data.write(struct.pack('B', 16))  # hash_size
-        data.write(struct.pack('>H', 0))  # tag_count (big-endian)
-        data.write(struct.pack('>I', 1))  # entry_count (big-endian)
+        data.write(b"IN")  # magic
+        data.write(struct.pack("B", 1))  # version
+        data.write(struct.pack("B", 16))  # hash_size
+        data.write(struct.pack(">H", 0))  # tag_count (big-endian)
+        data.write(struct.pack(">I", 1))  # entry_count (big-endian)
 
         # No tags (tag_count = 0)
 
         # One file entry
-        data.write(b'test.txt\x00')  # filename
-        data.write(b'\x01\x23\x45\x67\x89\xab\xcd\xef\x01\x23\x45\x67\x89\xab\xcd\xef')  # MD5 hash
-        data.write(struct.pack('>I', 1024))  # file size (big-endian)
+        data.write(b"test.txt\x00")  # filename
+        data.write(
+            b"\x01\x23\x45\x67\x89\xab\xcd\xef\x01\x23\x45\x67\x89\xab\xcd\xef"
+        )  # MD5 hash
+        data.write(struct.pack(">I", 1024))  # file size (big-endian)
 
         install = parser.parse(data.getvalue())
 
@@ -82,7 +84,10 @@ class TestInstallParser:
 
         entry = install.entries[0]
         assert entry.filename == "test.txt"
-        assert entry.md5_hash == b'\x01\x23\x45\x67\x89\xab\xcd\xef\x01\x23\x45\x67\x89\xab\xcd\xef'
+        assert (
+            entry.md5_hash
+            == b"\x01\x23\x45\x67\x89\xab\xcd\xef\x01\x23\x45\x67\x89\xab\xcd\xef"
+        )
         assert entry.size == 1024
         assert entry.tags == []
 
@@ -94,29 +99,29 @@ class TestInstallParser:
         data = BytesIO()
 
         # Header: IN + version=1 + hash_size=16 + tag_count=2 + entry_count=3
-        data.write(b'IN')  # magic
-        data.write(struct.pack('B', 1))  # version
-        data.write(struct.pack('B', 16))  # hash_size
-        data.write(struct.pack('>H', 2))  # tag_count (big-endian)
-        data.write(struct.pack('>I', 3))  # entry_count (big-endian)
+        data.write(b"IN")  # magic
+        data.write(struct.pack("B", 1))  # version
+        data.write(struct.pack("B", 16))  # hash_size
+        data.write(struct.pack(">H", 2))  # tag_count (big-endian)
+        data.write(struct.pack(">I", 3))  # entry_count (big-endian)
 
         # Tag 1: "Windows" type=1, applies to files 0,2
-        data.write(b'Windows\x00')  # tag name
-        data.write(struct.pack('>H', 1))  # tag type (big-endian)
+        data.write(b"Windows\x00")  # tag name
+        data.write(struct.pack(">H", 1))  # tag type (big-endian)
         # Bitmask for 3 files = 1 byte, MSB ordering: files 0,2 = 0x80|0x20 = 0xA0
-        data.write(b'\xA0')
+        data.write(b"\xa0")
 
         # Tag 2: "enUS" type=4, applies to files 1,2
-        data.write(b'enUS\x00')  # tag name
-        data.write(struct.pack('>H', 4))  # tag type (big-endian)
+        data.write(b"enUS\x00")  # tag name
+        data.write(struct.pack(">H", 4))  # tag type (big-endian)
         # Bitmask for 3 files = 1 byte, MSB ordering: files 1,2 = 0x40|0x20 = 0x60
-        data.write(b'\x60')
+        data.write(b"\x60")
 
         # File entries
-        for i, name in enumerate(['file1.exe', 'file2.txt', 'file3.dll']):
-            data.write(name.encode('utf-8') + b'\x00')  # filename
+        for i, name in enumerate(["file1.exe", "file2.txt", "file3.dll"]):
+            data.write(name.encode("utf-8") + b"\x00")  # filename
             data.write(bytes(range(16)))  # MD5 hash (dummy)
-            data.write(struct.pack('>I', 1000 + i))  # file size
+            data.write(struct.pack(">I", 1000 + i))  # file size
 
         install = parser.parse(data.getvalue())
 
@@ -133,7 +138,7 @@ class TestInstallParser:
 
         # Check file tag assignments
         assert install.entries[0].tags == ["Windows"]  # file 0: only Windows
-        assert install.entries[1].tags == ["enUS"]     # file 1: only enUS
+        assert install.entries[1].tags == ["enUS"]  # file 1: only enUS
         assert install.entries[2].tags == ["Windows", "enUS"]  # file 2: both tags
 
     def test_round_trip_minimal(self):
@@ -142,14 +147,14 @@ class TestInstallParser:
 
         # Create original data
         original_data = BytesIO()
-        original_data.write(b'IN')  # magic
-        original_data.write(struct.pack('B', 1))  # version
-        original_data.write(struct.pack('B', 16))  # hash_size
-        original_data.write(struct.pack('>H', 0))  # tag_count
-        original_data.write(struct.pack('>I', 1))  # entry_count
-        original_data.write(b'test.txt\x00')  # filename
+        original_data.write(b"IN")  # magic
+        original_data.write(struct.pack("B", 1))  # version
+        original_data.write(struct.pack("B", 16))  # hash_size
+        original_data.write(struct.pack(">H", 0))  # tag_count
+        original_data.write(struct.pack(">I", 1))  # entry_count
+        original_data.write(b"test.txt\x00")  # filename
         original_data.write(bytes(range(16)))  # MD5
-        original_data.write(struct.pack('>I', 512))  # size
+        original_data.write(struct.pack(">I", 512))  # size
 
         original_bytes = original_data.getvalue()
 
@@ -168,29 +173,31 @@ class TestInstallParser:
             version=1,
             hash_size=16,
             tags=[
-                InstallTag(name="Windows", tag_type=1, bit_mask=b'\xA0'),  # files 0,2 (MSB)
-                InstallTag(name="x64", tag_type=2, bit_mask=b'\xC0'),      # files 0,1 (MSB)
+                InstallTag(
+                    name="Windows", tag_type=1, bit_mask=b"\xa0"
+                ),  # files 0,2 (MSB)
+                InstallTag(name="x64", tag_type=2, bit_mask=b"\xc0"),  # files 0,1 (MSB)
             ],
             entries=[
                 InstallEntry(
                     filename="file1.exe",
                     md5_hash=bytes(range(16)),
                     size=1000,
-                    tags=["Windows", "x64"]
+                    tags=["Windows", "x64"],
                 ),
                 InstallEntry(
                     filename="file2.txt",
                     md5_hash=bytes(range(1, 17)),
                     size=2000,
-                    tags=["x64"]
+                    tags=["x64"],
                 ),
                 InstallEntry(
                     filename="file3.dll",
                     md5_hash=bytes(range(2, 18)),
                     size=3000,
-                    tags=["Windows"]
+                    tags=["Windows"],
                 ),
-            ]
+            ],
         )
 
         # Build then parse
@@ -223,7 +230,7 @@ class TestInstallParser:
 
         # Header only - no tags, no files
         data = BytesIO()
-        data.write(b'IN\x01\x10\x00\x00\x00\x00\x00\x00')  # header with counts = 0
+        data.write(b"IN\x01\x10\x00\x00\x00\x00\x00\x00")  # header with counts = 0
 
         install = parser.parse(data.getvalue())
 
@@ -238,17 +245,17 @@ class TestInstallParser:
 
         # Create install with 1 tag but file doesn't have it
         data = BytesIO()
-        data.write(b'IN\x01\x10\x00\x01\x00\x00\x00\x01')  # header
+        data.write(b"IN\x01\x10\x00\x01\x00\x00\x00\x01")  # header
 
         # Tag that doesn't apply to the file
-        data.write(b'Optional\x00')  # tag name
-        data.write(struct.pack('>H', 1))  # tag type
-        data.write(b'\x00')  # bitmask: no files have this tag
+        data.write(b"Optional\x00")  # tag name
+        data.write(struct.pack(">H", 1))  # tag type
+        data.write(b"\x00")  # bitmask: no files have this tag
 
         # One file
-        data.write(b'core.exe\x00')
+        data.write(b"core.exe\x00")
         data.write(bytes(range(16)))
-        data.write(struct.pack('>I', 2048))
+        data.write(struct.pack(">I", 2048))
 
         install = parser.parse(data.getvalue())
 
@@ -261,18 +268,18 @@ class TestInstallParser:
 
         # Create several tags that all apply to one file
         data = BytesIO()
-        data.write(b'IN\x01\x10\x00\x04\x00\x00\x00\x01')  # header: 4 tags, 1 file
+        data.write(b"IN\x01\x10\x00\x04\x00\x00\x00\x01")  # header: 4 tags, 1 file
 
-        tag_names = ['Windows', 'x64', 'enUS', 'Base']
+        tag_names = ["Windows", "x64", "enUS", "Base"]
         for name in tag_names:
-            data.write(name.encode('utf-8') + b'\x00')
-            data.write(struct.pack('>H', 1))  # tag type
-            data.write(b'\x80')  # bitmask: file 0 has this tag (MSB ordering)
+            data.write(name.encode("utf-8") + b"\x00")
+            data.write(struct.pack(">H", 1))  # tag type
+            data.write(b"\x80")  # bitmask: file 0 has this tag (MSB ordering)
 
         # One file
-        data.write(b'game.exe\x00')
+        data.write(b"game.exe\x00")
         data.write(bytes(range(16)))
-        data.write(struct.pack('>I', 5000))
+        data.write(struct.pack(">I", 5000))
 
         install = parser.parse(data.getvalue())
 
@@ -284,16 +291,16 @@ class TestInstallParser:
         parser = InstallParser()
 
         data = BytesIO()
-        data.write(b'IN')  # magic
-        data.write(struct.pack('B', 2))  # version 2
-        data.write(struct.pack('B', 16))  # hash_size
-        data.write(struct.pack('>H', 0))  # tag_count
-        data.write(struct.pack('>I', 1))  # entry_count
+        data.write(b"IN")  # magic
+        data.write(struct.pack("B", 2))  # version 2
+        data.write(struct.pack("B", 16))  # hash_size
+        data.write(struct.pack(">H", 0))  # tag_count
+        data.write(struct.pack(">I", 1))  # entry_count
 
-        data.write(b'test.txt\x00')
+        data.write(b"test.txt\x00")
         data.write(bytes(range(16)))  # MD5 hash
-        data.write(struct.pack('>I', 1024))  # file size
-        data.write(struct.pack('B', 3))  # file_type = 3
+        data.write(struct.pack(">I", 1024))  # file size
+        data.write(struct.pack("B", 3))  # file_type = 3
 
         install = parser.parse(data.getvalue())
 
@@ -316,16 +323,16 @@ class TestInstallParser:
                     md5_hash=bytes(range(16)),
                     size=4096,
                     file_type=1,
-                    tags=[]
+                    tags=[],
                 ),
                 InstallEntry(
                     filename="data.bin",
                     md5_hash=bytes(range(1, 17)),
                     size=8192,
                     file_type=0,
-                    tags=[]
+                    tags=[],
                 ),
-            ]
+            ],
         )
 
         data = parser.build(install)
@@ -343,11 +350,11 @@ class TestInstallParser:
 
         for version in [0, 3, 255]:
             data = BytesIO()
-            data.write(b'IN')
-            data.write(struct.pack('B', version))
-            data.write(struct.pack('B', 16))
-            data.write(struct.pack('>H', 0))
-            data.write(struct.pack('>I', 0))
+            data.write(b"IN")
+            data.write(struct.pack("B", version))
+            data.write(struct.pack("B", 16))
+            data.write(struct.pack(">H", 0))
+            data.write(struct.pack(">I", 0))
 
             try:
                 parser.parse(data.getvalue())
@@ -359,7 +366,7 @@ class TestInstallParser:
         """Test parsing with invalid magic."""
         parser = InstallParser()
 
-        data = b'XX\x01\x10\x00\x00\x00\x00\x00\x00'
+        data = b"XX\x01\x10\x00\x00\x00\x00\x00\x00"
 
         try:
             parser.parse(data)
@@ -372,7 +379,7 @@ class TestInstallParser:
         parser = InstallParser()
 
         # Only magic bytes
-        data = b'IN'
+        data = b"IN"
 
         try:
             parser.parse(data)
@@ -385,7 +392,7 @@ class TestInstallParser:
         parser = InstallParser()
 
         # Valid header with 1 tag but no tag data
-        data = b'IN\x01\x10\x00\x01\x00\x00\x00\x01'
+        data = b"IN\x01\x10\x00\x01\x00\x00\x00\x01"
 
         try:
             parser.parse(data)
@@ -397,17 +404,12 @@ class TestInstallParser:
         """Test building empty install manifest."""
         parser = InstallParser()
 
-        install = InstallFile(
-            version=1,
-            hash_size=16,
-            tags=[],
-            entries=[]
-        )
+        install = InstallFile(version=1, hash_size=16, tags=[], entries=[])
 
         data = parser.build(install)
 
         # Should be just header
-        expected = b'IN\x01\x10\x00\x00\x00\x00\x00\x00'
+        expected = b"IN\x01\x10\x00\x00\x00\x00\x00\x00"
         assert data == expected
 
     def test_validate_method(self):
@@ -421,12 +423,9 @@ class TestInstallParser:
             tags=[],
             entries=[
                 InstallEntry(
-                    filename="test.exe",
-                    md5_hash=bytes(range(16)),
-                    size=1024,
-                    tags=[]
+                    filename="test.exe", md5_hash=bytes(range(16)), size=1024, tags=[]
                 )
-            ]
+            ],
         )
 
         data = parser.build(install)
@@ -455,9 +454,9 @@ class TestInstallParser:
                     filename="测试文件.txt",  # Chinese characters
                     md5_hash=bytes(range(16)),
                     size=512,
-                    tags=[]
+                    tags=[],
                 )
-            ]
+            ],
         )
 
         # Build and parse back
@@ -473,25 +472,29 @@ class TestInstallParser:
         # Create install with 20 files (3 bytes for bitmask)
         entries = []
         for i in range(20):
-            entries.append(InstallEntry(
-                filename=f"file{i:02d}.dat",
-                md5_hash=bytes(range(16)),
-                size=100 + i,
-                tags=["Base"] if i % 2 == 0 else []  # Every other file has Base tag
-            ))
+            entries.append(
+                InstallEntry(
+                    filename=f"file{i:02d}.dat",
+                    md5_hash=bytes(range(16)),
+                    size=100 + i,
+                    tags=["Base"]
+                    if i % 2 == 0
+                    else [],  # Every other file has Base tag
+                )
+            )
 
         # Create bitmask: every even-indexed file has the tag (MSB ordering)
         mask = bytearray(3)  # (20 + 7) // 8 = 3 bytes
         for i in range(0, 20, 2):  # 0, 2, 4, 6, 8, 10, 12, 14, 16, 18
             byte_index = i // 8
             bit_offset = i % 8
-            mask[byte_index] |= (0x80 >> bit_offset)
+            mask[byte_index] |= 0x80 >> bit_offset
 
         install = InstallFile(
             version=1,
             hash_size=16,
             tags=[InstallTag(name="Base", tag_type=1, bit_mask=bytes(mask))],
-            entries=entries
+            entries=entries,
         )
 
         # Build and parse
@@ -514,11 +517,11 @@ class TestInstallParserEdgeCases:
     def _build_v1_header(self, tag_count: int = 0, entry_count: int = 0) -> bytes:
         """Build a minimal V1 install manifest header."""
         data = BytesIO()
-        data.write(b'IN')
-        data.write(struct.pack('B', 1))        # version
-        data.write(struct.pack('B', 16))       # hash_size
-        data.write(struct.pack('>H', tag_count))
-        data.write(struct.pack('>I', entry_count))
+        data.write(b"IN")
+        data.write(struct.pack("B", 1))  # version
+        data.write(struct.pack("B", 16))  # hash_size
+        data.write(struct.pack(">H", tag_count))
+        data.write(struct.pack(">I", entry_count))
         return data.getvalue()
 
     def test_parse_stream_input(self):
@@ -534,8 +537,8 @@ class TestInstallParserEdgeCases:
         parser = InstallParser()
         # 1 tag, 2 entries: mask_size=1, but we provide only the name+type with no mask
         data = self._build_v1_header(tag_count=1, entry_count=2)
-        data += b'Base\x00'              # tag name
-        data += struct.pack('>H', 1)     # tag type
+        data += b"Base\x00"  # tag name
+        data += struct.pack(">H", 1)  # tag type
         # Intentionally omit the 1-byte bitmask
         with pytest.raises(ValueError, match="Insufficient data for bit mask"):
             parser.parse(data)
@@ -544,8 +547,8 @@ class TestInstallParserEdgeCases:
         """Test that truncated MD5 hash raises ValueError."""
         parser = InstallParser()
         data = self._build_v1_header(tag_count=0, entry_count=1)
-        data += b'test.exe\x00'         # filename
-        data += b'\x00' * 8             # only 8 of 16 hash bytes
+        data += b"test.exe\x00"  # filename
+        data += b"\x00" * 8  # only 8 of 16 hash bytes
         with pytest.raises(ValueError, match="Insufficient data for MD5 hash"):
             parser.parse(data)
 
@@ -554,15 +557,15 @@ class TestInstallParserEdgeCases:
         parser = InstallParser()
         # Build V2 header manually
         data = BytesIO()
-        data.write(b'IN')
-        data.write(struct.pack('B', 2))   # version = 2
-        data.write(struct.pack('B', 16))  # hash_size
-        data.write(struct.pack('>H', 0))  # tag_count = 0
-        data.write(struct.pack('>I', 1))  # entry_count = 1
+        data.write(b"IN")
+        data.write(struct.pack("B", 2))  # version = 2
+        data.write(struct.pack("B", 16))  # hash_size
+        data.write(struct.pack(">H", 0))  # tag_count = 0
+        data.write(struct.pack(">I", 1))  # entry_count = 1
         # Entry: filename + full MD5 + 4-byte size but no file_type byte
-        data.write(b'test.exe\x00')
-        data.write(b'\x00' * 16)          # full hash
-        data.write(struct.pack('>I', 1024))  # file_size
+        data.write(b"test.exe\x00")
+        data.write(b"\x00" * 16)  # full hash
+        data.write(struct.pack(">I", 1024))  # file_size
         # No file_type byte
         with pytest.raises(ValueError, match="Insufficient data for file_type"):
             parser.parse(data.getvalue())
@@ -577,7 +580,7 @@ class TestInstallBuilder:
         builder = InstallBuilder()
         data = builder.build(install)
         # Should produce the standard empty header
-        assert data == b'IN\x01\x10\x00\x00\x00\x00\x00\x00'
+        assert data == b"IN\x01\x10\x00\x00\x00\x00\x00\x00"
 
     def test_create_empty(self):
         """Test InstallBuilder.create_empty() creates correct defaults."""
@@ -590,7 +593,7 @@ class TestInstallBuilder:
     def test_create_with_entries(self):
         """Test InstallBuilder.create_with_entries() sets entries correctly."""
         entries = [
-            InstallEntry(filename="file.dat", md5_hash=b'\x00' * 16, size=100, tags=[]),
+            InstallEntry(filename="file.dat", md5_hash=b"\x00" * 16, size=100, tags=[]),
         ]
         install = InstallBuilder.create_with_entries(entries)
         assert install.version == 1
@@ -600,9 +603,11 @@ class TestInstallBuilder:
 
     def test_create_with_entries_and_tags(self):
         """Test InstallBuilder.create_with_entries() preserves custom tags."""
-        tags = [InstallTag(name="Base", tag_type=1, bit_mask=b'\x80')]
+        tags = [InstallTag(name="Base", tag_type=1, bit_mask=b"\x80")]
         entries = [
-            InstallEntry(filename="file.dat", md5_hash=b'\x00' * 16, size=100, tags=["Base"]),
+            InstallEntry(
+                filename="file.dat", md5_hash=b"\x00" * 16, size=100, tags=["Base"]
+            ),
         ]
         install = InstallBuilder.create_with_entries(entries, tags=tags)
         assert len(install.tags) == 1

@@ -32,35 +32,61 @@ class BuildConfig(BaseModel):
     """Build configuration structure."""
 
     root: str | None = Field(default=None, description="Root content key")
-    encoding: str | None = Field(default=None, description="Encoding content and encoding keys")
+    encoding: str | None = Field(
+        default=None, description="Encoding content and encoding keys"
+    )
     encoding_size: str | None = Field(default=None, description="Encoding sizes")
-    install: str | None = Field(default=None, description="Install content and encoding keys")
+    install: str | None = Field(
+        default=None, description="Install content and encoding keys"
+    )
     install_size: str | None = Field(default=None, description="Install sizes")
-    download: str | None = Field(default=None, description="Download content and encoding keys")
+    download: str | None = Field(
+        default=None, description="Download content and encoding keys"
+    )
     download_size: str | None = Field(default=None, description="Download sizes")
     size: str | None = Field(default=None, description="Size content and encoding keys")
     size_size: str | None = Field(default=None, description="Size file sizes")
-    patch: str | None = Field(default=None, description="Patch content and encoding keys")
+    patch: str | None = Field(
+        default=None, description="Patch content and encoding keys"
+    )
     patch_size: str | None = Field(default=None, description="Patch sizes")
     partial_priority: str | None = Field(default=None, description="Partial priority")
-    partial_priority_size: str | None = Field(default=None, description="Partial priority size")
-    vfs_root: str | None = Field(default=None, description="VFS root content and encoding keys")
+    partial_priority_size: str | None = Field(
+        default=None, description="Partial priority size"
+    )
+    vfs_root: str | None = Field(
+        default=None, description="VFS root content and encoding keys"
+    )
     vfs_root_size: str | None = Field(default=None, description="VFS root sizes")
     build_name: str | None = Field(default=None, description="Build name")
-    build_playbuild_installer: str | None = Field(default=None, description="Play build installer")
+    build_playbuild_installer: str | None = Field(
+        default=None, description="Play build installer"
+    )
     build_product: str | None = Field(default=None, description="Build product")
     build_uid: str | None = Field(default=None, description="Build UID")
-    build_playtime_url: str | None = Field(default=None, description="Build playtime URL")
-    build_product_espec: str | None = Field(default=None, description="Build product ESpec")
-    build_partial_priority: str | None = Field(default=None, description="Build partial priority")
+    build_playtime_url: str | None = Field(
+        default=None, description="Build playtime URL"
+    )
+    build_product_espec: str | None = Field(
+        default=None, description="Build product ESpec"
+    )
+    build_partial_priority: str | None = Field(
+        default=None, description="Build partial priority"
+    )
     patch_config: str | None = Field(default=None, description="Patch config hash")
-    patch_index: str | None = Field(default=None, description="Patch index content and encoding keys")
+    patch_index: str | None = Field(
+        default=None, description="Patch index content and encoding keys"
+    )
     patch_index_size: str | None = Field(default=None, description="Patch index sizes")
     build_num: str | None = Field(default=None, description="Build number")
     build_branch: str | None = Field(default=None, description="Build branch")
     build_attributes: str | None = Field(default=None, description="Build attributes")
-    build_critical_patch_seqn: str | None = Field(default=None, description="Critical patch sequence number")
-    extra_fields: dict[str, str] = Field(default_factory=dict, description="Additional fields")
+    build_critical_patch_seqn: str | None = Field(
+        default=None, description="Critical patch sequence number"
+    )
+    extra_fields: dict[str, str] = Field(
+        default_factory=dict, description="Additional fields"
+    )
 
     def get_size_info(self) -> ConfigFileInfo | None:
         """Get size file information from size and size-size fields."""
@@ -166,17 +192,31 @@ class CDNConfig(BaseModel):
     """CDN configuration structure."""
 
     archives: list[str] = Field(default_factory=list, description="Archive hashes")
-    archives_index_size: str | None = Field(default=None, description="Archive index sizes")
+    archives_index_size: str | None = Field(
+        default=None, description="Archive index sizes"
+    )
     archive_group: str | None = Field(default=None, description="Archive group")
-    patch_archives: list[str] = Field(default_factory=list, description="Patch archive hashes")
-    patch_archives_index_size: str | None = Field(default=None, description="Patch archive index sizes")
-    patch_archive_group: str | None = Field(default=None, description="Patch archive group")
+    patch_archives: list[str] = Field(
+        default_factory=list, description="Patch archive hashes"
+    )
+    patch_archives_index_size: str | None = Field(
+        default=None, description="Patch archive index sizes"
+    )
+    patch_archive_group: str | None = Field(
+        default=None, description="Patch archive group"
+    )
     builds: list[str] = Field(default_factory=list, description="Build config hashes")
     file_index: str | None = Field(default=None, description="File index hash")
     file_index_size: str | None = Field(default=None, description="File index size")
-    patch_file_index: str | None = Field(default=None, description="Patch file index hash")
-    patch_file_index_size: str | None = Field(default=None, description="Patch file index size")
-    extra_fields: dict[str, str] = Field(default_factory=dict, description="Additional fields")
+    patch_file_index: str | None = Field(
+        default=None, description="Patch file index hash"
+    )
+    patch_file_index_size: str | None = Field(
+        default=None, description="Patch file index size"
+    )
+    extra_fields: dict[str, str] = Field(
+        default_factory=dict, description="Additional fields"
+    )
 
     def get_patch_file_index_size(self) -> int | None:
         """Get patch file index size as integer."""
@@ -194,9 +234,7 @@ class CDNConfig(BaseModel):
         indices = self.patch_file_index.split()
         sizes: list[int | None] = []
         if self.patch_file_index_size:
-            sizes = [
-                _try_parse_int(s) for s in self.patch_file_index_size.split()
-            ]
+            sizes = [_try_parse_int(s) for s in self.patch_file_index_size.split()]
         return [
             CDNArchiveInfo(
                 content_key=key,
@@ -218,10 +256,16 @@ class CDNConfig(BaseModel):
 class PatchConfig(BaseModel):
     """Patch configuration structure."""
 
-    patch_archives: list[str] = Field(default_factory=list, description="Patch archive hashes")
-    patch_archive_group: str | None = Field(default=None, description="Patch archive group")
+    patch_archives: list[str] = Field(
+        default_factory=list, description="Patch archive hashes"
+    )
+    patch_archive_group: str | None = Field(
+        default=None, description="Patch archive group"
+    )
     builds: list[str] = Field(default_factory=list, description="Build config hashes")
-    extra_fields: dict[str, str] = Field(default_factory=dict, description="Additional fields")
+    extra_fields: dict[str, str] = Field(
+        default_factory=dict, description="Additional fields"
+    )
 
 
 class ProductConfig(BaseModel):
@@ -230,7 +274,9 @@ class ProductConfig(BaseModel):
     product: str | None = Field(default=None, description="Product code")
     uid: str | None = Field(default=None, description="Product UID")
     name: str | None = Field(default=None, description="Product name")
-    extra_fields: dict[str, str] = Field(default_factory=dict, description="Additional fields")
+    extra_fields: dict[str, str] = Field(
+        default_factory=dict, description="Additional fields"
+    )
 
 
 class BuildConfigParser(FormatParser[BuildConfig]):
@@ -246,9 +292,9 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             Parsed build configuration
         """
         if isinstance(data, (bytes, bytearray)):
-            content = data.decode('utf-8', errors='replace')
+            content = data.decode("utf-8", errors="replace")
         else:
-            content = data.read().decode('utf-8', errors='replace')
+            content = data.read().decode("utf-8", errors="replace")
 
         config_dict = self._parse_config_content(content)
         return self._dict_to_build_config(config_dict)
@@ -257,13 +303,13 @@ class BuildConfigParser(FormatParser[BuildConfig]):
         """Parse configuration file content into dictionary."""
         config: dict[str, str] = {}
 
-        for line in content.strip().split('\n'):
+        for line in content.strip().split("\n"):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
-            if ' = ' in line:
-                key, value = line.split(' = ', 1)
+            if " = " in line:
+                key, value = line.split(" = ", 1)
                 config[key.strip()] = value.strip()
 
         return config
@@ -272,44 +318,62 @@ class BuildConfigParser(FormatParser[BuildConfig]):
         """Convert dictionary to BuildConfig model."""
         # Known fields
         known_fields: set[str] = {
-            'root', 'encoding', 'encoding-size', 'install', 'install-size',
-            'download', 'download-size', 'size', 'size-size',
-            'patch', 'patch-size',
-            'partial-priority', 'partial-priority-size',
-            'vfs-root', 'vfs-root-size',
-            'build-name', 'build-playbuild-installer', 'build-product', 'build-uid',
-            'build-playtime-url', 'build-product-espec', 'build-partial-priority',
-            'patch-config',
-            'patch-index', 'patch-index-size',
-            'build-num', 'build-branch', 'build-attributes',
-            'build-critical-patch-seqn',
+            "root",
+            "encoding",
+            "encoding-size",
+            "install",
+            "install-size",
+            "download",
+            "download-size",
+            "size",
+            "size-size",
+            "patch",
+            "patch-size",
+            "partial-priority",
+            "partial-priority-size",
+            "vfs-root",
+            "vfs-root-size",
+            "build-name",
+            "build-playbuild-installer",
+            "build-product",
+            "build-uid",
+            "build-playtime-url",
+            "build-product-espec",
+            "build-partial-priority",
+            "patch-config",
+            "patch-index",
+            "patch-index-size",
+            "build-num",
+            "build-branch",
+            "build-attributes",
+            "build-critical-patch-seqn",
         }
 
         # Map dashed keys to underscore for Python field names
         field_mapping: dict[str, str] = {
-            'encoding-size': 'encoding_size',
-            'install-size': 'install_size',
-            'download-size': 'download_size',
-            'size-size': 'size_size',
-            'patch-size': 'patch_size',
-            'partial-priority': 'partial_priority',
-            'partial-priority-size': 'partial_priority_size',
-            'vfs-root': 'vfs_root',
-            'vfs-root-size': 'vfs_root_size',
-            'build-name': 'build_name',
-            'build-playbuild-installer': 'build_playbuild_installer',
-            'build-product': 'build_product',
-            'build-uid': 'build_uid',
-            'build-playtime-url': 'build_playtime_url',
-            'build-product-espec': 'build_product_espec',
-            'build-partial-priority': 'build_partial_priority',
-            'patch-config': 'patch_config',
-            'patch-index': 'patch_index',
-            'patch-index-size': 'patch_index_size',
-            'build-num': 'build_num',
-            'build-branch': 'build_branch',
-            'build-attributes': 'build_attributes',
-            'build-critical-patch-seqn': 'build_critical_patch_seqn',
+            "encoding-size": "encoding_size",
+            "install-size": "install_size",
+            "download-size": "download_size",
+            "size-size": "size_size",
+            "patch-size": "patch_size",
+            "partial-priority": "partial_priority",
+            "partial-priority-size": "partial_priority_size",
+            "vfs-root": "vfs_root",
+            "vfs-root-size": "vfs_root_size",
+            "build-name": "build_name",
+            "build-playbuild-installer": "build_playbuild_installer",
+            "build-product": "build_product",
+            "build-uid": "build_uid",
+            "build-playtime-url": "build_playtime_url",
+            "build-product-espec": "build_product_espec",
+            "build-partial-priority": "build_partial_priority",
+            "patch-config": "patch_config",
+            "patch-index": "patch_index",
+            "patch-index-size": "patch_index_size",
+            "build-num": "build_num",
+            "build-branch": "build_branch",
+            "build-attributes": "build_attributes",
+            "build-critical-patch-seqn": "build_critical_patch_seqn",
         }
 
         build_config_data: dict[str, Any] = {}
@@ -322,7 +386,7 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             else:
                 extra_fields[key] = value
 
-        build_config_data['extra_fields'] = extra_fields
+        build_config_data["extra_fields"] = extra_fields
         return BuildConfig(**build_config_data)
 
     def build(self, obj: BuildConfig) -> bytes:
@@ -338,35 +402,35 @@ class BuildConfigParser(FormatParser[BuildConfig]):
 
         # Add known fields in canonical order (matching Agent.exe)
         field_order: list[tuple[str, str]] = [
-            ('root', 'root'),
-            ('install', 'install'),
-            ('install_size', 'install-size'),
-            ('download', 'download'),
-            ('download_size', 'download-size'),
-            ('size', 'size'),
-            ('size_size', 'size-size'),
-            ('vfs_root', 'vfs-root'),
-            ('vfs_root_size', 'vfs-root-size'),
-            ('encoding', 'encoding'),
-            ('encoding_size', 'encoding-size'),
-            ('patch', 'patch'),
-            ('patch_size', 'patch-size'),
-            ('patch_config', 'patch-config'),
-            ('patch_index', 'patch-index'),
-            ('patch_index_size', 'patch-index-size'),
-            ('partial_priority', 'partial-priority'),
-            ('partial_priority_size', 'partial-priority-size'),
-            ('build_name', 'build-name'),
-            ('build_uid', 'build-uid'),
-            ('build_product', 'build-product'),
-            ('build_num', 'build-num'),
-            ('build_branch', 'build-branch'),
-            ('build_attributes', 'build-attributes'),
-            ('build_critical_patch_seqn', 'build-critical-patch-seqn'),
-            ('build_playbuild_installer', 'build-playbuild-installer'),
-            ('build_partial_priority', 'build-partial-priority'),
-            ('build_playtime_url', 'build-playtime-url'),
-            ('build_product_espec', 'build-product-espec'),
+            ("root", "root"),
+            ("install", "install"),
+            ("install_size", "install-size"),
+            ("download", "download"),
+            ("download_size", "download-size"),
+            ("size", "size"),
+            ("size_size", "size-size"),
+            ("vfs_root", "vfs-root"),
+            ("vfs_root_size", "vfs-root-size"),
+            ("encoding", "encoding"),
+            ("encoding_size", "encoding-size"),
+            ("patch", "patch"),
+            ("patch_size", "patch-size"),
+            ("patch_config", "patch-config"),
+            ("patch_index", "patch-index"),
+            ("patch_index_size", "patch-index-size"),
+            ("partial_priority", "partial-priority"),
+            ("partial_priority_size", "partial-priority-size"),
+            ("build_name", "build-name"),
+            ("build_uid", "build-uid"),
+            ("build_product", "build-product"),
+            ("build_num", "build-num"),
+            ("build_branch", "build-branch"),
+            ("build_attributes", "build-attributes"),
+            ("build_critical_patch_seqn", "build-critical-patch-seqn"),
+            ("build_playbuild_installer", "build-playbuild-installer"),
+            ("build_partial_priority", "build-partial-priority"),
+            ("build_playtime_url", "build-playtime-url"),
+            ("build_product_espec", "build-product-espec"),
         ]
 
         for field_name, config_key in field_order:
@@ -380,8 +444,7 @@ class BuildConfigParser(FormatParser[BuildConfig]):
             key=_vfs_sort_key,
         )
         non_vfs_extras = {
-            k: v for k, v in obj.extra_fields.items()
-            if not _VFS_KEY_PATTERN.match(k)
+            k: v for k, v in obj.extra_fields.items() if not _VFS_KEY_PATTERN.match(k)
         }
 
         for key in vfs_keys:
@@ -391,8 +454,8 @@ class BuildConfigParser(FormatParser[BuildConfig]):
         for key, value in non_vfs_extras.items():
             lines.append(f"{key} = {value}")
 
-        content = '\n'.join(lines) + '\n'
-        return content.encode('utf-8')
+        content = "\n".join(lines) + "\n"
+        return content.encode("utf-8")
 
 
 class CDNConfigParser(FormatParser[CDNConfig]):
@@ -408,9 +471,9 @@ class CDNConfigParser(FormatParser[CDNConfig]):
             Parsed CDN configuration
         """
         if isinstance(data, (bytes, bytearray)):
-            content = data.decode('utf-8', errors='replace')
+            content = data.decode("utf-8", errors="replace")
         else:
-            content = data.read().decode('utf-8', errors='replace')
+            content = data.read().decode("utf-8", errors="replace")
 
         config_dict = self._parse_config_content(content)
         return self._dict_to_cdn_config(config_dict)
@@ -419,13 +482,13 @@ class CDNConfigParser(FormatParser[CDNConfig]):
         """Parse configuration file content into dictionary."""
         config: dict[str, str] = {}
 
-        for line in content.strip().split('\n'):
+        for line in content.strip().split("\n"):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
-            if ' = ' in line:
-                key, value = line.split(' = ', 1)
+            if " = " in line:
+                key, value = line.split(" = ", 1)
                 config[key.strip()] = value.strip()
 
         return config
@@ -434,45 +497,52 @@ class CDNConfigParser(FormatParser[CDNConfig]):
         """Convert dictionary to CDNConfig model."""
         # Known fields
         known_fields: set[str] = {
-            'archives', 'archives-index-size', 'archive-group',
-            'patch-archives', 'patch-archives-index-size', 'patch-archive-group',
-            'builds', 'file-index', 'file-index-size',
-            'patch-file-index', 'patch-file-index-size',
+            "archives",
+            "archives-index-size",
+            "archive-group",
+            "patch-archives",
+            "patch-archives-index-size",
+            "patch-archive-group",
+            "builds",
+            "file-index",
+            "file-index-size",
+            "patch-file-index",
+            "patch-file-index-size",
         }
 
         cdn_config_data: dict[str, Any] = {}
         extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
-            if key == 'archives':
-                cdn_config_data['archives'] = value.split() if value else []
-            elif key == 'archives-index-size':
-                cdn_config_data['archives_index_size'] = value
-            elif key == 'archive-group':
-                cdn_config_data['archive_group'] = value
-            elif key == 'patch-archives':
-                cdn_config_data['patch_archives'] = value.split() if value else []
-            elif key == 'patch-archives-index-size':
-                cdn_config_data['patch_archives_index_size'] = value
-            elif key == 'patch-archive-group':
-                cdn_config_data['patch_archive_group'] = value
-            elif key == 'builds':
-                cdn_config_data['builds'] = value.split() if value else []
-            elif key == 'file-index':
-                cdn_config_data['file_index'] = value
-            elif key == 'file-index-size':
-                cdn_config_data['file_index_size'] = value
-            elif key == 'patch-file-index':
-                cdn_config_data['patch_file_index'] = value
-            elif key == 'patch-file-index-size':
-                cdn_config_data['patch_file_index_size'] = value
+            if key == "archives":
+                cdn_config_data["archives"] = value.split() if value else []
+            elif key == "archives-index-size":
+                cdn_config_data["archives_index_size"] = value
+            elif key == "archive-group":
+                cdn_config_data["archive_group"] = value
+            elif key == "patch-archives":
+                cdn_config_data["patch_archives"] = value.split() if value else []
+            elif key == "patch-archives-index-size":
+                cdn_config_data["patch_archives_index_size"] = value
+            elif key == "patch-archive-group":
+                cdn_config_data["patch_archive_group"] = value
+            elif key == "builds":
+                cdn_config_data["builds"] = value.split() if value else []
+            elif key == "file-index":
+                cdn_config_data["file_index"] = value
+            elif key == "file-index-size":
+                cdn_config_data["file_index_size"] = value
+            elif key == "patch-file-index":
+                cdn_config_data["patch_file_index"] = value
+            elif key == "patch-file-index-size":
+                cdn_config_data["patch_file_index_size"] = value
             elif key in known_fields:
-                field_name = key.replace('-', '_')
+                field_name = key.replace("-", "_")
                 cdn_config_data[field_name] = value
             else:
                 extra_fields[key] = value
 
-        cdn_config_data['extra_fields'] = extra_fields
+        cdn_config_data["extra_fields"] = extra_fields
         return CDNConfig(**cdn_config_data)
 
     def build(self, obj: CDNConfig) -> bytes:
@@ -520,8 +590,8 @@ class CDNConfigParser(FormatParser[CDNConfig]):
         for key, value in obj.extra_fields.items():
             lines.append(f"{key} = {value}")
 
-        content = '\n'.join(lines) + '\n'
-        return content.encode('utf-8')
+        content = "\n".join(lines) + "\n"
+        return content.encode("utf-8")
 
 
 class PatchConfigParser(FormatParser[PatchConfig]):
@@ -537,9 +607,9 @@ class PatchConfigParser(FormatParser[PatchConfig]):
             Parsed patch configuration
         """
         if isinstance(data, (bytes, bytearray)):
-            content = data.decode('utf-8', errors='replace')
+            content = data.decode("utf-8", errors="replace")
         else:
-            content = data.read().decode('utf-8', errors='replace')
+            content = data.read().decode("utf-8", errors="replace")
 
         config_dict = self._parse_config_content(content)
         return self._dict_to_patch_config(config_dict)
@@ -548,13 +618,13 @@ class PatchConfigParser(FormatParser[PatchConfig]):
         """Parse configuration file content into dictionary."""
         config: dict[str, str] = {}
 
-        for line in content.strip().split('\n'):
+        for line in content.strip().split("\n"):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
-            if ' = ' in line:
-                key, value = line.split(' = ', 1)
+            if " = " in line:
+                key, value = line.split(" = ", 1)
                 config[key.strip()] = value.strip()
 
         return config
@@ -565,16 +635,16 @@ class PatchConfigParser(FormatParser[PatchConfig]):
         extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
-            if key == 'patch-archives':
-                patch_config_data['patch_archives'] = value.split() if value else []
-            elif key == 'patch-archive-group':
-                patch_config_data['patch_archive_group'] = value
-            elif key == 'builds':
-                patch_config_data['builds'] = value.split() if value else []
+            if key == "patch-archives":
+                patch_config_data["patch_archives"] = value.split() if value else []
+            elif key == "patch-archive-group":
+                patch_config_data["patch_archive_group"] = value
+            elif key == "builds":
+                patch_config_data["builds"] = value.split() if value else []
             else:
                 extra_fields[key] = value
 
-        patch_config_data['extra_fields'] = extra_fields
+        patch_config_data["extra_fields"] = extra_fields
         return PatchConfig(**patch_config_data)
 
     def build(self, obj: PatchConfig) -> bytes:
@@ -601,8 +671,8 @@ class PatchConfigParser(FormatParser[PatchConfig]):
         for key, value in obj.extra_fields.items():
             lines.append(f"{key} = {value}")
 
-        content = '\n'.join(lines) + '\n'
-        return content.encode('utf-8')
+        content = "\n".join(lines) + "\n"
+        return content.encode("utf-8")
 
 
 class ProductConfigParser(FormatParser[ProductConfig]):
@@ -618,9 +688,9 @@ class ProductConfigParser(FormatParser[ProductConfig]):
             Parsed product configuration
         """
         if isinstance(data, (bytes, bytearray)):
-            content = data.decode('utf-8', errors='replace')
+            content = data.decode("utf-8", errors="replace")
         else:
-            content = data.read().decode('utf-8', errors='replace')
+            content = data.read().decode("utf-8", errors="replace")
 
         config_dict = self._parse_config_content(content)
         return self._dict_to_product_config(config_dict)
@@ -629,13 +699,13 @@ class ProductConfigParser(FormatParser[ProductConfig]):
         """Parse configuration file content into dictionary."""
         config: dict[str, str] = {}
 
-        for line in content.strip().split('\n'):
+        for line in content.strip().split("\n"):
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
-            if ' = ' in line:
-                key, value = line.split(' = ', 1)
+            if " = " in line:
+                key, value = line.split(" = ", 1)
                 config[key.strip()] = value.strip()
 
         return config
@@ -646,12 +716,12 @@ class ProductConfigParser(FormatParser[ProductConfig]):
         extra_fields: dict[str, str] = {}
 
         for key, value in config_dict.items():
-            if key in ['product', 'uid', 'name']:
+            if key in ["product", "uid", "name"]:
                 product_config_data[key] = value
             else:
                 extra_fields[key] = value
 
-        product_config_data['extra_fields'] = extra_fields
+        product_config_data["extra_fields"] = extra_fields
         return ProductConfig(**product_config_data)
 
     def build(self, obj: ProductConfig) -> bytes:
@@ -678,8 +748,8 @@ class ProductConfigParser(FormatParser[ProductConfig]):
         for key, value in obj.extra_fields.items():
             lines.append(f"{key} = {value}")
 
-        content = '\n'.join(lines) + '\n'
-        return content.encode('utf-8')
+        content = "\n".join(lines) + "\n"
+        return content.encode("utf-8")
 
 
 class BuildConfigBuilder:
@@ -702,7 +772,9 @@ class BuildConfigBuilder:
         return parser.build(obj)
 
     @classmethod
-    def create_basic(cls, root: str, encoding: str, install: str | None = None) -> BuildConfig:
+    def create_basic(
+        cls, root: str, encoding: str, install: str | None = None
+    ) -> BuildConfig:
         """Create basic build config.
 
         Args:
@@ -713,11 +785,7 @@ class BuildConfigBuilder:
         Returns:
             Build config object
         """
-        return BuildConfig(
-            root=root,
-            encoding=encoding,
-            install=install
-        )
+        return BuildConfig(root=root, encoding=encoding, install=install)
 
 
 class CDNConfigBuilder:
@@ -750,10 +818,7 @@ class CDNConfigBuilder:
         Returns:
             CDN config object
         """
-        return CDNConfig(
-            archives=archives,
-            builds=builds
-        )
+        return CDNConfig(archives=archives, builds=builds)
 
 
 class PatchConfigBuilder:
@@ -786,10 +851,7 @@ class PatchConfigBuilder:
         Returns:
             Patch config object
         """
-        return PatchConfig(
-            patch_archives=patch_archives,
-            builds=builds
-        )
+        return PatchConfig(patch_archives=patch_archives, builds=builds)
 
 
 class ProductConfigBuilder:
@@ -812,7 +874,9 @@ class ProductConfigBuilder:
         return parser.build(obj)
 
     @classmethod
-    def create_basic(cls, product: str, uid: str, name: str | None = None) -> ProductConfig:
+    def create_basic(
+        cls, product: str, uid: str, name: str | None = None
+    ) -> ProductConfig:
         """Create basic product config.
 
         Args:
@@ -823,11 +887,7 @@ class ProductConfigBuilder:
         Returns:
             Product config object
         """
-        return ProductConfig(
-            product=product,
-            uid=uid,
-            name=name
-        )
+        return ProductConfig(product=product, uid=uid, name=name)
 
 
 def _try_parse_int(s: str) -> int | None:
@@ -869,11 +929,11 @@ def _parse_partial_priority(raw: str) -> list[PartialPriority]:
     Malformed entries are skipped.
     """
     result: list[PartialPriority] = []
-    for entry in raw.split(','):
+    for entry in raw.split(","):
         entry = entry.strip()
-        if ':' not in entry:
+        if ":" not in entry:
             continue
-        key, _, priority_str = entry.rpartition(':')
+        key, _, priority_str = entry.rpartition(":")
         priority = _try_parse_int(priority_str)
         if priority is not None and key:
             result.append(PartialPriority(key=key, priority=priority))
@@ -881,12 +941,12 @@ def _parse_partial_priority(raw: str) -> list[PartialPriority]:
 
 
 # VFS key pattern for matching vfs-N and vfs-N-size
-_VFS_KEY_PATTERN = re.compile(r'^vfs-\d+(-size)?$')
+_VFS_KEY_PATTERN = re.compile(r"^vfs-\d+(-size)?$")
 
 
 def _vfs_sort_key(key: str) -> tuple[int, int]:
     """Sort key for VFS entries: (index, 0 for base / 1 for -size)."""
-    match = re.match(r'^vfs-(\d+)(-size)?$', key)
+    match = re.match(r"^vfs-(\d+)(-size)?$", key)
     if match:
         return (int(match.group(1)), 1 if match.group(2) else 0)
     return (0, 0)
@@ -902,11 +962,11 @@ def is_config_file(data: bytes) -> bool:
         True if data appears to be a configuration file
     """
     try:
-        content = data.decode('utf-8', errors='replace')
+        content = data.decode("utf-8", errors="replace")
         # Look for key = value pattern
-        for line in content.strip().split('\n')[:10]:  # Check first 10 lines
+        for line in content.strip().split("\n")[:10]:  # Check first 10 lines
             line = line.strip()
-            if line and not line.startswith('#') and ' = ' in line:
+            if line and not line.startswith("#") and " = " in line:
                 return True
         return False
     except Exception:
@@ -923,27 +983,31 @@ def detect_config_type(data: bytes) -> str | None:
         Configuration type or None
     """
     try:
-        content = data.decode('utf-8', errors='replace')
-        lines: list[str] = [line.strip() for line in content.strip().split('\n') if line.strip() and not line.strip().startswith('#')]
+        content = data.decode("utf-8", errors="replace")
+        lines: list[str] = [
+            line.strip()
+            for line in content.strip().split("\n")
+            if line.strip() and not line.strip().startswith("#")
+        ]
 
         # Check for characteristic fields
         keys: set[str] = set()
         for line in lines:
-            if ' = ' in line:
-                key = line.split(' = ', 1)[0].strip()
+            if " = " in line:
+                key = line.split(" = ", 1)[0].strip()
                 keys.add(key)
 
         # Detect based on characteristic keys
-        if 'archives' in keys or 'archive-group' in keys:
-            return 'cdn'
-        elif 'root' in keys or 'encoding' in keys:
-            return 'build'
-        elif 'patch-archives' in keys and 'archives' not in keys:
-            return 'patch'
-        elif 'product' in keys or 'uid' in keys:
-            return 'product'
+        if "archives" in keys or "archive-group" in keys:
+            return "cdn"
+        elif "root" in keys or "encoding" in keys:
+            return "build"
+        elif "patch-archives" in keys and "archives" not in keys:
+            return "patch"
+        elif "product" in keys or "uid" in keys:
+            return "product"
         else:
-            return 'unknown'
+            return "unknown"
 
     except Exception:
         return None

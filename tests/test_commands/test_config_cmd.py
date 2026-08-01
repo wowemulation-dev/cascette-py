@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from cascette_tools.__main__ import main
 from cascette_tools.core.config import AppConfig, MirrorConfig, MirrorSettings
@@ -15,7 +15,7 @@ def _make_config(mirrors: MirrorSettings | None = None) -> AppConfig:
     return AppConfig(mirrors=mirrors or MirrorSettings())
 
 
-def _invoke(*args: str, config: AppConfig | None = None) -> object:
+def _invoke(*args: str, config: AppConfig | None = None) -> Result:
     """Invoke a CLI command and return the result."""
     runner = CliRunner()
     cfg = config or _make_config()
@@ -35,16 +35,19 @@ class TestMirrorAdd:
 
     def test_add_product_override(self) -> None:
         result = _invoke(
-            "config", "mirror", "add", "--product-code", "bna",
-            "http://bna.example.com"
+            "config", "mirror", "add", "--product-code", "bna", "http://bna.example.com"
         )
         assert result.exit_code == 0
         assert "product" in result.output
 
     def test_add_multiple_urls(self) -> None:
         result = _invoke(
-            "config", "mirror", "add", "wow",
-            "https://a.example.com", "https://b.example.com"
+            "config",
+            "mirror",
+            "add",
+            "wow",
+            "https://a.example.com",
+            "https://b.example.com",
         )
         assert result.exit_code == 0
         assert "a.example.com" in result.output
@@ -58,7 +61,11 @@ class TestMirrorAdd:
         )
         cfg = _make_config(mirrors)
         result = _invoke(
-            "config", "mirror", "add", "wow", "https://existing.example.com",
+            "config",
+            "mirror",
+            "add",
+            "wow",
+            "https://existing.example.com",
             config=cfg,
         )
         assert result.exit_code == 0
@@ -76,8 +83,7 @@ class TestMirrorAdd:
 
     def test_add_invalid_product_code(self) -> None:
         result = _invoke(
-            "config", "mirror", "add", "--product-code", "bogus",
-            "https://example.com"
+            "config", "mirror", "add", "--product-code", "bogus", "https://example.com"
         )
         assert result.exit_code != 0
         assert "Unknown product code" in result.output
@@ -89,15 +95,21 @@ class TestMirrorRemove:
     def test_remove_specific_url(self) -> None:
         mirrors = MirrorSettings(
             family_mirrors={
-                "wow": MirrorConfig(urls=[
-                    "https://a.example.com",
-                    "https://b.example.com",
-                ]),
+                "wow": MirrorConfig(
+                    urls=[
+                        "https://a.example.com",
+                        "https://b.example.com",
+                    ]
+                ),
             }
         )
         cfg = _make_config(mirrors)
         result = _invoke(
-            "config", "mirror", "remove", "wow", "https://a.example.com",
+            "config",
+            "mirror",
+            "remove",
+            "wow",
+            "https://a.example.com",
             config=cfg,
         )
         assert result.exit_code == 0
@@ -126,7 +138,9 @@ class TestMirrorList:
     def test_list_empty(self) -> None:
         result = _invoke("config", "mirror", "list")
         assert result.exit_code == 0
-        assert "built-in defaults" in result.output.lower() or "Built-in" in result.output
+        assert (
+            "built-in defaults" in result.output.lower() or "Built-in" in result.output
+        )
 
     def test_list_with_family_config(self) -> None:
         mirrors = MirrorSettings(
@@ -152,9 +166,7 @@ class TestMirrorList:
             }
         )
         cfg = _make_config(mirrors)
-        result = _invoke(
-            "config", "mirror", "list", "--resolve", "bna", config=cfg
-        )
+        result = _invoke("config", "mirror", "list", "--resolve", "bna", config=cfg)
         assert result.exit_code == 0
         assert "custom-bna.example.com" in result.output
         assert "product override" in result.output

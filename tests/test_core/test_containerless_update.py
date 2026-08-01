@@ -67,7 +67,7 @@ class TestIdentifyExistingFiles:
         content = b"test file content"
         (tmp_path / "file.txt").write_bytes(content)
 
-        entry = _make_entry(0, b'\x01' * 16, content, "file.txt")
+        entry = _make_entry(0, b"\x01" * 16, content, "file.txt")
         db = _make_db([entry])
 
         hashes = identify_existing_files(tmp_path, db)
@@ -77,7 +77,7 @@ class TestIdentifyExistingFiles:
 
     def test_identify_missing(self, tmp_path: Path):
         """Missing files are omitted from results."""
-        entry = _make_entry(0, b'\x01' * 16, b"data", "missing.txt")
+        entry = _make_entry(0, b"\x01" * 16, b"data", "missing.txt")
         db = _make_db([entry])
 
         hashes = identify_existing_files(tmp_path, db)
@@ -92,8 +92,8 @@ class TestIdentifyExistingFiles:
         # b.txt does not exist
 
         entries = [
-            _make_entry(0, b'\x01' * 16, content_a, "a.txt"),
-            _make_entry(1, b'\x02' * 16, content_b, "b.txt"),
+            _make_entry(0, b"\x01" * 16, content_a, "a.txt"),
+            _make_entry(1, b"\x02" * 16, content_b, "b.txt"),
         ]
         db = _make_db(entries)
 
@@ -109,8 +109,8 @@ class TestClassifyContainerlessFiles:
     def test_fresh_install(self, tmp_path: Path):
         """Fresh install: all files need download."""
         entries = [
-            _make_entry_raw(0, b'\x01' * 16, b'\xaa' * 16, "file1.txt"),
-            _make_entry_raw(1, b'\x02' * 16, b'\xbb' * 16, "file2.txt"),
+            _make_entry_raw(0, b"\x01" * 16, b"\xaa" * 16, "file1.txt"),
+            _make_entry_raw(1, b"\x02" * 16, b"\xbb" * 16, "file2.txt"),
         ]
         db = _make_db(entries)
 
@@ -130,8 +130,8 @@ class TestClassifyContainerlessFiles:
         (tmp_path / "b.txt").write_bytes(content_b)
 
         entries = [
-            _make_entry(0, b'\x01' * 16, content_a, "a.txt"),
-            _make_entry(1, b'\x02' * 16, content_b, "b.txt"),
+            _make_entry(0, b"\x01" * 16, content_a, "a.txt"),
+            _make_entry(1, b"\x02" * 16, content_b, "b.txt"),
         ]
         db = _make_db(entries)
 
@@ -151,17 +151,17 @@ class TestClassifyContainerlessFiles:
 
         # Old DB has an extra file that's not in the new DB
         old_entries = [
-            _make_entry(0, b'\x01' * 16, content_unchanged, "unchanged.txt"),
-            _make_entry(1, b'\x02' * 16, content_changed, "changed.txt"),
-            _make_entry_raw(2, b'\x03' * 16, b'\xcc' * 16, "obsolete.txt"),
+            _make_entry(0, b"\x01" * 16, content_unchanged, "unchanged.txt"),
+            _make_entry(1, b"\x02" * 16, content_changed, "changed.txt"),
+            _make_entry_raw(2, b"\x03" * 16, b"\xcc" * 16, "obsolete.txt"),
         ]
         old_db = _make_db(old_entries)
 
         # New DB: unchanged stays, changed has new ckey, obsolete is gone
         new_content_changed = b"new content"
         new_entries = [
-            _make_entry(0, b'\x01' * 16, content_unchanged, "unchanged.txt"),
-            _make_entry(1, b'\x04' * 16, new_content_changed, "changed.txt"),
+            _make_entry(0, b"\x01" * 16, content_unchanged, "unchanged.txt"),
+            _make_entry(1, b"\x04" * 16, new_content_changed, "changed.txt"),
         ]
         new_db = _make_db(new_entries)
 
@@ -177,12 +177,12 @@ class TestClassifyContainerlessFiles:
     def test_obsolete_with_backslash_paths(self, tmp_path: Path):
         """Backslash paths are normalized for obsolete detection."""
         old_entries = [
-            _make_entry_raw(0, b'\x01' * 16, b'\xaa' * 16, r"Data\old.txt"),
+            _make_entry_raw(0, b"\x01" * 16, b"\xaa" * 16, r"Data\old.txt"),
         ]
         old_db = _make_db(old_entries)
 
         new_entries = [
-            _make_entry_raw(0, b'\x02' * 16, b'\xbb' * 16, r"Data\new.txt"),
+            _make_entry_raw(0, b"\x02" * 16, b"\xbb" * 16, r"Data\new.txt"),
         ]
         new_db = _make_db(new_entries)
 
@@ -194,7 +194,7 @@ class TestClassifyContainerlessFiles:
     def test_no_obsolete_without_old_db(self, tmp_path: Path):
         """Without old DB, no files are marked obsolete."""
         entries = [
-            _make_entry_raw(0, b'\x01' * 16, b'\xaa' * 16, "file.txt"),
+            _make_entry_raw(0, b"\x01" * 16, b"\xaa" * 16, "file.txt"),
         ]
         db = _make_db(entries)
 

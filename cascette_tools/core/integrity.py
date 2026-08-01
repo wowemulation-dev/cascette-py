@@ -81,8 +81,7 @@ def verify_ekey_size(data: bytes, expected_size: int) -> bool:
     """
     if len(data) != expected_size:
         raise IntegrityError(
-            f"Encoded size mismatch: expected {expected_size}, "
-            f"got {len(data)}",
+            f"Encoded size mismatch: expected {expected_size}, got {len(data)}",
             expected=expected_size,
             actual=len(data),
         )

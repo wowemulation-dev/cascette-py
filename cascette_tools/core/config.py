@@ -39,7 +39,7 @@ class MirrorConfig(BaseModel):
 
     urls: list[str] = Field(
         default_factory=list,
-        description="Ordered list of mirror URLs (highest priority first)"
+        description="Ordered list of mirror URLs (highest priority first)",
     )
 
     @field_validator("urls")
@@ -64,12 +64,11 @@ class MirrorSettings(BaseModel):
     """
 
     family_mirrors: dict[str, MirrorConfig] = Field(
-        default_factory=dict,
-        description="Mirrors keyed by product family name"
+        default_factory=dict, description="Mirrors keyed by product family name"
     )
     product_overrides: dict[str, MirrorConfig] = Field(
         default_factory=dict,
-        description="Mirrors keyed by product code, override family config"
+        description="Mirrors keyed by product code, override family config",
     )
 
 
@@ -123,21 +122,17 @@ class CacheConfig(BaseModel):
     """Cache configuration."""
 
     cache_dir: Path = Field(
-        default=Path.home() / ".cache" / "cascette",
-        description="Cache directory"
+        default=Path.home() / ".cache" / "cascette", description="Cache directory"
     )
     ttl: int = Field(
         default=86400,  # 24 hours
-        description="Time to live in seconds"
+        description="Time to live in seconds",
     )
     max_size: int = Field(
         default=10 * 1024 * 1024 * 1024,  # 10GB
-        description="Maximum cache size in bytes"
+        description="Maximum cache size in bytes",
     )
-    enabled: bool = Field(
-        default=True,
-        description="Whether caching is enabled"
-    )
+    enabled: bool = Field(default=True, description="Whether caching is enabled")
 
     @field_validator("ttl")
     @classmethod
@@ -166,7 +161,7 @@ class CDNConfig(BaseModel):
 
     fallback_mirrors: list[str] = Field(
         default_factory=list,
-        description="Fallback CDN mirrors (resolved per-product by AppConfig)"
+        description="Fallback CDN mirrors (resolved per-product by AppConfig)",
     )
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts per mirror")
@@ -196,8 +191,7 @@ class TACTConfig(BaseModel):
     max_retries: int = Field(default=3, description="Maximum retry attempts")
     verify_ssl: bool = Field(default=True, description="Verify SSL certificates")
     regions: list[str] = Field(
-        default=["us", "eu", "kr", "tw", "cn", "sg"],
-        description="Supported regions"
+        default=["us", "eu", "kr", "tw", "cn", "sg"], description="Supported regions"
     )
 
     def get_base_url(self, region: str) -> str:
@@ -230,7 +224,9 @@ class TACTConfig(BaseModel):
         valid_regions = {"us", "eu", "kr", "tw", "cn", "sg"}
         for region in v:
             if region not in valid_regions:
-                raise ValueError(f"Invalid region: {region}. Valid regions: {valid_regions}")
+                raise ValueError(
+                    f"Invalid region: {region}. Valid regions: {valid_regions}"
+                )
 
         return v
 
@@ -241,23 +237,22 @@ class AppConfig(BaseModel):
     # Directory settings
     config_dir: Path = Field(
         default=Path.home() / ".config" / "cascette-tools",
-        description="Configuration directory"
+        description="Configuration directory",
     )
     data_dir: Path = Field(
         default=Path.home() / ".local" / "share" / "cascette-tools",
-        description="Data directory"
+        description="Data directory",
     )
 
     # Region settings
     default_region: str = Field(
         default="kr",
-        description="Default CDN region (us, eu, kr, tw, cn). kr provides good coverage for Asia-Pacific."
+        description="Default CDN region (us, eu, kr, tw, cn). kr provides good coverage for Asia-Pacific.",
     )
 
     # CDN settings
     cdn_base_url: str = Field(
-        default="https://cdn.arctium.tools/tpr/wow/",
-        description="Base CDN URL"
+        default="https://cdn.arctium.tools/tpr/wow/", description="Base CDN URL"
     )
     cdn_timeout: float = Field(default=30.0, description="CDN request timeout")
     cdn_max_retries: int = Field(default=3, description="CDN max retry attempts")
@@ -265,28 +260,24 @@ class AppConfig(BaseModel):
     # Cache settings
     cache_enabled: bool = Field(default=True, description="Enable caching")
     cache_max_size: int = Field(
-        default=10 * 1024 * 1024 * 1024,
-        description="Maximum cache size in bytes"
+        default=10 * 1024 * 1024 * 1024, description="Maximum cache size in bytes"
     )
     cache_ttl: int = Field(
-        default=86400 * 7,
-        description="Cache time to live in seconds"
+        default=86400 * 7, description="Cache time to live in seconds"
     )
 
     # Mirror settings
     mirrors: MirrorSettings = Field(
         default_factory=MirrorSettings,
-        description="User-configured CDN mirrors per product family or product code"
+        description="User-configured CDN mirrors per product family or product code",
     )
 
     # Output settings
     output_format: str = Field(
-        default="rich",
-        description="Output format (rich, json, yaml, table)"
+        default="rich", description="Output format (rich, json, yaml, table)"
     )
     log_level: str = Field(
-        default="INFO",
-        description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+        default="INFO", description="Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
 
     def create_cdn_config(self, product: Product | str) -> CDNConfig:
@@ -353,7 +344,9 @@ class AppConfig(BaseModel):
         """Validate output format."""
         valid_formats = {"rich", "json", "yaml", "table"}
         if v not in valid_formats:
-            raise ValueError(f"Invalid output format: {v}. Valid formats: {valid_formats}")
+            raise ValueError(
+                f"Invalid output format: {v}. Valid formats: {valid_formats}"
+            )
         return v
 
     @field_validator("log_level")

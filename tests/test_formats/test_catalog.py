@@ -229,7 +229,9 @@ class TestParse:
         assert fragment.fragment_id == "world_of_warcraft"
         assert fragment.is_root is False
         assert len(fragment.products) == 1
-        assert fragment.products[0].base.program_id == "WoW"
+        base = fragment.products[0].base
+        assert base is not None
+        assert base.program_id == "WoW"
         assert fragment.products[0].id == "WoW"
         assert "WoW" in fragment.program_configuration
         assert len(fragment.installs) == 2
@@ -344,9 +346,12 @@ class TestRules:
         criteria = EntitlementMatchCriteria.model_validate(
             {"all_of": [{"account_region": ["CN"]}, {"account_country": "US"}]}
         )
-        child = criteria.all_of[0]
+        all_of = criteria.all_of
+        assert all_of is not None
+        child = all_of[0]
         assert child.account_region == ["CN"]
-        assert criteria.all_of[1].account_country == "US"
+        second = all_of[1]
+        assert second.account_country == "US"
 
     def test_variant_only_product(self, parser: CatalogParser):
         """Some products carry variants instead of a base descriptor."""

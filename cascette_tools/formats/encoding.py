@@ -65,15 +65,21 @@ class EncodingFile(BaseModel):
 
     header: EncodingHeader = Field(description="File header")
     espec_table: list[str] = Field(description="ESpec string table")
-    ckey_index: list[tuple[bytes, bytes]] = Field(description="CKey page index (first_key, checksum)")
-    ekey_index: list[tuple[bytes, bytes]] = Field(description="EKey page index (first_key, checksum)")
-    pages_start_offset: int = Field(default=0, description="Offset where pages begin (for sequential reading)")
+    ckey_index: list[tuple[bytes, bytes]] = Field(
+        description="CKey page index (first_key, checksum)"
+    )
+    ekey_index: list[tuple[bytes, bytes]] = Field(
+        description="EKey page index (first_key, checksum)"
+    )
+    pages_start_offset: int = Field(
+        default=0, description="Offset where pages begin (for sequential reading)"
+    )
 
 
 class EncodingParser(FormatParser[EncodingFile]):
     """Parser for encoding format."""
 
-    ENCODING_MAGIC = b'EN'
+    ENCODING_MAGIC = b"EN"
     HEADER_SIZE = 22
 
     def parse(self, data: bytes | BinaryIO) -> EncodingFile:
@@ -122,14 +128,16 @@ class EncodingParser(FormatParser[EncodingFile]):
             espec_table=espec_table,
             ckey_index=ckey_index,
             ekey_index=ekey_index,
-            pages_start_offset=pages_start_offset
+            pages_start_offset=pages_start_offset,
         )
 
     def _parse_header(self, stream: BinaryIO) -> EncodingHeader:
         """Parse encoding file header."""
         header_data = stream.read(self.HEADER_SIZE)
         if len(header_data) != self.HEADER_SIZE:
-            raise ValueError(f"Incomplete header: expected {self.HEADER_SIZE}, got {len(header_data)}")
+            raise ValueError(
+                f"Incomplete header: expected {self.HEADER_SIZE}, got {len(header_data)}"
+            )
 
         # Parse header fields (big-endian)
         magic = header_data[0:2]
@@ -139,12 +147,12 @@ class EncodingParser(FormatParser[EncodingFile]):
         version = header_data[2]
         ckey_size = header_data[3]
         ekey_size = header_data[4]
-        ckey_page_size_kb = struct.unpack('>H', header_data[5:7])[0]
-        ekey_page_size_kb = struct.unpack('>H', header_data[7:9])[0]
-        ckey_page_count = struct.unpack('>I', header_data[9:13])[0]
-        ekey_page_count = struct.unpack('>I', header_data[13:17])[0]
+        ckey_page_size_kb = struct.unpack(">H", header_data[5:7])[0]
+        ekey_page_size_kb = struct.unpack(">H", header_data[7:9])[0]
+        ckey_page_count = struct.unpack(">I", header_data[9:13])[0]
+        ekey_page_count = struct.unpack(">I", header_data[13:17])[0]
         unknown = header_data[17]
-        espec_size = struct.unpack('>I', header_data[18:22])[0]
+        espec_size = struct.unpack(">I", header_data[18:22])[0]
 
         header = EncodingHeader(
             magic=magic,
@@ -156,7 +164,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             ckey_page_count=ckey_page_count,
             ekey_page_count=ekey_page_count,
             unknown=unknown,
-            espec_size=espec_size
+            espec_size=espec_size,
         )
 
         # Validate header fields matching Agent.exe constraints
@@ -181,7 +189,9 @@ class EncodingParser(FormatParser[EncodingFile]):
         """Parse ESpec string table."""
         espec_data = stream.read(header.espec_size)
         if len(espec_data) != header.espec_size:
-            raise ValueError(f"Incomplete ESpec table: expected {header.espec_size}, got {len(espec_data)}")
+            raise ValueError(
+                f"Incomplete ESpec table: expected {header.espec_size}, got {len(espec_data)}"
+            )
 
         # Parse null-terminated strings, rejecting empty strings and unterminated data
         entries: list[str] = []
@@ -190,7 +200,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             if byte == 0:
                 if not current:
                     raise ValueError("Empty ESpec string (consecutive nulls)")
-                entries.append(current.decode('ascii', errors='replace'))
+                entries.append(current.decode("ascii", errors="replace"))
                 current = bytearray()
             else:
                 current.append(byte)
@@ -200,7 +210,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return entries
 
-    def _parse_ckey_index(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
+    def _parse_ckey_index(
+        self, stream: BinaryIO, header: EncodingHeader
+    ) -> list[tuple[bytes, bytes]]:
         """Parse CKey page index.
 
         Per Agent.exe ParseHeader: each entry = key_size_c + 16 bytes
@@ -214,7 +226,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         index_data = stream.read(index_size)
         if len(index_data) != index_size:
-            raise ValueError(f"Incomplete CKey index: expected {index_size}, got {len(index_data)}")
+            raise ValueError(
+                f"Incomplete CKey index: expected {index_size}, got {len(index_data)}"
+            )
 
         index: list[tuple[bytes, bytes]] = []
         offset = 0
@@ -222,14 +236,16 @@ class EncodingParser(FormatParser[EncodingFile]):
         for _ in range(header.ckey_page_count):
             if offset + entry_size > len(index_data):
                 raise ValueError("CKey index truncated")
-            first_key = index_data[offset:offset + key_sz]
-            checksum = index_data[offset + key_sz:offset + entry_size]
+            first_key = index_data[offset : offset + key_sz]
+            checksum = index_data[offset + key_sz : offset + entry_size]
             index.append((first_key, checksum))
             offset += entry_size
 
         return index
 
-    def _parse_ekey_index(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
+    def _parse_ekey_index(
+        self, stream: BinaryIO, header: EncodingHeader
+    ) -> list[tuple[bytes, bytes]]:
         """Parse EKey page index.
 
         Per Agent.exe ParseHeader: each entry = key_size_e + 16 bytes
@@ -243,7 +259,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         index_data = stream.read(index_size)
         if len(index_data) != index_size:
-            raise ValueError(f"Incomplete EKey index: expected {index_size}, got {len(index_data)}")
+            raise ValueError(
+                f"Incomplete EKey index: expected {index_size}, got {len(index_data)}"
+            )
 
         index: list[tuple[bytes, bytes]] = []
         offset = 0
@@ -251,14 +269,16 @@ class EncodingParser(FormatParser[EncodingFile]):
         for _ in range(header.ekey_page_count):
             if offset + entry_size > len(index_data):
                 raise ValueError("EKey index truncated")
-            first_key = index_data[offset:offset + key_sz]
-            checksum = index_data[offset + key_sz:offset + entry_size]
+            first_key = index_data[offset : offset + key_sz]
+            checksum = index_data[offset + key_sz : offset + entry_size]
             index.append((first_key, checksum))
             offset += entry_size
 
         return index
 
-    def _parse_ckey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
+    def _parse_ckey_index_sequential(
+        self, stream: BinaryIO, header: EncodingHeader
+    ) -> list[tuple[bytes, bytes]]:
         """Parse CKey page index sequentially.
 
         Each entry = key_size_c bytes (first CKey) + 16 bytes (MD5 checksum).
@@ -277,7 +297,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return index
 
-    def _parse_ekey_index_sequential(self, stream: BinaryIO, header: EncodingHeader) -> list[tuple[bytes, bytes]]:
+    def _parse_ekey_index_sequential(
+        self, stream: BinaryIO, header: EncodingHeader
+    ) -> list[tuple[bytes, bytes]]:
         """Parse EKey page index sequentially.
 
         Each entry = key_size_e bytes (first EKey) + 16 bytes (MD5 checksum).
@@ -296,8 +318,13 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return index
 
-    def load_ckey_page_sequential(self, encoding_data: bytes, encoding_file: EncodingFile, page_index: int,
-                                  max_entries: int = 1000) -> CKeyPage:
+    def load_ckey_page_sequential(
+        self,
+        encoding_data: bytes,
+        encoding_file: EncodingFile,
+        page_index: int,
+        max_entries: int = 1000,
+    ) -> CKeyPage:
         """Load and parse a CKey page using sequential reading like Rust.
 
         Matches Rust CKeyPageEntry structure from entry_v2.rs:
@@ -318,7 +345,9 @@ class EncodingParser(FormatParser[EncodingFile]):
         header = encoding_file.header
 
         if page_index >= header.ckey_page_count:
-            raise ValueError(f"Page index {page_index} >= page count {header.ckey_page_count}")
+            raise ValueError(
+                f"Page index {page_index} >= page count {header.ckey_page_count}"
+            )
 
         # Calculate sequential offset from pages start, like Rust does
         page_size = header.ckey_page_size_kb * 1024
@@ -328,7 +357,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             raise ValueError(f"CKey page {page_index} extends beyond file")
 
         # Read page data sequentially
-        page_data = encoding_data[sequential_offset:sequential_offset + page_size]
+        page_data = encoding_data[sequential_offset : sequential_offset + page_size]
 
         # Parse page entries exactly like Rust entry_v2
         entries: list[CKeyPageEntry] = []
@@ -353,14 +382,14 @@ class EncodingParser(FormatParser[EncodingFile]):
                 break
             file_size_high = page_data[offset]
             offset += 1
-            file_size_low = struct.unpack('>I', page_data[offset:offset + 4])[0]
+            file_size_low = struct.unpack(">I", page_data[offset : offset + 4])[0]
             offset += 4
             file_size = (file_size_high << 32) | file_size_low
 
             # Read content key (always 16 bytes)
             if offset + 16 > len(page_data):
                 break
-            content_key = page_data[offset:offset + 16]
+            content_key = page_data[offset : offset + 16]
             offset += 16
 
             # Read encoding keys - match Rust behavior for corrupted entries
@@ -379,7 +408,7 @@ class EncodingParser(FormatParser[EncodingFile]):
                     offset=offset - 22,  # Start of entry
                     key_count=key_count,
                     bytes_needed=bytes_needed,
-                    bytes_available=remaining_bytes
+                    bytes_available=remaining_bytes,
                 )
                 break  # Stop parsing this page, like Rust does
 
@@ -387,7 +416,7 @@ class EncodingParser(FormatParser[EncodingFile]):
             for _ in range(key_count):
                 if offset + 16 > len(page_data):
                     break
-                encoding_key = page_data[offset:offset + 16]
+                encoding_key = page_data[offset : offset + 16]
                 encoding_keys.append(encoding_key)
                 offset += 16
 
@@ -396,7 +425,7 @@ class EncodingParser(FormatParser[EncodingFile]):
                 entry = CKeyPageEntry(
                     file_size=file_size,
                     content_key=content_key,
-                    encoding_keys=encoding_keys
+                    encoding_keys=encoding_keys,
                 )
                 entries.append(entry)
                 entry_count += 1
@@ -406,8 +435,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return CKeyPage(page_index=page_index, entries=entries)
 
-    def find_content_key_sequential(self, encoding_data: bytes, encoding_file: EncodingFile,
-                                   content_key: bytes) -> list[bytes] | None:
+    def find_content_key_sequential(
+        self, encoding_data: bytes, encoding_file: EncodingFile, content_key: bytes
+    ) -> list[bytes] | None:
         """Find encoding keys for a content key using sequential reading like Rust.
 
         Args:
@@ -421,34 +451,43 @@ class EncodingParser(FormatParser[EncodingFile]):
         logger.debug(
             "Starting sequential content key search",
             content_key=content_key.hex(),
-            total_pages=encoding_file.header.ckey_page_count
+            total_pages=encoding_file.header.ckey_page_count,
         )
 
         for page_idx in range(encoding_file.header.ckey_page_count):
             try:
-                page = self.load_ckey_page_sequential(encoding_data, encoding_file, page_idx, max_entries=10000)
+                page = self.load_ckey_page_sequential(
+                    encoding_data, encoding_file, page_idx, max_entries=10000
+                )
                 for entry in page.entries:
                     if entry.content_key == content_key:
                         logger.debug(
                             "Found content key using sequential reading",
                             page_index=page_idx,
                             content_key=content_key.hex(),
-                            encoding_keys=[k.hex() for k in entry.encoding_keys]
+                            encoding_keys=[k.hex() for k in entry.encoding_keys],
                         )
                         return entry.encoding_keys
             except Exception as e:
                 logger.warning(
                     "Failed to load page during sequential content key search",
                     page_index=page_idx,
-                    error=str(e)
+                    error=str(e),
                 )
                 continue
 
-        logger.debug("Content key not found in sequential search", content_key=content_key.hex())
+        logger.debug(
+            "Content key not found in sequential search", content_key=content_key.hex()
+        )
         return None
 
-    def load_ckey_page(self, encoding_data: bytes, encoding_file: EncodingFile, page_index: int,
-                       max_entries: int = 1000) -> CKeyPage:
+    def load_ckey_page(
+        self,
+        encoding_data: bytes,
+        encoding_file: EncodingFile,
+        page_index: int,
+        max_entries: int = 1000,
+    ) -> CKeyPage:
         """Load and parse a specific CKey page.
 
         Args:
@@ -463,7 +502,9 @@ class EncodingParser(FormatParser[EncodingFile]):
         header = encoding_file.header
 
         if page_index >= header.ckey_page_count:
-            raise ValueError(f"Page index {page_index} >= page count {header.ckey_page_count}")
+            raise ValueError(
+                f"Page index {page_index} >= page count {header.ckey_page_count}"
+            )
 
         # Calculate page offset
         page_offset = self._get_ckey_page_offset(encoding_file, page_index)
@@ -472,7 +513,7 @@ class EncodingParser(FormatParser[EncodingFile]):
         if page_offset + page_size > len(encoding_data):
             raise ValueError(f"CKey page {page_index} extends beyond file")
 
-        page_data = encoding_data[page_offset:page_offset + page_size]
+        page_data = encoding_data[page_offset : page_offset + page_size]
 
         # Parse page entries
         entries: list[CKeyPageEntry] = []
@@ -498,14 +539,14 @@ class EncodingParser(FormatParser[EncodingFile]):
                 break
             file_size_high = page_data[offset]
             offset += 1
-            file_size_low = struct.unpack('>I', page_data[offset:offset + 4])[0]
+            file_size_low = struct.unpack(">I", page_data[offset : offset + 4])[0]
             offset += 4
             file_size = (file_size_high << 32) | file_size_low
 
             # Read content key (always 16 bytes)
             if offset + 16 > len(page_data):
                 break
-            content_key = page_data[offset:offset + 16]
+            content_key = page_data[offset : offset + 16]
             offset += 16
 
             # Read encoding keys - match Rust behavior for corrupted entries
@@ -524,28 +565,31 @@ class EncodingParser(FormatParser[EncodingFile]):
                     offset=offset - 21,  # Start of entry
                     key_count=key_count,
                     bytes_needed=bytes_needed,
-                    bytes_available=remaining_bytes
+                    bytes_available=remaining_bytes,
                 )
                 break  # Stop parsing this page, like Rust does
 
             # We have enough space for all keys, read them all
             for _ in range(key_count):
-                ekey = page_data[offset:offset + 16]
+                ekey = page_data[offset : offset + 16]
                 offset += 16
                 encoding_keys.append(ekey)
 
-            entries.append(CKeyPageEntry(
-                content_key=content_key,
-                encoding_keys=encoding_keys,
-                file_size=file_size
-            ))
+            entries.append(
+                CKeyPageEntry(
+                    content_key=content_key,
+                    encoding_keys=encoding_keys,
+                    file_size=file_size,
+                )
+            )
 
             entry_count += 1
 
         return CKeyPage(page_index=page_index, entries=entries)
 
-    def find_content_key(self, encoding_data: bytes, encoding_file: EncodingFile,
-                        content_key: bytes) -> list[bytes] | None:
+    def find_content_key(
+        self, encoding_data: bytes, encoding_file: EncodingFile, content_key: bytes
+    ) -> list[bytes] | None:
         """Find encoding keys for a content key using index-based lookup.
 
         Args:
@@ -584,7 +628,7 @@ class EncodingParser(FormatParser[EncodingFile]):
                             "Found content key using index lookup",
                             target_page=target_page,
                             content_key=content_key.hex(),
-                            encoding_keys=[k.hex() for k in entry.encoding_keys]
+                            encoding_keys=[k.hex() for k in entry.encoding_keys],
                         )
                         return entry.encoding_keys
             except Exception as e:
@@ -592,8 +636,13 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return None
 
-    def load_ekey_page(self, encoding_data: bytes, encoding_file: EncodingFile, page_index: int,
-                       max_entries: int = 1000) -> EKeyPage:
+    def load_ekey_page(
+        self,
+        encoding_data: bytes,
+        encoding_file: EncodingFile,
+        page_index: int,
+        max_entries: int = 1000,
+    ) -> EKeyPage:
         """Load and parse a specific EKey page.
 
         EKey page entry format (per Agent.exe RE, encoding-system.md):
@@ -612,7 +661,9 @@ class EncodingParser(FormatParser[EncodingFile]):
         header = encoding_file.header
 
         if page_index >= header.ekey_page_count:
-            raise ValueError(f"Page index {page_index} >= page count {header.ekey_page_count}")
+            raise ValueError(
+                f"Page index {page_index} >= page count {header.ekey_page_count}"
+            )
 
         # Calculate page offset
         page_offset = self._get_ekey_page_offset(encoding_file, page_index)
@@ -621,7 +672,7 @@ class EncodingParser(FormatParser[EncodingFile]):
         if page_offset + page_size > len(encoding_data):
             raise ValueError(f"EKey page {page_index} extends beyond file")
 
-        page_data = encoding_data[page_offset:page_offset + page_size]
+        page_data = encoding_data[page_offset : page_offset + page_size]
 
         # Parse page entries
         # Entry stride = key_size_e + 4 + 5 = key_size_e + 9 bytes per Agent.exe RE
@@ -632,42 +683,46 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         while offset + entry_stride <= len(page_data) and entry_count < max_entries:
             # Read encoding key
-            encoding_key = page_data[offset:offset + header.ekey_size]
+            encoding_key = page_data[offset : offset + header.ekey_size]
             offset += header.ekey_size
 
             # Read ESpec index (4 bytes, big-endian)
-            espec_index = struct.unpack('>I', page_data[offset:offset + 4])[0]
+            espec_index = struct.unpack(">I", page_data[offset : offset + 4])[0]
             offset += 4
 
             # Check for end-of-page padding:
             # 1. Agent.exe sentinel: espec_index == 0xFFFFFFFF
             # 2. Zero-fill padding: all-zero key AND espec_index == 0
             if espec_index == 0xFFFFFFFF or (
-                espec_index == 0 and encoding_key == b'\x00' * header.ekey_size
+                espec_index == 0 and encoding_key == b"\x00" * header.ekey_size
             ):
                 break
 
             # Read file size (40-bit: 1 byte high + 4 bytes low, big-endian)
             file_size_high = page_data[offset]
             offset += 1
-            file_size_low = struct.unpack('>I', page_data[offset:offset + 4])[0]
+            file_size_low = struct.unpack(">I", page_data[offset : offset + 4])[0]
             offset += 4
             file_size = (file_size_high << 32) | file_size_low
 
             # EKey page entries do not contain content keys per Agent.exe RE doc.
             # CKey → EKey mapping lives in CKey pages only.
-            entries.append(EKeyPageEntry(
-                encoding_key=encoding_key,
-                content_keys=[],
-                espec_index=espec_index,
-                file_size=file_size
-            ))
+            entries.append(
+                EKeyPageEntry(
+                    encoding_key=encoding_key,
+                    content_keys=[],
+                    espec_index=espec_index,
+                    file_size=file_size,
+                )
+            )
 
             entry_count += 1
 
         return EKeyPage(page_index=page_index, entries=entries)
 
-    def _get_ckey_page_offset(self, encoding_file: EncodingFile, page_index: int) -> int:
+    def _get_ckey_page_offset(
+        self, encoding_file: EncodingFile, page_index: int
+    ) -> int:
         """Calculate offset of CKey page data.
 
         CKey pages come immediately after CKey index, not after both indices.
@@ -676,7 +731,9 @@ class EncodingParser(FormatParser[EncodingFile]):
         page_size_bytes = encoding_file.header.ckey_page_size_kb * 1024
         return encoding_file.pages_start_offset + (page_index * page_size_bytes)
 
-    def _get_ekey_page_offset(self, encoding_file: EncodingFile, page_index: int) -> int:
+    def _get_ekey_page_offset(
+        self, encoding_file: EncodingFile, page_index: int
+    ) -> int:
         """Calculate offset of EKey page data.
 
         EKey pages come after CKey pages and EKey index.
@@ -689,13 +746,16 @@ class EncodingParser(FormatParser[EncodingFile]):
         ekey_index_entry_size = header.ekey_size + 16
         ekey_index_size = header.ekey_page_count * ekey_index_entry_size
 
-        ekey_pages_start = encoding_file.pages_start_offset + ckey_pages_size + ekey_index_size
+        ekey_pages_start = (
+            encoding_file.pages_start_offset + ckey_pages_size + ekey_index_size
+        )
         page_size_bytes = header.ekey_page_size_kb * 1024
 
         return ekey_pages_start + (page_index * page_size_bytes)
 
-    def find_content_key_entry(self, encoding_data: bytes, encoding_file: EncodingFile,
-                                content_key: bytes) -> CKeyPageEntry | None:
+    def find_content_key_entry(
+        self, encoding_data: bytes, encoding_file: EncodingFile, content_key: bytes
+    ) -> CKeyPageEntry | None:
         """Find entry for a specific content key using index-based lookup.
 
         Args:
@@ -727,13 +787,15 @@ class EncodingParser(FormatParser[EncodingFile]):
         if target_page is not None:
             try:
                 # Only load and search the target page
-                page = self.load_ckey_page(encoding_data, encoding_file, target_page, max_entries=10000)
+                page = self.load_ckey_page(
+                    encoding_data, encoding_file, target_page, max_entries=10000
+                )
                 for entry in page.entries:
                     if entry.content_key == content_key:
                         logger.debug(
                             "Found content key using index lookup",
                             target_page=target_page,
-                            content_key=content_key.hex()
+                            content_key=content_key.hex(),
                         )
                         return entry
             except Exception as e:
@@ -741,8 +803,9 @@ class EncodingParser(FormatParser[EncodingFile]):
 
         return None
 
-    def find_encoding_key(self, encoding_data: bytes, encoding_file: EncodingFile,
-                          encoding_key: bytes) -> EKeyPageEntry | None:
+    def find_encoding_key(
+        self, encoding_data: bytes, encoding_file: EncodingFile, encoding_key: bytes
+    ) -> EKeyPageEntry | None:
         """Find entry for a specific encoding key.
 
         Args:
@@ -780,20 +843,20 @@ class EncodingParser(FormatParser[EncodingFile]):
         # Write header
         header = obj.header
         result.write(header.magic)
-        result.write(struct.pack('B', header.version))
-        result.write(struct.pack('B', header.ckey_size))
-        result.write(struct.pack('B', header.ekey_size))
-        result.write(struct.pack('>H', header.ckey_page_size_kb))
-        result.write(struct.pack('>H', header.ekey_page_size_kb))
-        result.write(struct.pack('>I', header.ckey_page_count))
-        result.write(struct.pack('>I', header.ekey_page_count))
-        result.write(struct.pack('B', header.unknown))
-        result.write(struct.pack('>I', header.espec_size))
+        result.write(struct.pack("B", header.version))
+        result.write(struct.pack("B", header.ckey_size))
+        result.write(struct.pack("B", header.ekey_size))
+        result.write(struct.pack(">H", header.ckey_page_size_kb))
+        result.write(struct.pack(">H", header.ekey_page_size_kb))
+        result.write(struct.pack(">I", header.ckey_page_count))
+        result.write(struct.pack(">I", header.ekey_page_count))
+        result.write(struct.pack("B", header.unknown))
+        result.write(struct.pack(">I", header.espec_size))
 
         # Write ESpec table
         if obj.espec_table:
-            espec_data = b'\x00'.join(spec.encode('ascii') for spec in obj.espec_table)
-            espec_data += b'\x00'  # Null terminator
+            espec_data = b"\x00".join(spec.encode("ascii") for spec in obj.espec_table)
+            espec_data += b"\x00"  # Null terminator
             result.write(espec_data)
 
         # Write indices
@@ -842,7 +905,7 @@ class EncodingBuilder:
         espec_size = 2  # "n\x00"
 
         header = EncodingHeader(
-            magic=b'EN',
+            magic=b"EN",
             version=1,
             ckey_size=16,
             ekey_size=16,
@@ -851,14 +914,14 @@ class EncodingBuilder:
             ckey_page_count=1,
             ekey_page_count=1,
             unknown=0,
-            espec_size=espec_size
+            espec_size=espec_size,
         )
 
         return EncodingFile(
             header=header,
             espec_table=espec_table,
-            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
-            ekey_index=[(b'\x00' * 16, b'\x00' * 16)]
+            ckey_index=[(b"\x00" * 16, b"\x00" * 16)],
+            ekey_index=[(b"\x00" * 16, b"\x00" * 16)],
         )
 
     @classmethod
@@ -866,7 +929,7 @@ class EncodingBuilder:
         cls,
         ckey_entries: list[CKeyPageEntry],
         ekey_entries: list[EKeyPageEntry],
-        espec_table: list[str] | None = None
+        espec_table: list[str] | None = None,
     ) -> EncodingFile:
         """Create encoding file with given entries.
 
@@ -880,10 +943,12 @@ class EncodingBuilder:
         """
         if not espec_table:
             espec_table = ["n"]  # Minimal valid ESpec
-        espec_size = len(b'\x00'.join(spec.encode('ascii') for spec in espec_table) + b'\x00')
+        espec_size = len(
+            b"\x00".join(spec.encode("ascii") for spec in espec_table) + b"\x00"
+        )
 
         header = EncodingHeader(
-            magic=b'EN',
+            magic=b"EN",
             version=1,
             ckey_size=16,
             ekey_size=16,
@@ -892,14 +957,14 @@ class EncodingBuilder:
             ckey_page_count=max(1, 1 if ckey_entries else 1),
             ekey_page_count=max(1, 1 if ekey_entries else 1),
             unknown=0,
-            espec_size=espec_size
+            espec_size=espec_size,
         )
 
         return EncodingFile(
             header=header,
             espec_table=espec_table,
-            ckey_index=[(b'\x00' * 16, b'\x00' * 16)],
-            ekey_index=[(b'\x00' * 16, b'\x00' * 16)]
+            ckey_index=[(b"\x00" * 16, b"\x00" * 16)],
+            ekey_index=[(b"\x00" * 16, b"\x00" * 16)],
         )
 
 
@@ -912,4 +977,4 @@ def is_encoding(data: bytes) -> bool:
     Returns:
         True if data starts with encoding magic
     """
-    return len(data) >= 2 and data[:2] == b'EN'
+    return len(data) >= 2 and data[:2] == b"EN"

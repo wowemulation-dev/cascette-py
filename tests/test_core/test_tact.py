@@ -27,12 +27,12 @@ class TestBPSVParser:
         assert result[0] == {
             "Region": "us",
             "BuildConfig": "abc123def456",
-            "CDNConfig": "def456abc123"
+            "CDNConfig": "def456abc123",
         }
         assert result[1] == {
             "Region": "eu",
             "BuildConfig": "789abc123def",
-            "CDNConfig": "123def789abc"
+            "CDNConfig": "123def789abc",
         }
 
     def test_parse_empty_manifest(self):
@@ -158,9 +158,7 @@ class TestTACTClient:
         # First call fails, second succeeds
         failed_response = MagicMock()
         failed_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock()
+            "404 Not Found", request=MagicMock(), response=MagicMock()
         )
 
         success_response = MagicMock()
@@ -180,9 +178,7 @@ class TestTACTClient:
         """Test fetch with all retries failing."""
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock()
+            "404 Not Found", request=MagicMock(), response=MagicMock()
         )
         mock_get.return_value = mock_response
 
@@ -214,9 +210,10 @@ class TestTACTClient:
         client = TACTClient()
 
         # Mock cache miss
-        with patch.object(client.cache, "get_api", return_value=None), \
-             patch.object(client.cache, "put_api") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_api", return_value=None),
+            patch.object(client.cache, "put_api") as mock_put,
+        ):
             result = client.fetch_versions(Product.WOW)
 
             assert result == "fresh response"
@@ -230,13 +227,16 @@ class TestTACTClient:
 
         client = TACTClient(region="eu")
 
-        with patch.object(client.cache, "get_api", return_value=None), \
-             patch.object(client.cache, "put_api") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_api", return_value=None),
+            patch.object(client.cache, "put_api") as mock_put,
+        ):
             result = client.fetch_cdns(Product.WOW_CLASSIC)
 
             assert result == "cdns response"
-            mock_put.assert_called_once_with("tact:eu:wow_classic:cdns", "cdns response")
+            mock_put.assert_called_once_with(
+                "tact:eu:wow_classic:cdns", "cdns response"
+            )
 
     @patch.object(TACTClient, "_fetch_with_retry")
     def test_fetch_bgdl_cache_miss(self, mock_fetch):
@@ -245,19 +245,24 @@ class TestTACTClient:
 
         client = TACTClient(region="kr")
 
-        with patch.object(client.cache, "get_api", return_value=None), \
-             patch.object(client.cache, "put_api") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_api", return_value=None),
+            patch.object(client.cache, "put_api") as mock_put,
+        ):
             result = client.fetch_bgdl(Product.WOW_CLASSIC_ERA)
 
             assert result == "bgdl response"
-            mock_put.assert_called_once_with("tact:kr:wow_classic_era:bgdl", "bgdl response")
+            mock_put.assert_called_once_with(
+                "tact:kr:wow_classic_era:bgdl", "bgdl response"
+            )
 
     def test_parse_versions(self):
         """Test parsing versions manifest."""
         client = TACTClient()
 
-        manifest = "Region!STRING:0|BuildConfig!HEX:16\nus|abc123def456\neu|def456abc123"
+        manifest = (
+            "Region!STRING:0|BuildConfig!HEX:16\nus|abc123def456\neu|def456abc123"
+        )
         result = client.parse_versions(manifest)
 
         assert len(result) == 2
@@ -439,10 +444,7 @@ class TestBPSVParserCommentHandling:
         """Comment lines between data rows are also skipped."""
         parser = BPSVParser()
         manifest = (
-            "Region!STRING:0|Value!STRING:0\n"
-            "us|val1\n"
-            "# mid-document comment\n"
-            "eu|val2\n"
+            "Region!STRING:0|Value!STRING:0\nus|val1\n# mid-document comment\neu|val2\n"
         )
         result = parser.parse(manifest)
         assert len(result) == 2
@@ -473,12 +475,14 @@ class TestBPSVParserCommentHandling:
         This is the format actually returned by Blizzard CDN infrastructure.
         """
         parser = BPSVParser()
-        manifest = "\n".join([
-            "## seqn = 3568387",
-            "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|BuildId!DEC:0|VersionsName!String:0|ProductConfig!HEX:16",
-            "us|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
-            "eu|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
-        ])
+        manifest = "\n".join(
+            [
+                "## seqn = 3568387",
+                "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|BuildId!DEC:0|VersionsName!String:0|ProductConfig!HEX:16",
+                "us|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
+                "eu|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
+            ]
+        )
         result = parser.parse(manifest)
         assert len(result) == 2
         assert result[0]["Region"] == "us"
@@ -533,9 +537,7 @@ class TestBPSVParserSequenceNumber:
         """Sequence number extraction does not interfere with data parsing."""
         parser = BPSVParser()
         manifest = (
-            "## seqn = 12345\n"
-            "Region!STRING:0|BuildConfig!HEX:16\n"
-            "us|abc123def456\n"
+            "## seqn = 12345\nRegion!STRING:0|BuildConfig!HEX:16\nus|abc123def456\n"
         )
         seqn = parser.extract_sequence_number(manifest)
         rows = parser.parse(manifest)

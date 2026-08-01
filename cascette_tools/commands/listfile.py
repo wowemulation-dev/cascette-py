@@ -84,17 +84,15 @@ def search_paths(ctx: click.Context, pattern: str, limit: int) -> None:
             return
 
         # Display results
-        table = Table(title=f"Search Results for '{pattern}' (showing {len(entries)} of max {limit})")
+        table = Table(
+            title=f"Search Results for '{pattern}' (showing {len(entries)} of max {limit})"
+        )
         table.add_column("FDID", style="cyan")
         table.add_column("Path", style="green")
         table.add_column("Verified", style="blue")
 
         for entry in entries:
-            table.add_row(
-                str(entry.fdid),
-                entry.path,
-                "✓" if entry.verified else "✗"
-            )
+            table.add_row(str(entry.fdid), entry.path, "✓" if entry.verified else "✗")
 
         console.print(table)
 
@@ -152,7 +150,13 @@ def lookup_file(ctx: click.Context, identifier: str) -> None:
 
 @listfile_group.command(name="export")
 @click.argument("output", type=click.Path(path_type=Path))
-@click.option("--format", "-f", type=click.Choice(["csv", "json"]), default="csv", help="Export format")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["csv", "json"]),
+    default="csv",
+    help="Export format",
+)
 @click.pass_context
 def export_listfile(ctx: click.Context, output: Path, format: str) -> None:
     """Export listfile to file."""
@@ -166,7 +170,9 @@ def export_listfile(ctx: click.Context, output: Path, format: str) -> None:
             manager.export_listfile(output, format)
 
         stats = manager.get_statistics()
-        console.print(f"[green]✓[/green] Exported {stats['total_entries']:,} entries to {output}")
+        console.print(
+            f"[green]✓[/green] Exported {stats['total_entries']:,} entries to {output}"
+        )
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -223,10 +229,18 @@ def show_stats(ctx: click.Context) -> None:
 
 @listfile_group.command(name="import")
 @click.argument("input_file", type=click.Path(exists=True, path_type=Path))
-@click.option("--format", "-f", type=click.Choice(["csv", "txt"], case_sensitive=False), default="csv", help="Input file format")
+@click.option(
+    "--format",
+    "-f",
+    type=click.Choice(["csv", "txt"], case_sensitive=False),
+    default="csv",
+    help="Input file format",
+)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing entries")
 @click.pass_context
-def import_listfile(ctx: click.Context, input_file: Path, format: str, overwrite: bool) -> None:
+def import_listfile(
+    ctx: click.Context, input_file: Path, format: str, overwrite: bool
+) -> None:
     """Import listfile from a file.
 
     Accepts CSV format with columns: fdid,path,verified
@@ -242,28 +256,33 @@ def import_listfile(ctx: click.Context, input_file: Path, format: str, overwrite
             entries_to_import: list[dict[str, Any]] = []
 
             if format == "csv":
-                with open(input_file, newline='') as f:
+                with open(input_file, newline="") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        entries_to_import.append({
-                            "fdid": int(row.get("fdid", 0)),
-                            "path": row.get("path", ""),
-                            "verified": row.get("verified", "false").lower() in ("true", "1", "yes")
-                        })
+                        entries_to_import.append(
+                            {
+                                "fdid": int(row.get("fdid", 0)),
+                                "path": row.get("path", ""),
+                                "verified": row.get("verified", "false").lower()
+                                in ("true", "1", "yes"),
+                            }
+                        )
             else:  # TXT format (fdid;path per line)
                 with open(input_file) as f:
                     for line in f:
                         line = line.strip()
-                        if not line or line.startswith('#'):
+                        if not line or line.startswith("#"):
                             continue
-                        parts = line.split(';', 1)
+                        parts = line.split(";", 1)
                         if len(parts) == 2:
                             try:
-                                entries_to_import.append({
-                                    "fdid": int(parts[0]),
-                                    "path": parts[1],
-                                    "verified": False
-                                })
+                                entries_to_import.append(
+                                    {
+                                        "fdid": int(parts[0]),
+                                        "path": parts[1],
+                                        "verified": False,
+                                    }
+                                )
                             except ValueError:
                                 continue  # Skip invalid lines
 
@@ -275,14 +294,16 @@ def import_listfile(ctx: click.Context, input_file: Path, format: str, overwrite
                 file_entry = FileDataEntry(
                     fdid=int(entry_dict["fdid"]),
                     path=str(entry_dict["path"]),
-                    verified=bool(entry_dict.get("verified", False))
+                    verified=bool(entry_dict.get("verified", False)),
                 )
                 file_entries.append(file_entry)
 
             # Import the entries (source is "import" for manually imported files)
             imported = manager.import_entries(file_entries, source="import")
 
-            console.print(f"[green]✓[/green] Imported {imported} listfile entries from {input_file}")
+            console.print(
+                f"[green]✓[/green] Imported {imported} listfile entries from {input_file}"
+            )
 
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")

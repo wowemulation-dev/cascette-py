@@ -96,7 +96,9 @@ def _fetch_from_cdn_or_path(
             raise click.ClickException(f"Failed to read file {path}: {e}") from e
 
     if not validate_hash_string(input_str):
-        raise click.ClickException(f"Invalid input: not a valid file path or hash: {input_str}")
+        raise click.ClickException(
+            f"Invalid input: not a valid file path or hash: {input_str}"
+        )
 
     try:
         cdn_config = config.create_cdn_config(product)
@@ -106,7 +108,7 @@ def _fetch_from_cdn_or_path(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as progress:
             progress.add_task(description=progress_text, total=None)
 
@@ -139,7 +141,7 @@ def _detect_format_type(data: bytes) -> str:
     elif is_download(data):
         return "download"
     else:
-        if data.endswith(b'\x00' * 12):
+        if data.endswith(b"\x00" * 12):
             return "archive"
         return "unknown"
 
@@ -160,15 +162,23 @@ def _analyze_blte_compression(data: bytes) -> dict[str, Any]:
             mode = chunk.compression_mode.name
             compression_modes[mode] += 1
 
-            ratio = chunk.compressed_size / chunk.decompressed_size if chunk.decompressed_size > 0 else 0
-            chunk_details.append({
-                "compressed_size": chunk.compressed_size,
-                "decompressed_size": chunk.decompressed_size,
-                "compression_mode": mode,
-                "ratio": ratio
-            })
+            ratio = (
+                chunk.compressed_size / chunk.decompressed_size
+                if chunk.decompressed_size > 0
+                else 0
+            )
+            chunk_details.append(
+                {
+                    "compressed_size": chunk.compressed_size,
+                    "decompressed_size": chunk.decompressed_size,
+                    "compression_mode": mode,
+                    "ratio": ratio,
+                }
+            )
 
-        overall_ratio = total_compressed / total_decompressed if total_decompressed > 0 else 0
+        overall_ratio = (
+            total_compressed / total_decompressed if total_decompressed > 0 else 0
+        )
 
         return {
             "total_compressed_size": total_compressed,
@@ -176,7 +186,7 @@ def _analyze_blte_compression(data: bytes) -> dict[str, Any]:
             "overall_compression_ratio": overall_ratio,
             "chunk_count": len(blte_file.chunks),
             "compression_modes": dict(compression_modes),
-            "chunk_details": chunk_details
+            "chunk_details": chunk_details,
         }
     except Exception as e:
         return {"error": f"Failed to analyze BLTE: {e}"}
@@ -195,9 +205,11 @@ def _analyze_blte_stats(data: bytes) -> dict[str, Any]:
             "chunk_count": len(blte_file.chunks),
             "total_compressed_size": total_compressed,
             "total_decompressed_size": total_decompressed,
-            "compression_ratio": total_compressed / total_decompressed if total_decompressed > 0 else 0,
+            "compression_ratio": total_compressed / total_decompressed
+            if total_decompressed > 0
+            else 0,
             "header_size": blte_file.header.header_size,
-            "flags": blte_file.header.flags
+            "flags": blte_file.header.flags,
         }
     except Exception as e:
         return {"error": f"Failed to parse BLTE: {e}"}
@@ -219,7 +231,7 @@ def _analyze_encoding_stats(data: bytes) -> dict[str, Any]:
             "ekey_page_count": encoding.header.ekey_page_count,
             "ckey_page_size_kb": encoding.header.ckey_page_size_kb,
             "ekey_page_size_kb": encoding.header.ekey_page_size_kb,
-            "espec_size": encoding.header.espec_size
+            "espec_size": encoding.header.espec_size,
         }
     except Exception as e:
         return {"error": f"Failed to parse encoding: {e}"}
@@ -229,7 +241,12 @@ def _analyze_config_stats(data: bytes, config_type: str) -> dict[str, Any]:
     """Analyze configuration file statistics."""
     try:
         if config_type == "build":
-            parser: BuildConfigParser | CDNConfigParser | PatchConfigParser | ProductConfigParser = BuildConfigParser()
+            parser: (
+                BuildConfigParser
+                | CDNConfigParser
+                | PatchConfigParser
+                | ProductConfigParser
+            ) = BuildConfigParser()
         elif config_type == "cdn":
             parser = CDNConfigParser()
         elif config_type == "patch":
@@ -241,7 +258,7 @@ def _analyze_config_stats(data: bytes, config_type: str) -> dict[str, Any]:
 
         config_data = parser.parse(data)
 
-        if hasattr(config_data, 'model_dump'):
+        if hasattr(config_data, "model_dump"):
             entries = config_data.model_dump()
         else:
             entries = vars(config_data)
@@ -249,7 +266,7 @@ def _analyze_config_stats(data: bytes, config_type: str) -> dict[str, Any]:
         return {
             "config_type": config_type,
             "entry_count": len(entries),
-            "entries": entries
+            "entries": entries,
         }
     except Exception as e:
         return {"error": f"Failed to parse config: {e}"}
@@ -262,7 +279,9 @@ def _analyze_archive_stats(data: bytes) -> dict[str, Any]:
         archive = parser.parse(data)
 
         total_entries = sum(len(chunk.entries) for chunk in archive.chunks)
-        total_size = sum(entry.size for chunk in archive.chunks for entry in chunk.entries)
+        total_size = sum(
+            entry.size for chunk in archive.chunks for entry in chunk.entries
+        )
 
         return {
             "chunk_count": len(archive.chunks),
@@ -270,7 +289,7 @@ def _analyze_archive_stats(data: bytes) -> dict[str, Any]:
             "total_content_size": total_size,
             "ekey_length": archive.footer.ekey_length,
             "version": archive.footer.version,
-            "page_size_kb": archive.footer.page_size_kb
+            "page_size_kb": archive.footer.page_size_kb,
         }
     except Exception as e:
         return {"error": f"Failed to parse archive: {e}"}
@@ -289,7 +308,7 @@ def _analyze_root_stats(data: bytes) -> dict[str, Any]:
             "block_count": len(root.blocks),
             "total_records": total_records,
             "total_files": root.header.total_files,
-            "named_files": root.header.named_files
+            "named_files": root.header.named_files,
         }
     except Exception as e:
         return {"error": f"Failed to parse root: {e}"}
@@ -304,7 +323,7 @@ def _analyze_install_stats(data: bytes) -> dict[str, Any]:
         return {
             "entry_count": len(install.entries),
             "tag_count": len(install.tags),
-            "total_size": sum(entry.size for entry in install.entries)
+            "total_size": sum(entry.size for entry in install.entries),
         }
     except Exception as e:
         return {"error": f"Failed to parse install: {e}"}
@@ -320,13 +339,15 @@ def _analyze_download_stats(data: bytes) -> dict[str, Any]:
             "entry_count": len(download.entries),
             "tag_count": len(download.tags),
             "total_size": sum(entry.size for entry in download.entries),
-            "priority_levels": len({entry.priority for entry in download.entries})
+            "priority_levels": len({entry.priority for entry in download.entries}),
         }
     except Exception as e:
         return {"error": f"Failed to parse download: {e}"}
 
 
-def _display_stats_table(stats_data: dict[str, Any], console: Console, verbose: bool) -> None:
+def _display_stats_table(
+    stats_data: dict[str, Any], console: Console, verbose: bool
+) -> None:
     """Display statistics as Rich table."""
     table = Table(title=f"{stats_data['format_type'].title()} File Statistics")
     table.add_column("Property", style="cyan")
@@ -368,17 +389,17 @@ def inspect() -> None:
 # Format inspection (from examine.py)
 # ---------------------------------------------------------------------------
 
+
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--decompress", "-d",
-    is_flag=True,
-    help="Show decompressed data information"
+    "--decompress", "-d", is_flag=True, help="Show decompressed data information"
 )
 @click.option(
-    "--output-file", "-o",
+    "--output-file",
+    "-o",
     type=click.Path(path_type=Path),
-    help="Save decompressed data to file"
+    help="Save decompressed data to file",
 )
 @click.option(
     "--product",
@@ -401,6 +422,7 @@ def blte(
     If hash is provided, file will be fetched from CDN.
     """
     import sys
+
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
@@ -414,13 +436,17 @@ def blte(
 
         if config.output_format == "json":
             result: dict[str, Any] = {
-                "magic": blte_file.header.magic.decode('ascii', errors='ignore'),
+                "magic": blte_file.header.magic.decode("ascii", errors="ignore"),
                 "header_size": blte_file.header.header_size,
                 "flags": blte_file.header.flags,
                 "chunk_count": len(blte_file.chunks),
-                "total_compressed_size": sum(chunk.compressed_size for chunk in blte_file.chunks),
-                "total_decompressed_size": sum(chunk.decompressed_size for chunk in blte_file.chunks),
-                "chunks": []
+                "total_compressed_size": sum(
+                    chunk.compressed_size for chunk in blte_file.chunks
+                ),
+                "total_decompressed_size": sum(
+                    chunk.decompressed_size for chunk in blte_file.chunks
+                ),
+                "chunks": [],
             }
 
             for i, chunk in enumerate(blte_file.chunks):
@@ -429,7 +455,7 @@ def blte(
                     "compressed_size": chunk.compressed_size,
                     "decompressed_size": chunk.decompressed_size,
                     "compression_mode": chunk.compression_mode.name,
-                    "checksum": chunk.checksum.hex()
+                    "checksum": chunk.checksum.hex(),
                 }
                 if chunk.encryption_type:
                     chunk_info["encryption_type"] = chunk.encryption_type.name
@@ -451,18 +477,20 @@ def blte(
             table.add_column("Property", style="cyan")
             table.add_column("Value", style="white")
 
-            table.add_row("Magic", blte_file.header.magic.decode('ascii', errors='ignore'))
+            table.add_row(
+                "Magic", blte_file.header.magic.decode("ascii", errors="ignore")
+            )
             table.add_row("Header Size", str(blte_file.header.header_size))
             if blte_file.header.flags is not None:
                 table.add_row("Flags", f"0x{blte_file.header.flags:08x}")
             table.add_row("Chunk Count", str(len(blte_file.chunks)))
             table.add_row(
                 "Total Compressed",
-                format_size(sum(chunk.compressed_size for chunk in blte_file.chunks))
+                format_size(sum(chunk.compressed_size for chunk in blte_file.chunks)),
             )
             table.add_row(
                 "Total Decompressed",
-                format_size(sum(chunk.decompressed_size for chunk in blte_file.chunks))
+                format_size(sum(chunk.decompressed_size for chunk in blte_file.chunks)),
             )
 
             _output_table(table, console)
@@ -481,7 +509,7 @@ def blte(
                         format_size(chunk.compressed_size),
                         format_size(chunk.decompressed_size),
                         chunk.compression_mode.name,
-                        chunk.checksum.hex()[:16] + "..."
+                        chunk.checksum.hex()[:16] + "...",
                     )
 
                 _output_table(chunk_table, console)
@@ -492,17 +520,23 @@ def blte(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
                     console=console,
-                    transient=True
+                    transient=True,
                 ) as progress:
                     progress.add_task(description="Decompressing BLTE data", total=None)
                     decompressed = decompress_blte(data)
 
                 if output_file:
                     output_file.write_bytes(decompressed)
-                    console.print(f"[green]Decompressed data saved to {output_file}[/green]")
+                    console.print(
+                        f"[green]Decompressed data saved to {output_file}[/green]"
+                    )
                 elif decompress and config.output_format != "json":
-                    console.print(f"[green]Decompressed size: {format_size(len(decompressed))}[/green]")
-                    console.print(f"[green]MD5: {compute_md5(decompressed).hex()}[/green]")
+                    console.print(
+                        f"[green]Decompressed size: {format_size(len(decompressed))}[/green]"
+                    )
+                    console.print(
+                        f"[green]MD5: {compute_md5(decompressed).hex()}[/green]"
+                    )
 
             except Exception as e:
                 if config.output_format == "json":
@@ -521,15 +555,10 @@ def blte(
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--limit", "-l",
-    type=int,
-    default=10,
-    help="Limit number of entries to display"
+    "--limit", "-l", type=int, default=10, help="Limit number of entries to display"
 )
 @click.option(
-    "--search", "-s",
-    type=str,
-    help="Search for specific content key (hex string)"
+    "--search", "-s", type=str, help="Search for specific content key (hex string)"
 )
 @click.option(
     "--product",
@@ -567,7 +596,7 @@ def encoding(
 
         if config.output_format == "json":
             result: dict[str, Any] = {
-                "magic": encoding_file.header.magic.decode('ascii', errors='ignore'),
+                "magic": encoding_file.header.magic.decode("ascii", errors="ignore"),
                 "version": encoding_file.header.version,
                 "ckey_size": encoding_file.header.ckey_size,
                 "ekey_size": encoding_file.header.ekey_size,
@@ -591,7 +620,10 @@ def encoding(
                             "encoding_keys": [k.hex() for k in ekeys],
                         }
                     else:
-                        result["search_result"] = {"content_key": search, "found": False}
+                        result["search_result"] = {
+                            "content_key": search,
+                            "found": False,
+                        }
                 except ValueError as e:
                     result["search_error"] = str(e)
             else:
@@ -605,11 +637,15 @@ def encoding(
                         for entry in page.entries:
                             if collected >= limit:
                                 break
-                            entries.append({
-                                "content_key": entry.content_key.hex(),
-                                "encoding_keys": [k.hex() for k in entry.encoding_keys],
-                                "file_size": entry.file_size,
-                            })
+                            entries.append(
+                                {
+                                    "content_key": entry.content_key.hex(),
+                                    "encoding_keys": [
+                                        k.hex() for k in entry.encoding_keys
+                                    ],
+                                    "file_size": entry.file_size,
+                                }
+                            )
                             collected += 1
                     except Exception:
                         break
@@ -621,15 +657,27 @@ def encoding(
             header_table.add_column("Property", style="cyan")
             header_table.add_column("Value", style="white")
 
-            header_table.add_row("Magic", encoding_file.header.magic.decode('ascii', errors='ignore'))
+            header_table.add_row(
+                "Magic", encoding_file.header.magic.decode("ascii", errors="ignore")
+            )
             header_table.add_row("Version", str(encoding_file.header.version))
             header_table.add_row("CKey Size", f"{encoding_file.header.ckey_size} bytes")
             header_table.add_row("EKey Size", f"{encoding_file.header.ekey_size} bytes")
-            header_table.add_row("CKey Page Size", f"{encoding_file.header.ckey_page_size_kb} KB")
-            header_table.add_row("EKey Page Size", f"{encoding_file.header.ekey_page_size_kb} KB")
-            header_table.add_row("CKey Page Count", str(encoding_file.header.ckey_page_count))
-            header_table.add_row("EKey Page Count", str(encoding_file.header.ekey_page_count))
-            header_table.add_row("ESpec Size", format_size(encoding_file.header.espec_size))
+            header_table.add_row(
+                "CKey Page Size", f"{encoding_file.header.ckey_page_size_kb} KB"
+            )
+            header_table.add_row(
+                "EKey Page Size", f"{encoding_file.header.ekey_page_size_kb} KB"
+            )
+            header_table.add_row(
+                "CKey Page Count", str(encoding_file.header.ckey_page_count)
+            )
+            header_table.add_row(
+                "EKey Page Count", str(encoding_file.header.ekey_page_count)
+            )
+            header_table.add_row(
+                "ESpec Size", format_size(encoding_file.header.espec_size)
+            )
 
             _output_table(header_table, console)
 
@@ -645,7 +693,9 @@ def encoding(
                         result_table.add_row(search, ekey_str)
                         _output_table(result_table, console)
                     else:
-                        console.print(f"[yellow]Content key not found: {search}[/yellow]")
+                        console.print(
+                            f"[yellow]Content key not found: {search}[/yellow]"
+                        )
                 except ValueError as e:
                     console.print(f"[red]Invalid hex key: {e}[/red]")
             else:
@@ -688,13 +738,15 @@ def encoding(
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--limit", "-l",
+    "--limit",
+    "-l",
     type=int,
     default=10,
     help="Limit number of entries to display",
 )
 @click.option(
-    "--tag", "-t",
+    "--tag",
+    "-t",
     type=str,
     default=None,
     help="Filter entries by tag name (e.g. 'Windows', 'enUS')",
@@ -727,7 +779,11 @@ def download(
     try:
         product_enum = Product(product)
         data = _fetch_from_cdn_or_path(
-            input_path, console, config, "Fetching download manifest", product=product_enum
+            input_path,
+            console,
+            config,
+            "Fetching download manifest",
+            product=product_enum,
         )
 
         if is_blte(data):
@@ -752,7 +808,9 @@ def download(
                         "name": t.name,
                         "tag_type": t.tag_type,
                         "file_count": sum(1 for e in dl.entries if t.name in e.tags),
-                        "total_size": sum(e.size for e in dl.entries if t.name in e.tags),
+                        "total_size": sum(
+                            e.size for e in dl.entries if t.name in e.tags
+                        ),
                     }
                     for t in dl.tags
                 ],
@@ -819,7 +877,9 @@ def download(
             _output_table(prio_table, console)
 
             # Entry sample
-            entries_table = Table(title=f"Entries (first {min(limit, len(entries))} of {len(entries)})")
+            entries_table = Table(
+                title=f"Entries (first {min(limit, len(entries))} of {len(entries)})"
+            )
             entries_table.add_column("EKey", style="cyan", no_wrap=True)
             entries_table.add_column("Size", style="magenta", justify="right")
             entries_table.add_column("Priority", style="white", justify="right")
@@ -861,8 +921,12 @@ def config(ctx: click.Context, input_path: str, product: str) -> None:
     try:
         product_enum = Product(product)
         data = _fetch_from_cdn_or_path(
-            input_path, console, config_obj, "Fetching config file",
-            cdn_type="config", product=product_enum
+            input_path,
+            console,
+            config_obj,
+            "Fetching config file",
+            cdn_type="config",
+            product=product_enum,
         )
 
         if not is_config_file(data):
@@ -871,7 +935,12 @@ def config(ctx: click.Context, input_path: str, product: str) -> None:
         config_type = detect_config_type(data)
 
         if config_type == "build":
-            parser: BuildConfigParser | CDNConfigParser | PatchConfigParser | ProductConfigParser = BuildConfigParser()
+            parser: (
+                BuildConfigParser
+                | CDNConfigParser
+                | PatchConfigParser
+                | ProductConfigParser
+            ) = BuildConfigParser()
         elif config_type == "cdn":
             parser = CDNConfigParser()
         elif config_type == "patch":
@@ -884,12 +953,9 @@ def config(ctx: click.Context, input_path: str, product: str) -> None:
         config_data = parser.parse(data)
 
         if config_obj.output_format == "json":
-            result: dict[str, Any] = {
-                "type": config_type,
-                "entries": {}
-            }
+            result: dict[str, Any] = {"type": config_type, "entries": {}}
 
-            if hasattr(config_data, 'model_dump'):
+            if hasattr(config_data, "model_dump"):
                 result["entries"] = config_data.model_dump()
             else:
                 result["entries"] = vars(config_data)
@@ -900,7 +966,7 @@ def config(ctx: click.Context, input_path: str, product: str) -> None:
             table.add_column("Key", style="cyan")
             table.add_column("Value", style="white")
 
-            if hasattr(config_data, 'model_dump'):
+            if hasattr(config_data, "model_dump"):
                 entries = config_data.model_dump()
             else:
                 entries = vars(config_data)
@@ -938,7 +1004,9 @@ def archive(ctx: click.Context, input_path: str) -> None:
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching archive index", cdn_type="index")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching archive index", cdn_type="index"
+        )
 
         parser = ArchiveIndexParser()
         archive_index = parser.parse(data)
@@ -953,20 +1021,24 @@ def archive(ctx: click.Context, input_path: str) -> None:
                     "offset_bytes": archive_index.footer.offset_bytes,
                     "size_bytes": archive_index.footer.size_bytes,
                     "ekey_length": archive_index.footer.ekey_length,
-                    "element_count": archive_index.footer.element_count
+                    "element_count": archive_index.footer.element_count,
                 },
                 "chunks": len(archive_index.chunks),
-                "total_entries": sum(len(chunk.entries) for chunk in archive_index.chunks),
-                "sample_entries": []
+                "total_entries": sum(
+                    len(chunk.entries) for chunk in archive_index.chunks
+                ),
+                "sample_entries": [],
             }
 
             if archive_index.chunks and archive_index.chunks[0].entries:
                 for entry in archive_index.chunks[0].entries[:10]:
-                    result["sample_entries"].append({
-                        "encoding_key": entry.ekey.hex(),
-                        "size": entry.size,
-                        "offset": entry.offset
-                    })
+                    result["sample_entries"].append(
+                        {
+                            "encoding_key": entry.ekey.hex(),
+                            "size": entry.size,
+                            "offset": entry.offset,
+                        }
+                    )
 
             _output_json(result, console)
         else:
@@ -979,8 +1051,12 @@ def archive(ctx: click.Context, input_path: str) -> None:
             footer_table.add_row("Page Size", f"{archive_index.footer.page_size_kb} KB")
             footer_table.add_row("Offset Bytes", str(archive_index.footer.offset_bytes))
             footer_table.add_row("Size Bytes", str(archive_index.footer.size_bytes))
-            footer_table.add_row("EKey Length", f"{archive_index.footer.ekey_length} bytes")
-            footer_table.add_row("Element Count", str(archive_index.footer.element_count))
+            footer_table.add_row(
+                "EKey Length", f"{archive_index.footer.ekey_length} bytes"
+            )
+            footer_table.add_row(
+                "Element Count", str(archive_index.footer.element_count)
+            )
 
             _output_table(footer_table, console)
 
@@ -989,10 +1065,15 @@ def archive(ctx: click.Context, input_path: str) -> None:
             structure_table.add_column("Value", style="white")
 
             structure_table.add_row("Chunk Count", str(len(archive_index.chunks)))
-            structure_table.add_row("Total Entries", str(sum(len(chunk.entries) for chunk in archive_index.chunks)))
+            structure_table.add_row(
+                "Total Entries",
+                str(sum(len(chunk.entries) for chunk in archive_index.chunks)),
+            )
 
             if archive_index.chunks:
-                avg_entries = sum(len(chunk.entries) for chunk in archive_index.chunks) / len(archive_index.chunks)
+                avg_entries = sum(
+                    len(chunk.entries) for chunk in archive_index.chunks
+                ) / len(archive_index.chunks)
                 structure_table.add_row("Avg Entries/Chunk", f"{avg_entries:.1f}")
 
             _output_table(structure_table, console)
@@ -1005,9 +1086,7 @@ def archive(ctx: click.Context, input_path: str) -> None:
 
                 for entry in archive_index.chunks[0].entries[:10]:
                     entries_table.add_row(
-                        entry.ekey.hex(),
-                        format_size(entry.size),
-                        str(entry.offset)
+                        entry.ekey.hex(), format_size(entry.size), str(entry.offset)
                     )
 
                 _output_table(entries_table, console)
@@ -1023,20 +1102,30 @@ def archive(ctx: click.Context, input_path: str) -> None:
 # Format analysis (from analyze.py)
 # ---------------------------------------------------------------------------
 
+
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--format-type", "-t",
-    type=click.Choice(["auto", "blte", "encoding", "config", "archive", "root", "install", "download"], case_sensitive=False),
+    "--format-type",
+    "-t",
+    type=click.Choice(
+        [
+            "auto",
+            "blte",
+            "encoding",
+            "config",
+            "archive",
+            "root",
+            "install",
+            "download",
+        ],
+        case_sensitive=False,
+    ),
     default="auto",
-    help="Force specific format type (auto-detect if not specified)"
+    help="Force specific format type (auto-detect if not specified)",
 )
 @click.pass_context
-def stats(
-    ctx: click.Context,
-    input_path: str,
-    format_type: str
-) -> None:
+def stats(ctx: click.Context, input_path: str, format_type: str) -> None:
     """Show statistics for a format file.
 
     INPUT can be either a file path or CDN hash.
@@ -1045,18 +1134,22 @@ def stats(
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching file for analysis")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching file for analysis"
+        )
 
         if format_type == "auto":
             format_type = _detect_format_type(data)
             if format_type == "unknown":
-                raise click.ClickException("Could not auto-detect format type. Please specify --format-type")
+                raise click.ClickException(
+                    "Could not auto-detect format type. Please specify --format-type"
+                )
 
         stats_data = {
             "input": input_path,
             "format_type": format_type,
             "file_size": len(data),
-            "md5": compute_md5(data).hex()
+            "md5": compute_md5(data).hex(),
         }
 
         if format_type == "blte":
@@ -1092,16 +1185,14 @@ def stats(
 @click.argument("encoding_file", type=str)
 @click.argument("content_key", type=str)
 @click.option(
-    "--show-archive-details", "-a",
+    "--show-archive-details",
+    "-a",
     is_flag=True,
-    help="Show detailed archive information"
+    help="Show detailed archive information",
 )
 @click.pass_context
 def dependencies(
-    ctx: click.Context,
-    encoding_file: str,
-    content_key: str,
-    show_archive_details: bool
+    ctx: click.Context, encoding_file: str, content_key: str, show_archive_details: bool
 ) -> None:
     """Trace content key to encoding key to archive.
 
@@ -1116,7 +1207,9 @@ def dependencies(
         except ValueError as e:
             raise click.ClickException(f"Invalid content key hex string: {e}") from e
 
-        encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        encoding_data = _fetch_from_cdn_or_path(
+            encoding_file, console, config, "Fetching encoding file"
+        )
         if is_blte(encoding_data):
             encoding_data = decompress_blte(encoding_data)
 
@@ -1131,8 +1224,8 @@ def dependencies(
                 "ckey_size": encoding.header.ckey_size,
                 "ekey_size": encoding.header.ekey_size,
                 "ckey_page_count": encoding.header.ckey_page_count,
-                "ekey_page_count": encoding.header.ekey_page_count
-            }
+                "ekey_page_count": encoding.header.ekey_page_count,
+            },
         }
 
         if config.output_format == "json":
@@ -1144,7 +1237,9 @@ def dependencies(
 
             table.add_row("Content Key", content_key)
             table.add_row("Encoding File", encoding_file)
-            table.add_row("Status", "[yellow]Requires page loading implementation[/yellow]")
+            table.add_row(
+                "Status", "[yellow]Requires page loading implementation[/yellow]"
+            )
 
             _output_table(table, console)
 
@@ -1164,7 +1259,7 @@ def coverage(
     ctx: click.Context,
     encoding_file: str,
     root_file: str | None,
-    install_file: str | None
+    install_file: str | None,
 ) -> None:
     """Analyze content coverage between encoding, root, and install manifests.
 
@@ -1177,10 +1272,12 @@ def coverage(
         coverage_data: dict[str, Any] = {
             "encoding_file": encoding_file,
             "root_file": root_file,
-            "install_file": install_file
+            "install_file": install_file,
         }
 
-        encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        encoding_data = _fetch_from_cdn_or_path(
+            encoding_file, console, config, "Fetching encoding file"
+        )
         if is_blte(encoding_data):
             encoding_data = decompress_blte(encoding_data)
         encoding_parser = EncodingParser()
@@ -1189,14 +1286,16 @@ def coverage(
         coverage_data["encoding_stats"] = {
             "ckey_page_count": encoding.header.ckey_page_count,
             "ekey_page_count": encoding.header.ekey_page_count,
-            "note": "Entry count requires page loading"
+            "note": "Entry count requires page loading",
         }
 
         root = None
         install = None
 
         if root_file:
-            root_data = _fetch_from_cdn_or_path(root_file, console, config, "Fetching root file")
+            root_data = _fetch_from_cdn_or_path(
+                root_file, console, config, "Fetching root file"
+            )
             root_parser = RootParser()
             root = root_parser.parse(root_data)
 
@@ -1204,20 +1303,24 @@ def coverage(
             coverage_data["root_stats"] = {
                 "block_count": len(root.blocks),
                 "total_records": total_records,
-                "version": root.header.version
+                "version": root.header.version,
             }
 
         if install_file:
-            install_data = _fetch_from_cdn_or_path(install_file, console, config, "Fetching install file")
+            install_data = _fetch_from_cdn_or_path(
+                install_file, console, config, "Fetching install file"
+            )
             install_parser = InstallParser()
             install = install_parser.parse(install_data)
 
             coverage_data["install_stats"] = {
                 "entry_count": len(install.entries),
-                "tag_count": len(install.tags)
+                "tag_count": len(install.tags),
             }
 
-        coverage_data["note"] = "Detailed coverage analysis requires full entry loading implementation"
+        coverage_data["note"] = (
+            "Detailed coverage analysis requires full entry loading implementation"
+        )
 
         if config.output_format == "json":
             _output_json(coverage_data, console)
@@ -1227,7 +1330,9 @@ def coverage(
             table.add_column("Status", style="white")
             table.add_column("Details", style="yellow")
 
-            table.add_row("Encoding", "Analyzed", f"{encoding.header.ckey_page_count} CKey pages")
+            table.add_row(
+                "Encoding", "Analyzed", f"{encoding.header.ckey_page_count} CKey pages"
+            )
 
             if root_file and root:
                 table.add_row("Root", "Analyzed", f"{len(root.blocks)} blocks")
@@ -1251,23 +1356,22 @@ def coverage(
 @inspect.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--threshold", "-t",
+    "--threshold",
+    "-t",
     type=float,
     default=0.8,
-    help="Compression ratio threshold for 'poorly compressed' files (default: 0.8)"
+    help="Compression ratio threshold for 'poorly compressed' files (default: 0.8)",
 )
 @click.option(
-    "--limit", "-l",
+    "--limit",
+    "-l",
     type=int,
     default=10,
-    help="Limit number of poorly compressed files to show"
+    help="Limit number of poorly compressed files to show",
 )
 @click.pass_context
 def compression(
-    ctx: click.Context,
-    input_path: str,
-    threshold: float,
-    limit: int
+    ctx: click.Context, input_path: str, threshold: float, limit: int
 ) -> None:
     """Analyze BLTE compression effectiveness.
 
@@ -1277,7 +1381,9 @@ def compression(
     config, console, verbose, _ = _get_context_objects(ctx)
 
     try:
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching BLTE file")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching BLTE file"
+        )
 
         if not is_blte(data):
             raise click.ClickException("Input file is not a BLTE file")
@@ -1288,7 +1394,8 @@ def compression(
             raise click.ClickException(compression_data["error"])
 
         poorly_compressed = [
-            (i, chunk) for i, chunk in enumerate(compression_data["chunk_details"])
+            (i, chunk)
+            for i, chunk in enumerate(compression_data["chunk_details"])
             if chunk["ratio"] > threshold
         ]
 
@@ -1304,10 +1411,21 @@ def compression(
             summary_table.add_column("Value", style="white")
 
             summary_table.add_row("Total Chunks", str(compression_data["chunk_count"]))
-            summary_table.add_row("Compressed Size", format_size(compression_data["total_compressed_size"]))
-            summary_table.add_row("Decompressed Size", format_size(compression_data["total_decompressed_size"]))
-            summary_table.add_row("Overall Ratio", f"{compression_data['overall_compression_ratio']:.3f}")
-            summary_table.add_row("Poorly Compressed", f"{len(poorly_compressed)} (>{threshold:.1f} ratio)")
+            summary_table.add_row(
+                "Compressed Size",
+                format_size(compression_data["total_compressed_size"]),
+            )
+            summary_table.add_row(
+                "Decompressed Size",
+                format_size(compression_data["total_decompressed_size"]),
+            )
+            summary_table.add_row(
+                "Overall Ratio", f"{compression_data['overall_compression_ratio']:.3f}"
+            )
+            summary_table.add_row(
+                "Poorly Compressed",
+                f"{len(poorly_compressed)} (>{threshold:.1f} ratio)",
+            )
 
             _output_table(summary_table, console)
 
@@ -1322,7 +1440,9 @@ def compression(
                 _output_table(modes_table, console)
 
             if poorly_compressed:
-                poor_table = Table(title=f"Poorly Compressed Chunks (showing {min(limit, len(poorly_compressed))})")
+                poor_table = Table(
+                    title=f"Poorly Compressed Chunks (showing {min(limit, len(poorly_compressed))})"
+                )
                 poor_table.add_column("Chunk", style="cyan")
                 poor_table.add_column("Compressed", style="yellow")
                 poor_table.add_column("Decompressed", style="green")
@@ -1335,7 +1455,7 @@ def compression(
                         format_size(chunk["compressed_size"]),
                         format_size(chunk["decompressed_size"]),
                         f"{chunk['ratio']:.3f}",
-                        chunk["compression_mode"]
+                        chunk["compression_mode"],
                     )
 
                 _output_table(poor_table, console)

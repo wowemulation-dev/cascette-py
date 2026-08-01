@@ -114,9 +114,7 @@ class EncodingCache:
         if max_gen > 0:
             self.generation = max_gen + 1
 
-    def write_entry(
-        self, ckey: bytes, ekey: bytes, espec_index: int = 0
-    ) -> None:
+    def write_entry(self, ckey: bytes, ekey: bytes, espec_index: int = 0) -> None:
         """Add a CKey→EKey mapping to the cache.
 
         Args:

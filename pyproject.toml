@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cascette-tools"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python tools for NGDP/CASC format analysis"
 readme = "README.md"
 requires-python = ">=3.12"

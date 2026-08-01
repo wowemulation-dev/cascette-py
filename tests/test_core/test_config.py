@@ -29,7 +29,7 @@ class TestCacheConfig:
             cache_dir=custom_dir,
             ttl=3600,  # 1 hour
             max_size=1024 * 1024,  # 1MB
-            enabled=False
+            enabled=False,
         )
 
         assert config.cache_dir == custom_dir
@@ -78,7 +78,7 @@ class TestCDNConfig:
             fallback_mirrors=custom_mirrors,
             timeout=60.0,
             max_retries=5,
-            verify_ssl=False
+            verify_ssl=False,
         )
 
         assert config.fallback_mirrors == custom_mirrors
@@ -131,10 +131,7 @@ class TestTACTConfig:
     def test_custom_values(self):
         """Test custom TACT configuration."""
         config = TACTConfig(
-            timeout=60.0,
-            max_retries=5,
-            verify_ssl=False,
-            regions=["us", "eu"]
+            timeout=60.0, max_retries=5, verify_ssl=False, regions=["us", "eu"]
         )
 
         assert config.timeout == 60.0
@@ -211,7 +208,7 @@ class TestAppConfig:
             cache_max_size=1024 * 1024,  # 1MB
             cache_ttl=3600,  # 1 hour
             output_format="json",
-            log_level="DEBUG"
+            log_level="DEBUG",
         )
 
         assert config.config_dir == custom_config_dir
@@ -243,7 +240,7 @@ class TestAppConfig:
         config_data = {
             "cdn_timeout": 60.0,
             "cache_enabled": False,
-            "log_level": "DEBUG"
+            "log_level": "DEBUG",
         }
 
         with open(config_file, "w") as f:
@@ -289,11 +286,7 @@ class TestAppConfig:
 
     def test_save_config(self, tmp_path):
         """Test saving configuration to file."""
-        config = AppConfig(
-            cdn_timeout=60.0,
-            cache_enabled=False,
-            log_level="DEBUG"
-        )
+        config = AppConfig(cdn_timeout=60.0, cache_enabled=False, log_level="DEBUG")
 
         config_file = tmp_path / "config.json"
         config.save(config_file)

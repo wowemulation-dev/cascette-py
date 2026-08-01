@@ -138,9 +138,7 @@ def _fetch_ribbit_builds(
 
             progress.advance(task)
 
-        progress.update(
-            task, description=f"Ribbit: {len(builds)} builds fetched"
-        )
+        progress.update(task, description=f"Ribbit: {len(builds)} builds fetched")
 
     return builds
 
@@ -275,7 +273,9 @@ def sync_builds(
         from cascette_tools.database.wago import WagoClient
 
         with WagoClient(config_obj) as wago:
-            console.print(f"\n[cyan]Importing {len(all_builds)} builds to database...[/cyan]")
+            console.print(
+                f"\n[cyan]Importing {len(all_builds)} builds to database...[/cyan]"
+            )
             import_stats = wago.import_builds_to_database(all_builds)
 
         # --- Summary table ---
@@ -289,22 +289,33 @@ def sync_builds(
         table.add_column("Version Range", style="yellow")
 
         for product, product_builds in sorted(by_product.items()):
-            versions: list[str] = sorted({b.version for b in product_builds if b.version})
-            version_range = f"{versions[0]} – {versions[-1]}" if len(versions) > 1 else (versions[0] if versions else "N/A")
+            versions: list[str] = sorted(
+                {b.version for b in product_builds if b.version}
+            )
+            version_range = (
+                f"{versions[0]} – {versions[-1]}"
+                if len(versions) > 1
+                else (versions[0] if versions else "N/A")
+            )
             table.add_row(product, str(len(product_builds)), version_range)
 
         console.print(table)
         console.print(f"\n[green]Total fetched: {len(all_builds)}[/green]")
 
         if show_stats or verbose:
-            console.print(f"[green]  Imported (new): {import_stats['imported']}[/green]")
-            console.print(f"[yellow]  Updated:        {import_stats['updated']}[/yellow]")
+            console.print(
+                f"[green]  Imported (new): {import_stats['imported']}[/green]"
+            )
+            console.print(
+                f"[yellow]  Updated:        {import_stats['updated']}[/yellow]"
+            )
             console.print(f"[dim]  Skipped:        {import_stats['skipped']}[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -359,10 +370,14 @@ def list_builds(
 
             # Apply limit unless --all is specified
             if not all and total > limit:
-                console.print(f"[dim]Showing {limit} of {total} builds (use --all to see all)[/dim]\n")
+                console.print(
+                    f"[dim]Showing {limit} of {total} builds (use --all to see all)[/dim]\n"
+                )
                 builds = builds[:limit]
             else:
-                console.print(f"[dim]Showing {len(builds)} of {total} builds (use --all to see all)[/dim]\n")
+                console.print(
+                    f"[dim]Showing {len(builds)} of {total} builds (use --all to see all)[/dim]\n"
+                )
 
             # Create table — keep it narrow by default, show hashes only in verbose mode
             table = Table(title="WoW Builds", show_header=True)
@@ -381,7 +396,9 @@ def list_builds(
                     build.product,
                     build.version or "N/A",
                     build.build or "N/A",
-                    build.build_time.strftime('%Y-%m-%d') if build.build_time else "N/A",
+                    build.build_time.strftime("%Y-%m-%d")
+                    if build.build_time
+                    else "N/A",
                 ]
 
                 if verbose:
@@ -398,6 +415,7 @@ def list_builds(
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -407,7 +425,9 @@ def list_builds(
 @click.option(
     "--field",
     "-f",
-    type=click.Choice(["version", "build", "config", "branch", "all"], case_sensitive=False),
+    type=click.Choice(
+        ["version", "build", "config", "branch", "all"], case_sensitive=False
+    ),
     default="all",
     help="Field to search in",
 )
@@ -443,7 +463,9 @@ def search_builds(
                 table.add_column("CDN Config", style="dim", no_wrap=True)
 
             for build in builds:
-                created = build.build_time.strftime("%Y-%m-%d") if build.build_time else "N/A"
+                created = (
+                    build.build_time.strftime("%Y-%m-%d") if build.build_time else "N/A"
+                )
                 row = [
                     build.product,
                     build.version or "N/A",
@@ -464,6 +486,7 @@ def search_builds(
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -492,36 +515,34 @@ def builds_stats(ctx: click.Context) -> None:
             if cache_status["valid"]:
                 console.print("\nCache status: [green]Valid[/green]")
                 console.print(f"Last updated: {cache_status['fetch_time']}")
-                console.print(f"Expires in: {cache_status['remaining_hours']:.1f} hours")
+                console.print(
+                    f"Expires in: {cache_status['remaining_hours']:.1f} hours"
+                )
             else:
                 console.print("\nCache status: [yellow]Expired or not present[/yellow]")
 
             # Product breakdown
-            if verbose and stats.get('by_product'):
+            if verbose and stats.get("by_product"):
                 console.print("\n[bold]Builds by Product:[/bold]")
                 product_table = Table(show_header=True, header_style="bold")
                 product_table.add_column("Product")
                 product_table.add_column("Count", justify="right")
                 product_table.add_column("Percentage", justify="right")
 
-                for product, count in stats['by_product'].items():
-                    percentage = (count / stats['total_builds']) * 100
-                    product_table.add_row(
-                        product,
-                        str(count),
-                        f"{percentage:.1f}%"
-                    )
+                for product, count in stats["by_product"].items():
+                    percentage = (count / stats["total_builds"]) * 100
+                    product_table.add_row(product, str(count), f"{percentage:.1f}%")
 
                 console.print(product_table)
 
             # Version breakdown
-            if verbose and stats.get('by_major_version'):
+            if verbose and stats.get("by_major_version"):
                 console.print("\n[bold]Builds by Major Version:[/bold]")
                 version_table = Table(show_header=True, header_style="bold")
                 version_table.add_column("Version")
                 version_table.add_column("Count", justify="right")
 
-                for version, count in sorted(stats['by_major_version'].items()):
+                for version, count in sorted(stats["by_major_version"].items()):
                     version_table.add_row(version, str(count))
 
                 console.print(version_table)
@@ -530,6 +551,7 @@ def builds_stats(ctx: click.Context) -> None:
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -580,7 +602,9 @@ def export_builds(
                         "build_config": b.build_config,
                         "cdn_config": b.cdn_config,
                         "product_config": b.product_config,
-                        "build_time": b.build_time.isoformat() if b.build_time else None,
+                        "build_time": b.build_time.isoformat()
+                        if b.build_time
+                        else None,
                         "encoding_ekey": b.encoding_ekey,
                         "root_ekey": b.root_ekey,
                         "install_ekey": b.install_ekey,
@@ -599,26 +623,37 @@ def export_builds(
                     writer = csv.DictWriter(
                         f,
                         fieldnames=[
-                            "id", "product", "version", "build",
-                            "build_config", "cdn_config", "product_config",
-                            "build_time", "encoding_ekey", "root_ekey"
-                        ]
+                            "id",
+                            "product",
+                            "version",
+                            "build",
+                            "build_config",
+                            "cdn_config",
+                            "product_config",
+                            "build_time",
+                            "encoding_ekey",
+                            "root_ekey",
+                        ],
                     )
                     writer.writeheader()
 
                     for build in builds:
-                        writer.writerow({
-                            "id": build.id,
-                            "product": build.product,
-                            "version": build.version,
-                            "build": build.build,
-                            "build_config": build.build_config,
-                            "cdn_config": build.cdn_config,
-                            "product_config": build.product_config,
-                            "build_time": build.build_time.isoformat() if build.build_time else None,
-                            "encoding_ekey": build.encoding_ekey,
-                            "root_ekey": build.root_ekey,
-                        })
+                        writer.writerow(
+                            {
+                                "id": build.id,
+                                "product": build.product,
+                                "version": build.version,
+                                "build": build.build,
+                                "build_config": build.build_config,
+                                "cdn_config": build.cdn_config,
+                                "product_config": build.product_config,
+                                "build_time": build.build_time.isoformat()
+                                if build.build_time
+                                else None,
+                                "encoding_ekey": build.encoding_ekey,
+                                "root_ekey": build.root_ekey,
+                            }
+                        )
 
             console.print(f"[green]Exported {len(builds)} builds to {output}[/green]")
 
@@ -626,6 +661,7 @@ def export_builds(
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -657,7 +693,9 @@ def import_builds(
             elif input.suffix.lower() == ".csv":
                 format = "csv"
             else:
-                console.print("[red]Cannot auto-detect format. Please specify --format[/red]")
+                console.print(
+                    "[red]Cannot auto-detect format. Please specify --format[/red]"
+                )
                 raise click.Abort()
 
         builds: list[WagoBuild] = []
@@ -690,10 +728,21 @@ def import_builds(
                     # Optional fields
                     if "build_time" in row and row["build_time"]:
                         from datetime import datetime
-                        build_data["build_time"] = datetime.fromisoformat(str(row["build_time"]))
+
+                        build_data["build_time"] = datetime.fromisoformat(
+                            str(row["build_time"])
+                        )
 
                     # Optional config fields
-                    for field in ["build_config", "cdn_config", "product_config", "encoding_ekey", "root_ekey", "install_ekey", "download_ekey"]:
+                    for field in [
+                        "build_config",
+                        "cdn_config",
+                        "product_config",
+                        "encoding_ekey",
+                        "root_ekey",
+                        "install_ekey",
+                        "download_ekey",
+                    ]:
                         if field in row and row[field]:
                             build_data[field] = str(row[field])
 
@@ -709,13 +758,16 @@ def import_builds(
             stats = wago.import_builds_to_database(builds)
 
             console.print(f"[green]Imported {stats['imported']} new builds[/green]")
-            console.print(f"[yellow]Updated {stats['updated']} existing builds[/yellow]")
+            console.print(
+                f"[yellow]Updated {stats['updated']} existing builds[/yellow]"
+            )
             console.print(f"[dim]Skipped {stats['skipped']} unchanged builds[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e
 
@@ -872,5 +924,6 @@ def add_build(
         console.print(f"[red]Error: {e}[/red]")
         if debug:
             import traceback
+
             console.print(traceback.format_exc())
         raise click.Abort() from e

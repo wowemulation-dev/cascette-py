@@ -89,7 +89,7 @@ class TestCdnCommands:
         mock_context_objects,
         mock_cdn_client,
         sample_config_data,
-        tmp_path
+        tmp_path,
     ):
         """Test config command fetching build config."""
         mock_get_context.return_value = mock_context_objects
@@ -98,12 +98,17 @@ class TestCdnCommands:
 
         output_file = tmp_path / "test_config.build"
 
-        result = runner.invoke(cdn, [
-            "config",
-            "abcdef1234567890abcdef1234567890",
-            "--type", "build",
-            "--output", str(output_file)
-        ])
+        result = runner.invoke(
+            cdn,
+            [
+                "config",
+                "abcdef1234567890abcdef1234567890",
+                "--type",
+                "build",
+                "--output",
+                str(output_file),
+            ],
+        )
 
         if result.exit_code != 0:
             print(f"Command output: {result.output}")
@@ -122,7 +127,7 @@ class TestCdnCommands:
         runner,
         mock_context_objects,
         mock_cdn_client,
-        sample_config_data
+        sample_config_data,
     ):
         """Test config command without specifying output file."""
         mock_get_context.return_value = mock_context_objects
@@ -130,11 +135,9 @@ class TestCdnCommands:
         mock_cdn_client.fetch_config.return_value = sample_config_data
 
         with patch("cascette_tools.commands.cdn._save_file") as mock_save:
-            result = runner.invoke(cdn, [
-                "config",
-                "abcdef1234567890abcdef1234567890",
-                "--type", "build"
-            ])
+            result = runner.invoke(
+                cdn, ["config", "abcdef1234567890abcdef1234567890", "--type", "build"]
+            )
 
             assert result.exit_code == 0
             mock_save.assert_called_once()
@@ -148,19 +151,19 @@ class TestCdnCommands:
         runner,
         mock_context_objects,
         mock_cdn_client,
-        sample_config_data
+        sample_config_data,
     ):
         """Test config command with metadata display."""
         mock_get_context.return_value = mock_context_objects
         mock_cdn_class.return_value.__enter__.return_value = mock_cdn_client
         mock_cdn_client.fetch_config.return_value = sample_config_data
 
-        with patch("cascette_tools.commands.cdn._show_config_metadata") as mock_metadata:
-            result = runner.invoke(cdn, [
-                "config",
-                "abcdef1234567890abcdef1234567890",
-                "--show-metadata"
-            ])
+        with patch(
+            "cascette_tools.commands.cdn._show_config_metadata"
+        ) as mock_metadata:
+            result = runner.invoke(
+                cdn, ["config", "abcdef1234567890abcdef1234567890", "--show-metadata"]
+            )
 
             assert result.exit_code == 0
             mock_metadata.assert_called_once()
@@ -175,7 +178,7 @@ class TestCdnCommands:
         mock_context_objects,
         mock_cdn_client,
         sample_data_file,
-        tmp_path
+        tmp_path,
     ):
         """Test data command fetching from CDN."""
         mock_get_context.return_value = mock_context_objects
@@ -184,11 +187,10 @@ class TestCdnCommands:
 
         output_file = tmp_path / "test_data.bin"
 
-        result = runner.invoke(cdn, [
-            "data",
-            "abcdef1234567890abcdef1234567890",
-            "--output", str(output_file)
-        ])
+        result = runner.invoke(
+            cdn,
+            ["data", "abcdef1234567890abcdef1234567890", "--output", str(output_file)],
+        )
 
         assert result.exit_code == 0
         assert output_file.exists()
@@ -202,7 +204,7 @@ class TestCdnCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        mock_cdn_client
+        mock_cdn_client,
     ):
         """Test data command with range request."""
         mock_get_context.return_value = mock_context_objects
@@ -213,10 +215,7 @@ class TestCdnCommands:
         # This test is based on incorrect assumption, so it should be removed or modified
         # For now, test basic data fetch without range
         with patch("cascette_tools.commands.cdn._save_file"):
-            result = runner.invoke(cdn, [
-                "data",
-                "abcdef1234567890abcdef1234567890"
-            ])
+            result = runner.invoke(cdn, ["data", "abcdef1234567890abcdef1234567890"])
 
             assert result.exit_code == 0
             mock_cdn_client.fetch_data.assert_called_once()
@@ -224,11 +223,7 @@ class TestCdnCommands:
     @patch("cascette_tools.commands.cdn._get_context_objects")
     @patch("cascette_tools.commands.cdn.TACTClient")
     def test_build_fetch_latest(
-        self,
-        mock_tact_class,
-        mock_get_context,
-        runner,
-        mock_context_objects
+        self, mock_tact_class, mock_get_context, runner, mock_context_objects
     ):
         """Test build command fetching build by version string."""
         # Add cdn_timeout and cdn_max_retries to the mock config object
@@ -245,62 +240,92 @@ class TestCdnCommands:
         mock_tact.parse_versions.return_value = versions
 
         with patch("cascette_tools.commands.cdn.CDNClient") as mock_cdn_class:
-            with patch("cascette_tools.commands.cdn.BuildConfigParser") as mock_parser_class:
-                with patch("cascette_tools.commands.cdn.Progress") as mock_progress_class:
+            with patch(
+                "cascette_tools.commands.cdn.BuildConfigParser"
+            ) as mock_parser_class:
+                with patch(
+                    "cascette_tools.commands.cdn.Progress"
+                ) as mock_progress_class:
                     with patch("cascette_tools.commands.cdn._save_file"):
                         with patch("pathlib.Path.mkdir"):
-                          with patch("cascette_tools.database.wago.WagoClient") as mock_wago_class:
-                              # Setup WagoClient context manager
-                              mock_wago = Mock()
-                              mock_wago.get_builds.return_value = []  # Return empty builds
-                              # Create a mock build that matches what the command expects
-                              mock_build = Mock()
-                              mock_build.product = "wow"
-                              mock_build.build_config = "build_hash"
-                              mock_build.cdn_config = "cdn_hash"
-                              mock_build.version = "11.0.2.56461"
-                              mock_wago.search_builds.return_value = [mock_build]  # Return the mock build
-                              mock_wago_instance = Mock()
-                              mock_wago_instance.__enter__ = Mock(return_value=mock_wago)
-                              mock_wago_instance.__exit__ = Mock(return_value=None)
-                              mock_wago_class.return_value = mock_wago_instance
+                            with patch(
+                                "cascette_tools.database.wago.WagoClient"
+                            ) as mock_wago_class:
+                                # Setup WagoClient context manager
+                                mock_wago = Mock()
+                                mock_wago.get_builds.return_value = []  # Return empty builds
+                                # Create a mock build that matches what the command expects
+                                mock_build = Mock()
+                                mock_build.product = "wow"
+                                mock_build.build_config = "build_hash"
+                                mock_build.cdn_config = "cdn_hash"
+                                mock_build.version = "11.0.2.56461"
+                                mock_wago.search_builds.return_value = [
+                                    mock_build
+                                ]  # Return the mock build
+                                mock_wago_instance = Mock()
+                                mock_wago_instance.__enter__ = Mock(
+                                    return_value=mock_wago
+                                )
+                                mock_wago_instance.__exit__ = Mock(return_value=None)
+                                mock_wago_class.return_value = mock_wago_instance
 
-                              mock_cdn = Mock()
-                              mock_cdn.fetch_config.return_value = b"build config data"
+                                mock_cdn = Mock()
+                                mock_cdn.fetch_config.return_value = (
+                                    b"build config data"
+                                )
 
-                              # Setup context manager properly
-                              mock_cdn_instance = Mock()
-                              mock_cdn_instance.__enter__ = Mock(return_value=mock_cdn)
-                              mock_cdn_instance.__exit__ = Mock(return_value=None)
-                              mock_cdn_class.return_value = mock_cdn_instance
+                                # Setup context manager properly
+                                mock_cdn_instance = Mock()
+                                mock_cdn_instance.__enter__ = Mock(
+                                    return_value=mock_cdn
+                                )
+                                mock_cdn_instance.__exit__ = Mock(return_value=None)
+                                mock_cdn_class.return_value = mock_cdn_instance
 
-                              # Setup context manager properly for Progress
-                              mock_progress = Mock()
-                              mock_progress_instance = Mock()
-                              mock_progress_instance.__enter__ = Mock(return_value=mock_progress)
-                              mock_progress_instance.__exit__ = Mock(return_value=None)
-                              mock_progress_class.return_value = mock_progress_instance
-                              mock_progress.add_task = Mock(return_value=1)
-                              mock_progress.update = Mock()
+                                # Setup context manager properly for Progress
+                                mock_progress = Mock()
+                                mock_progress_instance = Mock()
+                                mock_progress_instance.__enter__ = Mock(
+                                    return_value=mock_progress
+                                )
+                                mock_progress_instance.__exit__ = Mock(
+                                    return_value=None
+                                )
+                                mock_progress_class.return_value = (
+                                    mock_progress_instance
+                                )
+                                mock_progress.add_task = Mock(return_value=1)
+                                mock_progress.update = Mock()
 
-                              mock_parser = Mock()
-                              mock_parser_class.return_value = mock_parser
-                              mock_build_config = Mock()
-                              mock_build_config.extra_fields = {}
-                              mock_parser.parse.return_value = mock_build_config
+                                mock_parser = Mock()
+                                mock_parser_class.return_value = mock_parser
+                                mock_build_config = Mock()
+                                mock_build_config.extra_fields = {}
+                                mock_parser.parse.return_value = mock_build_config
 
-                              result = runner.invoke(cdn, ["build", "11.0.2.56461", "--output-dir", "/tmp"])
+                                result = runner.invoke(
+                                    cdn,
+                                    ["build", "11.0.2.56461", "--output-dir", "/tmp"],
+                                )
 
-                              # Debug output on failure
-                              if result.exit_code != 0:
-                                  print(f"Exit code: {result.exit_code}")
-                                  print(f"Output: {result.output}")
-                                  if result.exception:
-                                      import traceback
-                                      traceback.print_exception(type(result.exception), result.exception, result.exception.__traceback__)
-                              assert result.exit_code == 0
-                              # When searching Wago succeeds, TACT isn't used
-                              mock_wago.search_builds.assert_called_once_with("11.0.2.56461", field="build")
+                                # Debug output on failure
+                                if result.exit_code != 0:
+                                    print(f"Exit code: {result.exit_code}")
+                                    print(f"Output: {result.output}")
+                                    if result.exception:
+                                        import traceback
+
+                                        traceback.print_exception(
+                                            type(result.exception),
+                                            result.exception,
+                                            result.exception.__traceback__,
+                                        )
+                                assert result.exit_code == 0
+                                # When searching Wago succeeds, TACT isn't used
+                                mock_wago.search_builds.assert_called_once_with(
+                                    "11.0.2.56461", field="build"
+                                )
 
     @patch("cascette_tools.commands.cdn._get_context_objects")
     @patch("cascette_tools.commands.cdn.CDNClient")
@@ -311,7 +336,7 @@ class TestCdnCommands:
         runner,
         mock_context_objects,
         mock_cdn_client,
-        sample_encoding_data
+        sample_encoding_data,
     ):
         """Test encoding command."""
         mock_get_context.return_value = mock_context_objects
@@ -319,34 +344,35 @@ class TestCdnCommands:
         mock_cdn_client.fetch_data.return_value = sample_encoding_data
 
         with patch("cascette_tools.commands.cdn._save_file"):
-            result = runner.invoke(cdn, [
-                "encoding",
-                "abcdef1234567890abcdef1234567890"
-            ])
+            result = runner.invoke(
+                cdn, ["encoding", "abcdef1234567890abcdef1234567890"]
+            )
 
             assert result.exit_code == 0
             mock_cdn_client.fetch_data.assert_called_once()
 
     @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_fetch(
-        self,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with hash list."""
         mock_get_context.return_value = mock_context_objects
 
         # Create hash list file
         hash_list = tmp_path / "hashes.txt"
-        hash_list.write_text("abcdef1234567890abcdef1234567890\n1234567890abcdef1234567890abcdef\n")
+        hash_list.write_text(
+            "abcdef1234567890abcdef1234567890\n1234567890abcdef1234567890abcdef\n"
+        )
 
         output_dir = tmp_path / "output"
 
         with patch("cascette_tools.commands.cdn.CDNClient") as mock_cdn_class:
-            with patch("cascette_tools.commands.cdn.ThreadPoolExecutor") as mock_executor_class:
-                with patch("cascette_tools.commands.cdn.Progress") as mock_progress_class:
+            with patch(
+                "cascette_tools.commands.cdn.ThreadPoolExecutor"
+            ) as mock_executor_class:
+                with patch(
+                    "cascette_tools.commands.cdn.Progress"
+                ) as mock_progress_class:
                     mock_cdn = Mock()
                     # Setup context manager properly for CDN client
                     mock_cdn_instance = Mock()
@@ -378,14 +404,15 @@ class TestCdnCommands:
                     future2.result.return_value = ("hash2", True, "Success")
                     mock_executor.submit.side_effect = [future1, future2]
 
-                    with patch("cascette_tools.commands.cdn.as_completed") as mock_as_completed:
+                    with patch(
+                        "cascette_tools.commands.cdn.as_completed"
+                    ) as mock_as_completed:
                         mock_as_completed.return_value = [future1, future2]
 
-                        result = runner.invoke(cdn, [
-                            "batch",
-                            str(hash_list),
-                            "--output-dir", str(output_dir)
-                        ])
+                        result = runner.invoke(
+                            cdn,
+                            ["batch", str(hash_list), "--output-dir", str(output_dir)],
+                        )
 
                         assert result.exit_code == 0
                         # Should submit 2 tasks
@@ -399,7 +426,7 @@ class TestCdnCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        mock_cdn_client
+        mock_cdn_client,
     ):
         """Test patch command."""
         mock_get_context.return_value = mock_context_objects
@@ -407,10 +434,7 @@ class TestCdnCommands:
         mock_cdn_client.fetch_patch.return_value = b"patch data"
 
         with patch("cascette_tools.commands.cdn._save_file"):
-            result = runner.invoke(cdn, [
-                "patch",
-                "abcdef1234567890abcdef1234567890"
-            ])
+            result = runner.invoke(cdn, ["patch", "abcdef1234567890abcdef1234567890"])
 
             assert result.exit_code == 0
             mock_cdn_client.fetch_patch.assert_called_once()
@@ -418,11 +442,7 @@ class TestCdnCommands:
     @patch("cascette_tools.commands.cdn._get_context_objects")
     @patch("cascette_tools.commands.cdn.TACTClient")
     def test_manifests_fetch(
-        self,
-        mock_tact_class,
-        mock_get_context,
-        runner,
-        mock_context_objects
+        self, mock_tact_class, mock_get_context, runner, mock_context_objects
     ):
         """Test manifests command."""
         mock_get_context.return_value = mock_context_objects
@@ -455,47 +475,56 @@ class TestCdnCommands:
     def test_config_invalid_hash(self, enhanced_cli_test_setup):
         """Test config command with invalid hash."""
         setup = enhanced_cli_test_setup
-        runner = setup['runner']
-        console = setup['console']
+        runner = setup["runner"]
+        console = setup["console"]
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
+        with patch(
+            "cascette_tools.commands.cdn.validate_hash_string", return_value=False
+        ):
             result = runner.invoke(cdn, ["config", "invalid_hash"])
 
             assert result.exit_code != 0
             # Check if error message was printed to console
-            printed_text = ' '.join(console.printed_lines)
-            assert "Invalid hash format" in printed_text or "Invalid hash format" in result.output
+            printed_text = " ".join(console.printed_lines)
+            assert (
+                "Invalid hash format" in printed_text
+                or "Invalid hash format" in result.output
+            )
 
     def test_data_invalid_hash(self, enhanced_cli_test_setup):
         """Test data command with invalid hash."""
         setup = enhanced_cli_test_setup
-        runner = setup['runner']
-        console = setup['console']
+        runner = setup["runner"]
+        console = setup["console"]
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
+        with patch(
+            "cascette_tools.commands.cdn.validate_hash_string", return_value=False
+        ):
             result = runner.invoke(cdn, ["data", "invalid_hash"])
 
             assert result.exit_code != 0
             # Check if error message was printed to console
-            printed_text = ' '.join(console.printed_lines)
-            assert "Invalid hash format" in printed_text or "Invalid hash format" in result.output
+            printed_text = " ".join(console.printed_lines)
+            assert (
+                "Invalid hash format" in printed_text
+                or "Invalid hash format" in result.output
+            )
 
     def test_config_fetch_error(self, enhanced_cli_test_setup):
         """Test config command with CDN fetch error."""
         setup = enhanced_cli_test_setup
-        runner = setup['runner']
-        cdn_client = setup['cdn_client']
+        runner = setup["runner"]
+        cdn_client = setup["cdn_client"]
 
         # Mock hash validation to return True, but CDN fetch to fail
-        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=True):
+        with patch(
+            "cascette_tools.commands.cdn.validate_hash_string", return_value=True
+        ):
             cdn_client.fetch_config.side_effect = Exception("Network error")
 
-            result = runner.invoke(cdn, [
-                "config",
-                "abcdef1234567890abcdef1234567890"
-            ])
+            result = runner.invoke(cdn, ["config", "abcdef1234567890abcdef1234567890"])
 
             assert result.exit_code != 0
             assert "Error" in result.output
@@ -503,27 +532,23 @@ class TestCdnCommands:
     def test_data_fetch_error(self, enhanced_cli_test_setup):
         """Test data command with CDN fetch error."""
         setup = enhanced_cli_test_setup
-        runner = setup['runner']
-        cdn_client = setup['cdn_client']
+        runner = setup["runner"]
+        cdn_client = setup["cdn_client"]
 
         # Mock hash validation to return True, but CDN fetch to fail
-        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=True):
+        with patch(
+            "cascette_tools.commands.cdn.validate_hash_string", return_value=True
+        ):
             cdn_client.fetch_data.side_effect = Exception("Network error")
 
-            result = runner.invoke(cdn, [
-                "data",
-                "abcdef1234567890abcdef1234567890"
-            ])
+            result = runner.invoke(cdn, ["data", "abcdef1234567890abcdef1234567890"])
 
             assert result.exit_code != 0
             assert "Error" in result.output
 
     def test_batch_nonexistent_file(self, runner):
         """Test batch command with nonexistent hash file."""
-        result = runner.invoke(cdn, [
-            "batch",
-            "nonexistent_file.txt"
-        ])
+        result = runner.invoke(cdn, ["batch", "nonexistent_file.txt"])
 
         assert result.exit_code != 0
 
@@ -579,26 +604,29 @@ class TestCdnCommands:
     def test_data_invalid_hash_additional(self, enhanced_cli_test_setup):
         """Test data command with invalid hash - additional case."""
         setup = enhanced_cli_test_setup
-        runner = setup['runner']
-        console = setup['console']
+        runner = setup["runner"]
+        console = setup["console"]
 
         # Mock hash validation to return False for invalid hash
-        with patch('cascette_tools.commands.cdn.validate_hash_string', return_value=False):
-            result = runner.invoke(cdn, ["data", "toolong1234567890abcdef1234567890abcdef"])
+        with patch(
+            "cascette_tools.commands.cdn.validate_hash_string", return_value=False
+        ):
+            result = runner.invoke(
+                cdn, ["data", "toolong1234567890abcdef1234567890abcdef"]
+            )
 
             assert result.exit_code != 0
             # Check if error message was printed to console
-            printed_text = ' '.join(console.printed_lines)
-            assert "Invalid hash format" in printed_text or "Invalid hash format" in result.output
+            printed_text = " ".join(console.printed_lines)
+            assert (
+                "Invalid hash format" in printed_text
+                or "Invalid hash format" in result.output
+            )
 
     @patch("cascette_tools.commands.cdn._get_context_objects")
     @patch("cascette_tools.commands.cdn.TACTClient")
     def test_build_network_error(
-        self,
-        mock_tact_class,
-        mock_get_context,
-        runner,
-        mock_context_objects
+        self, mock_tact_class, mock_get_context, runner, mock_context_objects
     ):
         """Test build command with network error."""
         mock_get_context.return_value = mock_context_objects
@@ -613,11 +641,7 @@ class TestCdnCommands:
 
     @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_empty_hash_file(
-        self,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with empty hash file."""
         mock_get_context.return_value = mock_context_objects
@@ -634,11 +658,7 @@ class TestCdnCommands:
 
     @patch("cascette_tools.commands.cdn._get_context_objects")
     def test_batch_invalid_hashes(
-        self,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with invalid hashes in file."""
         mock_get_context.return_value = mock_context_objects
@@ -667,7 +687,7 @@ class TestCdnUtilityFunctions:
             "config": mock_config,
             "console": mock_console,
             "verbose": True,
-            "debug": False
+            "debug": False,
         }
 
         config, console, verbose, debug = _get_context_objects(ctx)
@@ -780,5 +800,3 @@ class TestCdnUtilityFunctions:
         _show_config_metadata(data, None, mock_console)
 
         mock_console.print.assert_called()
-
-

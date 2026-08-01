@@ -51,7 +51,7 @@ from cascette_tools.formats.base import FormatParser
 logger = structlog.get_logger()
 
 # PA format constants
-PA_MAGIC = b'PA'
+PA_MAGIC = b"PA"
 PA_HEADER_SIZE = 10
 DEFAULT_KEY_SIZE = 16  # MD5 hash size
 
@@ -133,7 +133,9 @@ class PatchEntry(BaseModel):
     old_content_key: bytes = Field(description="Source file encoding key")
     new_content_key: bytes = Field(description="Target file content key")
     patch_encoding_key: bytes = Field(description="Patch encoding key")
-    compression_info: str = Field(default="", description="Compression specification (unused in block format)")
+    compression_info: str = Field(
+        default="", description="Compression specification (unused in block format)"
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -143,9 +145,15 @@ class PatchArchiveFile(BaseModel):
 
     header: PatchArchiveHeader = Field(description="PA file header")
     entries: list[PatchEntry] = Field(description="Flattened patch entries")
-    encoding_info: PatchEncodingInfo | None = Field(default=None, description="Encoding file info (from extended header)")
-    blocks: list[BlockEntry] = Field(default_factory=list, description="Block table entries")
-    file_entries: list[FileEntry] = Field(default_factory=list, description="Structured file entries")
+    encoding_info: PatchEncodingInfo | None = Field(
+        default=None, description="Encoding file info (from extended header)"
+    )
+    blocks: list[BlockEntry] = Field(
+        default_factory=list, description="Block table entries"
+    )
+    file_entries: list[FileEntry] = Field(
+        default_factory=list, description="Structured file entries"
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -164,26 +172,26 @@ class CompressionSpec:
             Dictionary containing parsed compression information
         """
         spec: dict[str, Any] = {
-            'original': spec_string,
-            'compression': 'none',
-            'options': {}
+            "original": spec_string,
+            "compression": "none",
+            "options": {},
         }
 
         if not spec_string:
             return spec
 
         # Handle common compression specs
-        if spec_string == '{*=z}':
-            spec['compression'] = 'zlib'
-        elif spec_string == '{*=l}':
-            spec['compression'] = 'lz4'
-        elif spec_string.startswith('{') and spec_string.endswith('}'):
+        if spec_string == "{*=z}":
+            spec["compression"] = "zlib"
+        elif spec_string == "{*=l}":
+            spec["compression"] = "lz4"
+        elif spec_string.startswith("{") and spec_string.endswith("}"):
             # Complex spec - parse key=value pairs
             inner = spec_string[1:-1]
-            for part in inner.split(','):
-                if '=' in part:
-                    key, value = part.split('=', 1)
-                    spec['options'][key.strip()] = value.strip()
+            for part in inner.split(","):
+                if "=" in part:
+                    key, value = part.split("=", 1)
+                    spec["options"][key.strip()] = value.strip()
 
         return spec
 
@@ -197,26 +205,26 @@ class CompressionSpec:
         Returns:
             Compression specification string
         """
-        if 'original' in spec_dict:
-            return str(spec_dict['original'])
+        if "original" in spec_dict:
+            return str(spec_dict["original"])
 
-        compression = spec_dict.get('compression', 'none')
-        if compression == 'zlib':
-            return '{*=z}'
-        elif compression == 'lz4':
-            return '{*=l}'
-        elif compression == 'none' or not compression:
-            return ''
+        compression = spec_dict.get("compression", "none")
+        if compression == "zlib":
+            return "{*=z}"
+        elif compression == "lz4":
+            return "{*=l}"
+        elif compression == "none" or not compression:
+            return ""
 
         # Build complex spec from options
-        options = spec_dict.get('options', {})
+        options = spec_dict.get("options", {})
         if options:
             option_parts: list[str] = []
             for key, value in options.items():
                 option_parts.append(f"{key}={value}")
-            return '{' + ','.join(option_parts) + '}'
+            return "{" + ",".join(option_parts) + "}"
 
-        return ''
+        return ""
 
 
 class PatchArchiveParser(FormatParser[PatchArchiveFile]):
@@ -240,7 +248,9 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             raw_data = data.read()
 
         if len(raw_data) < PA_HEADER_SIZE:
-            raise ValueError(f"Data too short for PA header: {len(raw_data)} < {PA_HEADER_SIZE}")
+            raise ValueError(
+                f"Data too short for PA header: {len(raw_data)} < {PA_HEADER_SIZE}"
+            )
 
         # Parse header
         header, offset = self._parse_header(raw_data)
@@ -259,10 +269,12 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         # Flatten file entries into PatchEntry objects for backward compatibility
         entries = self._flatten_entries(file_entries)
 
-        logger.debug("Parsed patch archive",
-                     blocks=len(blocks),
-                     file_entries=len(file_entries),
-                     total_patches=len(entries))
+        logger.debug(
+            "Parsed patch archive",
+            blocks=len(blocks),
+            file_entries=len(file_entries),
+            total_patches=len(entries),
+        )
 
         return PatchArchiveFile(
             header=header,
@@ -289,7 +301,7 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         old_key_size = header_data[4]
         patch_key_size = header_data[5]
         block_size_bits = header_data[6]
-        block_count = struct.unpack('>H', header_data[7:9])[0]
+        block_count = struct.unpack(">H", header_data[7:9])[0]
         flags = header_data[9]
 
         if version not in [1, 2]:
@@ -309,7 +321,7 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             patch_key_size=patch_key_size,
             block_size_bits=block_size_bits,
             block_count=block_count,
-            flags=flags
+            flags=flags,
         )
 
         return header, PA_HEADER_SIZE
@@ -320,19 +332,19 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         """Parse encoding info from extended header."""
         fks = header.file_key_size
 
-        enc_ckey = data[offset:offset + fks]
+        enc_ckey = data[offset : offset + fks]
         offset += fks
-        enc_ekey = data[offset:offset + fks]
+        enc_ekey = data[offset : offset + fks]
         offset += fks
 
-        decoded_size = struct.unpack('>I', data[offset:offset + 4])[0]
+        decoded_size = struct.unpack(">I", data[offset : offset + 4])[0]
         offset += 4
-        encoded_size = struct.unpack('>I', data[offset:offset + 4])[0]
+        encoded_size = struct.unpack(">I", data[offset : offset + 4])[0]
         offset += 4
 
         espec_len = data[offset]
         offset += 1
-        espec = data[offset:offset + espec_len].decode('utf-8')
+        espec = data[offset : offset + espec_len].decode("utf-8")
         offset += espec_len
 
         info = PatchEncodingInfo(
@@ -343,10 +355,12 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
             encoding_spec=espec,
         )
 
-        logger.debug("Parsed encoding info",
-                     decoded_size=decoded_size,
-                     encoded_size=encoded_size,
-                     espec_len=espec_len)
+        logger.debug(
+            "Parsed encoding info",
+            decoded_size=decoded_size,
+            encoded_size=encoded_size,
+            espec_len=espec_len,
+        )
 
         return info, offset
 
@@ -358,18 +372,20 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         fks = header.file_key_size
 
         for _ in range(header.block_count):
-            last_ckey = data[offset:offset + fks]
+            last_ckey = data[offset : offset + fks]
             offset += fks
-            block_md5 = data[offset:offset + 16]
+            block_md5 = data[offset : offset + 16]
             offset += 16
-            block_offset = struct.unpack('>I', data[offset:offset + 4])[0]
+            block_offset = struct.unpack(">I", data[offset : offset + 4])[0]
             offset += 4
 
-            blocks.append(BlockEntry(
-                last_file_ckey=last_ckey,
-                block_md5=block_md5,
-                block_offset=block_offset,
-            ))
+            blocks.append(
+                BlockEntry(
+                    last_file_ckey=last_ckey,
+                    block_md5=block_md5,
+                    block_offset=block_offset,
+                )
+            )
 
         return blocks, offset
 
@@ -396,39 +412,43 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
                     break
 
                 # Target file CKey
-                target_ckey = data[pos:pos + fks]
+                target_ckey = data[pos : pos + fks]
                 pos += fks
 
                 # Decoded size (uint40 big-endian)
-                decoded_size = int.from_bytes(data[pos:pos + 5], 'big')
+                decoded_size = int.from_bytes(data[pos : pos + 5], "big")
                 pos += 5
 
                 patches: list[FilePatch] = []
                 for _ in range(num_patches):
-                    src_ekey = data[pos:pos + oks]
+                    src_ekey = data[pos : pos + oks]
                     pos += oks
-                    src_dec_size = int.from_bytes(data[pos:pos + 5], 'big')
+                    src_dec_size = int.from_bytes(data[pos : pos + 5], "big")
                     pos += 5
-                    patch_ekey = data[pos:pos + pks]
+                    patch_ekey = data[pos : pos + pks]
                     pos += pks
-                    patch_size = struct.unpack('>I', data[pos:pos + 4])[0]
+                    patch_size = struct.unpack(">I", data[pos : pos + 4])[0]
                     pos += 4
                     patch_idx = data[pos]
                     pos += 1
 
-                    patches.append(FilePatch(
-                        source_ekey=src_ekey,
-                        source_decoded_size=src_dec_size,
-                        patch_ekey=patch_ekey,
-                        patch_size=patch_size,
-                        patch_index=patch_idx,
-                    ))
+                    patches.append(
+                        FilePatch(
+                            source_ekey=src_ekey,
+                            source_decoded_size=src_dec_size,
+                            patch_ekey=patch_ekey,
+                            patch_size=patch_size,
+                            patch_index=patch_idx,
+                        )
+                    )
 
-                file_entries.append(FileEntry(
-                    target_ckey=target_ckey,
-                    decoded_size=decoded_size,
-                    patches=patches,
-                ))
+                file_entries.append(
+                    FileEntry(
+                        target_ckey=target_ckey,
+                        decoded_size=decoded_size,
+                        patches=patches,
+                    )
+                )
 
         return file_entries
 
@@ -440,11 +460,13 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         entries: list[PatchEntry] = []
         for fe in file_entries:
             for patch in fe.patches:
-                entries.append(PatchEntry(
-                    old_content_key=patch.source_ekey,
-                    new_content_key=fe.target_ckey,
-                    patch_encoding_key=patch.patch_ekey,
-                ))
+                entries.append(
+                    PatchEntry(
+                        old_content_key=patch.source_ekey,
+                        new_content_key=fe.target_ckey,
+                        patch_encoding_key=patch.patch_ekey,
+                    )
+                )
         return entries
 
     def build(self, obj: PatchArchiveFile) -> bytes:
@@ -459,7 +481,11 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
 
         if header.magic != PA_MAGIC:
             raise ValueError(f"Invalid magic: {header.magic!r}")
-        if header.file_key_size <= 0 or header.old_key_size <= 0 or header.patch_key_size <= 0:
+        if (
+            header.file_key_size <= 0
+            or header.old_key_size <= 0
+            or header.patch_key_size <= 0
+        ):
             raise ValueError("Key sizes must be positive")
 
         # Pack header
@@ -469,23 +495,29 @@ class PatchArchiveParser(FormatParser[PatchArchiveFile]):
         result.append(header.old_key_size)
         result.append(header.patch_key_size)
         result.append(header.block_size_bits)
-        result.extend(struct.pack('>H', header.block_count))
+        result.extend(struct.pack(">H", header.block_count))
         result.append(header.flags)
 
         # Build flattened entries (simplified format for tests)
         for entry in obj.entries:
             if len(entry.old_content_key) != header.old_key_size:
-                raise ValueError(f"Old key size mismatch: {len(entry.old_content_key)} != {header.old_key_size}")
+                raise ValueError(
+                    f"Old key size mismatch: {len(entry.old_content_key)} != {header.old_key_size}"
+                )
             if len(entry.new_content_key) != header.file_key_size:
-                raise ValueError(f"New key size mismatch: {len(entry.new_content_key)} != {header.file_key_size}")
+                raise ValueError(
+                    f"New key size mismatch: {len(entry.new_content_key)} != {header.file_key_size}"
+                )
             if len(entry.patch_encoding_key) != header.patch_key_size:
-                raise ValueError(f"Patch key size mismatch: {len(entry.patch_encoding_key)} != {header.patch_key_size}")
+                raise ValueError(
+                    f"Patch key size mismatch: {len(entry.patch_encoding_key)} != {header.patch_key_size}"
+                )
 
             result.extend(entry.old_content_key)
             result.extend(entry.new_content_key)
             result.extend(entry.patch_encoding_key)
 
-            compression_bytes = entry.compression_info.encode('utf-8')
+            compression_bytes = entry.compression_info.encode("utf-8")
             result.extend(compression_bytes)
             result.append(0)
 
@@ -525,23 +557,27 @@ class PatchArchiveBuilder:
         return create_empty_patch_archive(version, key_size)
 
     @classmethod
-    def create_with_entries(cls, entries: list[PatchEntry], version: int = 2) -> PatchArchiveFile:
+    def create_with_entries(
+        cls, entries: list[PatchEntry], version: int = 2
+    ) -> PatchArchiveFile:
         """Create patch archive with given entries."""
         header = PatchArchiveHeader(
-            magic=b'PA',
+            magic=b"PA",
             version=version,
             file_key_size=16,
             old_key_size=16,
             patch_key_size=16,
             block_size_bits=16,
             block_count=len(entries),
-            flags=0
+            flags=0,
         )
 
         return PatchArchiveFile(header=header, entries=entries)
 
 
-def create_empty_patch_archive(version: int = 2, key_size: int = DEFAULT_KEY_SIZE) -> PatchArchiveFile:
+def create_empty_patch_archive(
+    version: int = 2, key_size: int = DEFAULT_KEY_SIZE
+) -> PatchArchiveFile:
     """Create an empty patch archive file."""
     header = PatchArchiveHeader(
         magic=PA_MAGIC,
@@ -551,7 +587,7 @@ def create_empty_patch_archive(version: int = 2, key_size: int = DEFAULT_KEY_SIZ
         patch_key_size=key_size,
         block_size_bits=16,
         block_count=0,
-        flags=0
+        flags=0,
     )
 
     return PatchArchiveFile(header=header, entries=[])

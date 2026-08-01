@@ -69,7 +69,8 @@ def mirror_group(ctx: click.Context) -> None:
 @click.argument("target", type=str)
 @click.argument("urls", nargs=-1, required=True)
 @click.option(
-    "--product-code", "--pc",
+    "--product-code",
+    "--pc",
     is_flag=True,
     help="Treat TARGET as a product code instead of a product family.",
 )
@@ -143,7 +144,8 @@ def mirror_add(
 @click.argument("target", type=str)
 @click.argument("urls", nargs=-1, required=False)
 @click.option(
-    "--product-code", "--pc",
+    "--product-code",
+    "--pc",
     is_flag=True,
     help="Treat TARGET as a product code instead of a product family.",
 )
@@ -203,7 +205,8 @@ def mirror_remove(
 
 @mirror_group.command(name="list")
 @click.option(
-    "--resolve", "-r",
+    "--resolve",
+    "-r",
     type=str,
     default=None,
     help="Show resolved mirrors for a specific product code.",
@@ -235,9 +238,15 @@ def mirror_list(
         family = get_product_family(resolve)
 
         # Determine source
-        if resolve in config.mirrors.product_overrides and config.mirrors.product_overrides[resolve].urls:
+        if (
+            resolve in config.mirrors.product_overrides
+            and config.mirrors.product_overrides[resolve].urls
+        ):
             source = "product override"
-        elif family.value in config.mirrors.family_mirrors and config.mirrors.family_mirrors[family.value].urls:
+        elif (
+            family.value in config.mirrors.family_mirrors
+            and config.mirrors.family_mirrors[family.value].urls
+        ):
             source = "family config"
         elif family.value in DEFAULT_FAMILY_MIRRORS:
             source = "built-in default"
@@ -265,7 +274,9 @@ def mirror_list(
         table.add_column("URLs", style="cyan")
 
         for family, mirror_cfg in sorted(config.mirrors.family_mirrors.items()):
-            urls_str = "\n".join(mirror_cfg.urls) if mirror_cfg.urls else "[dim]empty[/dim]"
+            urls_str = (
+                "\n".join(mirror_cfg.urls) if mirror_cfg.urls else "[dim]empty[/dim]"
+            )
             table.add_row(family, urls_str)
 
         console.print(table)
@@ -280,7 +291,9 @@ def mirror_list(
         table.add_column("URLs", style="cyan")
 
         for product, mirror_cfg in sorted(config.mirrors.product_overrides.items()):
-            urls_str = "\n".join(mirror_cfg.urls) if mirror_cfg.urls else "[dim]empty[/dim]"
+            urls_str = (
+                "\n".join(mirror_cfg.urls) if mirror_cfg.urls else "[dim]empty[/dim]"
+            )
             table.add_row(product, urls_str)
 
         console.print(table)
@@ -303,12 +316,14 @@ def mirror_list(
 @mirror_group.command(name="reset")
 @click.argument("target", required=False)
 @click.option(
-    "--product-code", "--pc",
+    "--product-code",
+    "--pc",
     is_flag=True,
     help="Treat TARGET as a product code instead of a product family.",
 )
 @click.option(
-    "--all", "reset_all",
+    "--all",
+    "reset_all",
     is_flag=True,
     help="Reset ALL mirror configuration to defaults.",
 )

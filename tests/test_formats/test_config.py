@@ -33,7 +33,7 @@ build-uid = test-uid-123
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(config_content.encode('utf-8'))
+        build_config = parser.parse(config_content.encode("utf-8"))
 
         assert build_config.root == "abc123def456"
         assert build_config.encoding == "content123 encoding456"
@@ -53,7 +53,7 @@ another-field = another-value
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(config_content.encode('utf-8'))
+        build_config = parser.parse(config_content.encode("utf-8"))
 
         assert build_config.root == "abc123"
         assert len(build_config.extra_fields) == 2
@@ -70,7 +70,7 @@ encoding = content123 encoding456
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(config_content.encode('utf-8'))
+        build_config = parser.parse(config_content.encode("utf-8"))
 
         assert build_config.root == "abc123"
         assert build_config.encoding == "content123 encoding456"
@@ -80,7 +80,7 @@ encoding = content123 encoding456
         config_content = ""
 
         parser = BuildConfigParser()
-        build_config = parser.parse(config_content.encode('utf-8'))
+        build_config = parser.parse(config_content.encode("utf-8"))
 
         assert build_config.root is None
         assert build_config.encoding is None
@@ -92,7 +92,7 @@ encoding = content123 encoding456
             root="abc123",
             encoding="content123 encoding456",
             build_name="Test Build",
-            extra_fields={"custom": "value"}
+            extra_fields={"custom": "value"},
         )
 
         parser = BuildConfigParser()
@@ -107,7 +107,7 @@ encoding = content123 encoding456
     def test_parse_from_stream(self):
         """Test parsing from stream."""
         config_content = "root = abc123\nencoding = content123 encoding456"
-        stream = BytesIO(config_content.encode('utf-8'))
+        stream = BytesIO(config_content.encode("utf-8"))
 
         parser = BuildConfigParser()
         build_config = parser.parse(stream)
@@ -143,7 +143,7 @@ file-index = fileindex789
         """.strip()
 
         parser = CDNConfigParser()
-        cdn_config = parser.parse(config_content.encode('utf-8'))
+        cdn_config = parser.parse(config_content.encode("utf-8"))
 
         assert cdn_config.archives == ["archive1", "archive2", "archive3"]
         assert cdn_config.archive_group == "group123"
@@ -160,7 +160,7 @@ builds =
         """.strip()
 
         parser = CDNConfigParser()
-        cdn_config = parser.parse(config_content.encode('utf-8'))
+        cdn_config = parser.parse(config_content.encode("utf-8"))
 
         assert cdn_config.archives == []
         assert cdn_config.builds == []
@@ -173,7 +173,7 @@ builds = singlebuild
         """.strip()
 
         parser = CDNConfigParser()
-        cdn_config = parser.parse(config_content.encode('utf-8'))
+        cdn_config = parser.parse(config_content.encode("utf-8"))
 
         assert cdn_config.archives == ["singlearchive"]
         assert cdn_config.builds == ["singlebuild"]
@@ -184,7 +184,7 @@ builds = singlebuild
             archives=["arch1", "arch2"],
             archive_group="group123",
             builds=["build1"],
-            extra_fields={"custom": "value"}
+            extra_fields={"custom": "value"},
         )
 
         parser = CDNConfigParser()
@@ -209,7 +209,7 @@ builds = build1 build2
         """.strip()
 
         parser = PatchConfigParser()
-        patch_config = parser.parse(config_content.encode('utf-8'))
+        patch_config = parser.parse(config_content.encode("utf-8"))
 
         assert patch_config.patch_archives == ["patcharc1", "patcharc2"]
         assert patch_config.patch_archive_group == "patchgroup123"
@@ -220,7 +220,7 @@ builds = build1 build2
         original_config = PatchConfig(
             patch_archives=["patch1", "patch2"],
             builds=["build1"],
-            extra_fields={"version": "1.0"}
+            extra_fields={"version": "1.0"},
         )
 
         parser = PatchConfigParser()
@@ -244,7 +244,7 @@ name = World of Warcraft
         """.strip()
 
         parser = ProductConfigParser()
-        product_config = parser.parse(config_content.encode('utf-8'))
+        product_config = parser.parse(config_content.encode("utf-8"))
 
         assert product_config.product == "wow"
         assert product_config.uid == "product-uid-123"
@@ -256,7 +256,7 @@ name = World of Warcraft
             product="wow",
             uid="uid123",
             name="World of Warcraft",
-            extra_fields={"version": "retail"}
+            extra_fields={"version": "retail"},
         )
 
         parser = ProductConfigParser()
@@ -334,7 +334,7 @@ class TestConfigModels:
             root="abc123",
             encoding="content123 encoding456",
             build_name="Test Build",
-            extra_fields={"custom": "value"}
+            extra_fields={"custom": "value"},
         )
 
         assert config.root == "abc123"
@@ -348,7 +348,7 @@ class TestConfigModels:
             archives=["arch1", "arch2"],
             archive_group="group123",
             builds=["build1", "build2"],
-            extra_fields={"version": "1.0"}
+            extra_fields={"version": "1.0"},
         )
 
         assert config.archives == ["arch1", "arch2"]
@@ -362,7 +362,7 @@ class TestConfigModels:
             patch_archives=["patch1", "patch2"],
             patch_archive_group="patchgroup123",
             builds=["build1"],
-            extra_fields={"type": "incremental"}
+            extra_fields={"type": "incremental"},
         )
 
         assert config.patch_archives == ["patch1", "patch2"]
@@ -376,7 +376,7 @@ class TestConfigModels:
             product="wow",
             uid="uid123",
             name="World of Warcraft",
-            extra_fields={"region": "us"}
+            extra_fields={"region": "us"},
         )
 
         assert config.product == "wow"
@@ -424,7 +424,7 @@ encoding = def456
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(malformed_config.encode('utf-8'))
+        build_config = parser.parse(malformed_config.encode("utf-8"))
 
         assert build_config.root == "abc123"
         assert build_config.encoding == "def456"
@@ -441,7 +441,7 @@ encoding = def456
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(config_with_whitespace.encode('utf-8'))
+        build_config = parser.parse(config_with_whitespace.encode("utf-8"))
 
         assert build_config.root == "abc123"
         assert build_config.build_name == "Test Build"
@@ -454,7 +454,7 @@ build-product = wów
         """.strip()
 
         parser = BuildConfigParser()
-        build_config = parser.parse(unicode_config.encode('utf-8'))
+        build_config = parser.parse(unicode_config.encode("utf-8"))
 
         assert build_config.build_name == "Tëst Büild 测试"
         assert build_config.build_product == "wów"
@@ -466,10 +466,10 @@ build-product = wów
         for i in range(100):
             lines.append(f"extra-field-{i} = value-{i}")
 
-        large_config = '\n'.join(lines)
+        large_config = "\n".join(lines)
 
         parser = BuildConfigParser()
-        build_config = parser.parse(large_config.encode('utf-8'))
+        build_config = parser.parse(large_config.encode("utf-8"))
 
         assert build_config.root == "abc123"
         assert len(build_config.extra_fields) == 100
@@ -645,7 +645,7 @@ build-partial-priority = speech:0,world:1
         """.strip()
 
         parser = BuildConfigParser()
-        config = parser.parse(config_content.encode('utf-8'))
+        config = parser.parse(config_content.encode("utf-8"))
 
         assert config.encoding_size == "100 200"
         assert config.size == f"{self._hash(4)} {self._hash(5)}"
@@ -666,7 +666,7 @@ vfs-2 = {self._hash(20)}
         """.strip()
 
         parser = BuildConfigParser()
-        config = parser.parse(config_content.encode('utf-8'))
+        config = parser.parse(config_content.encode("utf-8"))
 
         assert "vfs-1" in config.extra_fields
         assert "vfs-1-size" in config.extra_fields
@@ -741,14 +741,14 @@ vfs-2 = {self._hash(20)}
         )
 
         parser = BuildConfigParser()
-        data = parser.build(config).decode('utf-8')
-        lines = [line for line in data.strip().split('\n') if line]
+        data = parser.build(config).decode("utf-8")
+        lines = [line for line in data.strip().split("\n") if line]
 
-        keys = [line.split(' = ', 1)[0] for line in lines]
-        assert keys.index('root') < keys.index('size')
-        assert keys.index('size') < keys.index('vfs-root')
-        assert keys.index('vfs-root') < keys.index('encoding')
-        assert keys.index('encoding') < keys.index('build-name')
+        keys = [line.split(" = ", 1)[0] for line in lines]
+        assert keys.index("root") < keys.index("size")
+        assert keys.index("size") < keys.index("vfs-root")
+        assert keys.index("vfs-root") < keys.index("encoding")
+        assert keys.index("encoding") < keys.index("build-name")
 
 
 class TestCDNConfigNewFields:
@@ -765,7 +765,7 @@ file-index-size = 500
         """.strip()
 
         parser = CDNConfigParser()
-        config = parser.parse(config_content.encode('utf-8'))
+        config = parser.parse(config_content.encode("utf-8"))
 
         assert config.patch_file_index == "pfi1 pfi2"
         assert config.patch_file_index_size == "1000 2000"
@@ -862,15 +862,15 @@ file-index-size = 500
         )
 
         parser = CDNConfigParser()
-        data = parser.build(config).decode('utf-8')
-        lines = [line for line in data.strip().split('\n') if line]
+        data = parser.build(config).decode("utf-8")
+        lines = [line for line in data.strip().split("\n") if line]
 
-        keys = [line.split(' = ', 1)[0] for line in lines]
-        assert keys.index('archives') < keys.index('archive-group')
-        assert keys.index('patch-archives') < keys.index('file-index')
-        assert keys.index('file-index') < keys.index('file-index-size')
-        assert keys.index('file-index-size') < keys.index('patch-file-index')
-        assert keys.index('patch-file-index') < keys.index('patch-file-index-size')
+        keys = [line.split(" = ", 1)[0] for line in lines]
+        assert keys.index("archives") < keys.index("archive-group")
+        assert keys.index("patch-archives") < keys.index("file-index")
+        assert keys.index("file-index") < keys.index("file-index-size")
+        assert keys.index("file-index-size") < keys.index("patch-file-index")
+        assert keys.index("patch-file-index") < keys.index("patch-file-index-size")
 
 
 class TestBuildConfigModelMethods:
@@ -927,7 +927,10 @@ class TestBuildConfigModelMethods:
     def test_get_file_db_info_present(self):
         """get_file_db_info returns info from extra_fields when build-file-db is set."""
         config = BuildConfig(
-            extra_fields={"build-file-db": "dbkey1 dbkey2", "build-file-db-size": "1000 2000"}
+            extra_fields={
+                "build-file-db": "dbkey1 dbkey2",
+                "build-file-db-size": "1000 2000",
+            }
         )
         info = config.get_file_db_info()
         assert info is not None
@@ -1039,6 +1042,7 @@ class TestConfigBuilderClasses:
     def test_build_config_builder_build(self):
         """BuildConfigBuilder.build() delegates to BuildConfigParser.build()."""
         from cascette_tools.formats.config import BuildConfigBuilder
+
         config = BuildConfig(root="abc", encoding="def")
         builder = BuildConfigBuilder()
         result = builder.build(config).decode()
@@ -1047,6 +1051,7 @@ class TestConfigBuilderClasses:
     def test_build_config_builder_create_basic(self):
         """BuildConfigBuilder.create_basic() returns populated BuildConfig."""
         from cascette_tools.formats.config import BuildConfigBuilder
+
         config = BuildConfigBuilder.create_basic("rootkey", "enckey", "installkey")
         assert config.root == "rootkey"
         assert config.encoding == "enckey"
@@ -1055,6 +1060,7 @@ class TestConfigBuilderClasses:
     def test_cdn_config_builder_build(self):
         """CDNConfigBuilder.build() delegates to CDNConfigParser.build()."""
         from cascette_tools.formats.config import CDNConfigBuilder
+
         config = CDNConfig(archives=["arch1"])
         builder = CDNConfigBuilder()
         result = builder.build(config).decode()
@@ -1063,6 +1069,7 @@ class TestConfigBuilderClasses:
     def test_cdn_config_builder_create_basic(self):
         """CDNConfigBuilder.create_basic() returns populated CDNConfig."""
         from cascette_tools.formats.config import CDNConfigBuilder
+
         config = CDNConfigBuilder.create_basic(["arch1", "arch2"], ["build1"])
         assert config.archives == ["arch1", "arch2"]
         assert config.builds == ["build1"]
@@ -1070,6 +1077,7 @@ class TestConfigBuilderClasses:
     def test_patch_config_builder_build(self):
         """PatchConfigBuilder.build() delegates to PatchConfigParser.build()."""
         from cascette_tools.formats.config import PatchConfigBuilder
+
         config = PatchConfig(patch_archives=["p1"])
         builder = PatchConfigBuilder()
         result = builder.build(config).decode()
@@ -1078,6 +1086,7 @@ class TestConfigBuilderClasses:
     def test_patch_config_builder_create_basic(self):
         """PatchConfigBuilder.create_basic() returns populated PatchConfig."""
         from cascette_tools.formats.config import PatchConfigBuilder
+
         config = PatchConfigBuilder.create_basic(["parch1"], ["b1"])
         assert config.patch_archives == ["parch1"]
         assert config.builds == ["b1"]
@@ -1085,6 +1094,7 @@ class TestConfigBuilderClasses:
     def test_product_config_builder_build(self):
         """ProductConfigBuilder.build() delegates to ProductConfigParser.build()."""
         from cascette_tools.formats.config import ProductConfigBuilder
+
         config = ProductConfig(product="wow", uid="wow_beta")
         builder = ProductConfigBuilder()
         result = builder.build(config).decode()
@@ -1093,7 +1103,10 @@ class TestConfigBuilderClasses:
     def test_product_config_builder_create_basic(self):
         """ProductConfigBuilder.create_basic() returns populated ProductConfig."""
         from cascette_tools.formats.config import ProductConfigBuilder
-        config = ProductConfigBuilder.create_basic("wow", "wow_beta", "World of Warcraft")
+
+        config = ProductConfigBuilder.create_basic(
+            "wow", "wow_beta", "World of Warcraft"
+        )
         assert config.product == "wow"
         assert config.uid == "wow_beta"
         assert config.name == "World of Warcraft"

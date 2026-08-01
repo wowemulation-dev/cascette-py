@@ -51,7 +51,6 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
-
 def _save_file(data: bytes, output_path: Path, console: Console, verbose: bool) -> None:
     """Save data to file and report success."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,25 +60,29 @@ def _save_file(data: bytes, output_path: Path, console: Console, verbose: bool) 
         console.print(f"[green]Saved {format_size(len(data))} to {output_path}[/green]")
 
 
-def _show_config_metadata(data: bytes, config_type: str | None, console: Console) -> None:
+def _show_config_metadata(
+    data: bytes, config_type: str | None, console: Console
+) -> None:
     """Show metadata about a configuration file."""
     try:
-        text_data = data.decode('utf-8', errors='ignore')
-        lines = text_data.count('\n')
+        text_data = data.decode("utf-8", errors="ignore")
+        lines = text_data.count("\n")
 
-        table = Table(title=f"{(config_type or 'Unknown').title()} Configuration Metadata")
+        table = Table(
+            title=f"{(config_type or 'Unknown').title()} Configuration Metadata"
+        )
         table.add_column("Property", style="cyan")
         table.add_column("Value", style="magenta")
 
         table.add_row("Size", format_size(len(data)))
         table.add_row("Lines", str(lines))
-        table.add_row("Type", config_type or 'Unknown')
+        table.add_row("Type", config_type or "Unknown")
 
         # Try to parse and show basic info
         if config_type == "build":
             try:
                 parser = BuildConfigParser()
-                config = parser.parse(text_data.encode('utf-8'))
+                config = parser.parse(text_data.encode("utf-8"))
                 table.add_row("Root", config.root or "N/A")
                 table.add_row("Encoding", config.encoding or "N/A")
                 table.add_row("Install", config.install or "N/A")
@@ -89,7 +92,7 @@ def _show_config_metadata(data: bytes, config_type: str | None, console: Console
         elif config_type == "cdn":
             try:
                 parser = CDNConfigParser()
-                config = parser.parse(text_data.encode('utf-8'))
+                config = parser.parse(text_data.encode("utf-8"))
                 table.add_row("Archives", str(len(config.archives)))
                 table.add_row("Patch Archives", str(len(config.patch_archives)))
             except Exception:
@@ -97,7 +100,7 @@ def _show_config_metadata(data: bytes, config_type: str | None, console: Console
         elif config_type == "product":
             try:
                 parser = ProductConfigParser()
-                config = parser.parse(text_data.encode('utf-8'))
+                config = parser.parse(text_data.encode("utf-8"))
                 table.add_row("Product", config.product or "N/A")
                 table.add_row("UID", config.uid or "N/A")
             except Exception:
@@ -199,7 +202,9 @@ def config(
             if show_metadata:
                 _show_config_metadata(data, config_type, console)
 
-            console.print(f"[green]Successfully fetched {config_type} configuration[/green]")
+            console.print(
+                f"[green]Successfully fetched {config_type} configuration[/green]"
+            )
 
     except Exception as e:
         logger.error("config_fetch_failed", hash=hash_str, error=str(e))
@@ -294,14 +299,18 @@ def data(
                     final_data = blte_parser.decompress(blte_file)
 
                     if verbose:
-                        console.print(f"[cyan]Decompressed BLTE: {format_size(len(data))} -> {format_size(len(final_data))}[/cyan]")
+                        console.print(
+                            f"[cyan]Decompressed BLTE: {format_size(len(data))} -> {format_size(len(final_data))}[/cyan]"
+                        )
 
                     # Update output path to indicate decompression
                     if output.suffix != ".decompressed":
                         output = output.with_suffix(output.suffix + ".decompressed")
 
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Failed to decompress BLTE: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Failed to decompress BLTE: {e}[/yellow]"
+                    )
                     final_data = data
 
             # Save file
@@ -411,8 +420,12 @@ def build(
                     matching_builds = [b for b in builds if b.product == product]
 
                     if not matching_builds:
-                        console.print(f"[red]Error: Build {build_id} not found for product {product}[/red]")
-                        console.print("[yellow]Hint: Use 'cascette_tools builds search' to find available builds[/yellow]")
+                        console.print(
+                            f"[red]Error: Build {build_id} not found for product {product}[/red]"
+                        )
+                        console.print(
+                            "[yellow]Hint: Use 'cascette_tools builds search' to find available builds[/yellow]"
+                        )
                         sys.exit(1)
 
                     # Use first matching build (they should all have same config hashes)
@@ -422,11 +435,15 @@ def build(
                     version_string = build_info.version or build_id
 
                     if not build_config_hash:
-                        console.print(f"[red]Error: Build {build_id} has no build config hash[/red]")
+                        console.print(
+                            f"[red]Error: Build {build_id} has no build config hash[/red]"
+                        )
                         sys.exit(1)
 
                     if verbose:
-                        console.print(f"[dim]Found build: {version_string} (Build {build_info.build})[/dim]")
+                        console.print(
+                            f"[dim]Found build: {version_string} (Build {build_info.build})[/dim]"
+                        )
                         console.print(f"[dim]Build config: {build_config_hash}[/dim]")
                         if cdn_config_hash:
                             console.print(f"[dim]CDN config: {cdn_config_hash}[/dim]")
@@ -446,7 +463,6 @@ def build(
                 TimeElapsedColumn(),
                 console=console,
             ) as progress:
-
                 # Calculate total tasks
                 total_tasks = 2  # build + cdn config
                 if include_manifests:
@@ -468,7 +484,7 @@ def build(
                 # Use CDN config from database if available, otherwise try build config
                 if not cdn_config_hash:
                     # Try to get CDN config from extra_fields (TACT format specific)
-                    cdn_config_hash = build_config.extra_fields.get('cdn-config')
+                    cdn_config_hash = build_config.extra_fields.get("cdn-config")
 
                 if cdn_config_hash:
                     # Fetch CDN config
@@ -478,7 +494,9 @@ def build(
                     _save_file(cdn_data, cdn_path, console, False)
                     progress.advance(task)
                 else:
-                    console.print("[yellow]Warning: No CDN config hash available[/yellow]")
+                    console.print(
+                        "[yellow]Warning: No CDN config hash available[/yellow]"
+                    )
                     progress.advance(task)
 
                 # Fetch manifests if requested
@@ -499,14 +517,16 @@ def build(
 
                         # Track discovered EKEY
                         if encoding_key:
-                            discovered_ekeys['encoding_ekey'] = encoding_key
+                            discovered_ekeys["encoding_ekey"] = encoding_key
 
                     # First, fetch the encoding manifest if we have its key
                     encoding_parser = None
                     encoding_manifest = None
                     encoding_raw_data = None  # Keep raw data for lookups
                     if encoding_key:
-                        progress.update(task, description="Fetching encoding manifest...")
+                        progress.update(
+                            task, description="Fetching encoding manifest..."
+                        )
                         try:
                             encoding_raw_data = cdn_client.fetch_data(encoding_key)
                             encoding_path = output_dir / f"{encoding_key}.encoding"
@@ -514,11 +534,13 @@ def build(
 
                             # Check if data is BLTE compressed and decompress if needed
                             encoding_data = encoding_raw_data
-                            if encoding_data.startswith(b'BL'):
+                            if encoding_data.startswith(b"BL"):
                                 try:
                                     encoding_data = decompress_blte(encoding_data)
                                 except Exception as blte_error:
-                                    console.print(f"[yellow]Warning: Failed to decompress BLTE encoding data: {blte_error}[/yellow]")
+                                    console.print(
+                                        f"[yellow]Warning: Failed to decompress BLTE encoding data: {blte_error}[/yellow]"
+                                    )
                                     # Try without decompression as fallback
 
                             # Parse the encoding manifest to look up content keys
@@ -527,7 +549,9 @@ def build(
                             # Keep the decompressed data for content key lookups
                             encoding_raw_data = encoding_data
                         except Exception as e:
-                            console.print(f"[yellow]Warning: Failed to fetch/parse encoding: {e}[/yellow]")
+                            console.print(
+                                f"[yellow]Warning: Failed to fetch/parse encoding: {e}[/yellow]"
+                            )
                             encoding_parser = None
                             encoding_manifest = None
                             encoding_raw_data = None
@@ -545,7 +569,10 @@ def build(
 
                     for manifest_type, manifest_value in manifests:
                         if manifest_value:
-                            progress.update(task, description=f"Fetching {manifest_type} manifest...")
+                            progress.update(
+                                task,
+                                description=f"Fetching {manifest_type} manifest...",
+                            )
                             try:
                                 # Check if we have two hashes (content key + encoding key)
                                 parts = manifest_value.split()
@@ -555,7 +582,9 @@ def build(
                                     content_key_str = parts[0]
                                     encoding_key_for_content = parts[1]
                                     if verbose:
-                                        console.print(f"[dim]{manifest_type} has direct encoding key: {encoding_key_for_content}[/dim]")
+                                        console.print(
+                                            f"[dim]{manifest_type} has direct encoding key: {encoding_key_for_content}[/dim]"
+                                        )
                                 else:
                                     # Single hash: it's a content key, need to look up in encoding
                                     content_key_str = parts[0]
@@ -563,37 +592,58 @@ def build(
 
                                     # Look up the encoding key for this content key
                                     encoding_key_for_content = None
-                                    if encoding_parser and encoding_manifest and encoding_raw_data:
+                                    if (
+                                        encoding_parser
+                                        and encoding_manifest
+                                        and encoding_raw_data
+                                    ):
                                         # Use sequential reading method like Rust to look up content key
-                                        encoding_keys = encoding_parser.find_content_key_sequential(
-                                            encoding_raw_data,
-                                            encoding_manifest,
-                                            content_key_bytes
+                                        encoding_keys = (
+                                            encoding_parser.find_content_key_sequential(
+                                                encoding_raw_data,
+                                                encoding_manifest,
+                                                content_key_bytes,
+                                            )
                                         )
                                         if encoding_keys:
                                             # Use the first encoding key
-                                            encoding_key_for_content = encoding_keys[0].hex()
+                                            encoding_key_for_content = encoding_keys[
+                                                0
+                                            ].hex()
                                             if verbose:
-                                                console.print(f"[dim]Found encoding key for {manifest_type}: {encoding_key_for_content}[/dim]")
+                                                console.print(
+                                                    f"[dim]Found encoding key for {manifest_type}: {encoding_key_for_content}[/dim]"
+                                                )
 
                                     if not encoding_key_for_content:
                                         # Try using the content key directly as a fallback
                                         # (some very early builds might work this way)
                                         encoding_key_for_content = content_key_str
                                         if encoding_parser:
-                                            console.print(f"[yellow]Warning: Content key {content_key_str[:8]}... not found in encoding manifest, trying direct fetch[/yellow]")
+                                            console.print(
+                                                f"[yellow]Warning: Content key {content_key_str[:8]}... not found in encoding manifest, trying direct fetch[/yellow]"
+                                            )
 
                                 # Track discovered EKEY for this manifest type
                                 if encoding_key_for_content:
-                                    discovered_ekeys[f'{manifest_type}_ekey'] = encoding_key_for_content
+                                    discovered_ekeys[f"{manifest_type}_ekey"] = (
+                                        encoding_key_for_content
+                                    )
 
                                 # Fetch using the encoding key
-                                manifest_data = cdn_client.fetch_data(encoding_key_for_content)
+                                manifest_data = cdn_client.fetch_data(
+                                    encoding_key_for_content
+                                )
                                 # CRITICAL: Save with encoding key name, NOT content key!
-                                manifest_path = output_dir / f"{encoding_key_for_content}.{manifest_type}"
+                                manifest_path = (
+                                    output_dir
+                                    / f"{encoding_key_for_content}.{manifest_type}"
+                                )
                                 _save_file(manifest_data, manifest_path, console, False)
                             except Exception as e:
-                                console.print(f"[yellow]Warning: Failed to fetch {manifest_type}: {e}[/yellow]")
+                                console.print(
+                                    f"[yellow]Warning: Failed to fetch {manifest_type}: {e}[/yellow]"
+                                )
                         progress.advance(task)
 
             # Create summary
@@ -626,7 +676,9 @@ def build(
                         else:
                             # Need to find encoding key - check what file actually exists
                             # Try to find the file we saved
-                            possible_files = list(output_dir.glob(f"*.{manifest_type.lower()}"))
+                            possible_files = list(
+                                output_dir.glob(f"*.{manifest_type.lower()}")
+                            )
                             if possible_files:
                                 # Get the encoding key from the actual filename
                                 encoding_key = possible_files[0].stem
@@ -634,11 +686,18 @@ def build(
                                 encoding_key = "Not found"
 
                         # Check if file exists with encoding key name
-                        manifest_path = output_dir / f"{encoding_key}.{manifest_type.lower()}"
+                        manifest_path = (
+                            output_dir / f"{encoding_key}.{manifest_type.lower()}"
+                        )
                         status = "Downloaded" if manifest_path.exists() else "Failed"
 
                         # Show both keys in the table
-                        table.add_row(manifest_type, content_key[:16] + "...", encoding_key[:16] + "...", status)
+                        table.add_row(
+                            manifest_type,
+                            content_key[:16] + "...",
+                            encoding_key[:16] + "...",
+                            status,
+                        )
 
             console.print(table)
             console.print(f"[green]Build data saved to {output_dir}[/green]")
@@ -653,23 +712,29 @@ def build(
                         success = wago_client.update_build_ekeys(
                             build_id=build_info.id,
                             product=build_info.product,
-                            encoding_ekey=discovered_ekeys.get('encoding_ekey'),  # type: ignore
-                            root_ekey=discovered_ekeys.get('root_ekey'),  # type: ignore
-                            install_ekey=discovered_ekeys.get('install_ekey'),  # type: ignore
-                            download_ekey=discovered_ekeys.get('download_ekey')  # type: ignore
+                            encoding_ekey=discovered_ekeys.get("encoding_ekey"),  # type: ignore
+                            root_ekey=discovered_ekeys.get("root_ekey"),  # type: ignore
+                            install_ekey=discovered_ekeys.get("install_ekey"),  # type: ignore
+                            download_ekey=discovered_ekeys.get("download_ekey"),  # type: ignore
                         )
 
                         if success:
                             if verbose:
-                                console.print(f"[dim]Updated database with {len(discovered_ekeys)} discovered EKEYs[/dim]")  # type: ignore
+                                console.print(
+                                    f"[dim]Updated database with {len(discovered_ekeys)} discovered EKEYs[/dim]"
+                                )  # type: ignore
                         else:
                             if verbose:
-                                console.print("[yellow]Warning: Failed to update database with discovered EKEYs[/yellow]")
+                                console.print(
+                                    "[yellow]Warning: Failed to update database with discovered EKEYs[/yellow]"
+                                )
 
                 except Exception as e:
                     # Don't fail the whole operation if database update fails
                     if verbose:
-                        console.print(f"[yellow]Warning: Could not update database with EKEYs: {e}[/yellow]")
+                        console.print(
+                            f"[yellow]Warning: Could not update database with EKEYs: {e}[/yellow]"
+                        )
 
     except Exception as e:
         logger.error("build_fetch_failed", build_id=build_id, error=str(e))
@@ -757,14 +822,18 @@ def encoding(
                     final_data = blte_parser.decompress(blte_file)
 
                     if verbose:
-                        console.print(f"[cyan]Decompressed BLTE: {format_size(len(data))} -> {format_size(len(final_data))}[/cyan]")
+                        console.print(
+                            f"[cyan]Decompressed BLTE: {format_size(len(data))} -> {format_size(len(final_data))}[/cyan]"
+                        )
 
                     # Update output path to indicate decompression only when explicitly requested
                     if decompress and output.suffix != ".decompressed":
                         output = output.with_suffix(output.suffix + ".decompressed")
 
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Failed to decompress BLTE: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Failed to decompress BLTE: {e}[/yellow]"
+                    )
                     final_data = data
 
             # Save file
@@ -786,12 +855,16 @@ def encoding(
                         table.add_row("Decompressed Size", format_size(len(final_data)))
                     table.add_row("CKey Index Size", str(len(encoding_file.ckey_index)))
                     table.add_row("EKey Index Size", str(len(encoding_file.ekey_index)))
-                    table.add_row("ESpec Table Size", str(len(encoding_file.espec_table)))
+                    table.add_row(
+                        "ESpec Table Size", str(len(encoding_file.espec_table))
+                    )
 
                     console.print(table)
 
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Failed to parse encoding statistics: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Failed to parse encoding statistics: {e}[/yellow]"
+                    )
 
             console.print("[green]Successfully fetched encoding file[/green]")
 
@@ -861,14 +934,16 @@ def batch(
     try:
         # Read hash list
         hashes: list[str] = []
-        with input_file.open('r') as f:
+        with input_file.open("r") as f:
             for line_num, line in enumerate(f, 1):
                 hash_str = line.strip()
-                if not hash_str or hash_str.startswith('#'):
+                if not hash_str or hash_str.startswith("#"):
                     continue
 
                 if not validate_hash_string(hash_str):
-                    console.print(f"[yellow]Warning: Invalid hash on line {line_num}: {hash_str}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Invalid hash on line {line_num}: {hash_str}[/yellow]"
+                    )
                     continue
 
                 hashes.append(hash_str)
@@ -925,7 +1000,6 @@ def batch(
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-
             task = progress.add_task("Downloading files...", total=len(hashes))
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -942,17 +1016,23 @@ def batch(
                     if success:
                         successful_downloads += 1
                         if verbose:
-                            progress.console.print(f"[green]✓ {hash_str}: {message}[/green]")
+                            progress.console.print(
+                                f"[green]✓ {hash_str}: {message}[/green]"
+                            )
                     else:
                         failed_hashes.append((hash_str, message))
                         if verbose:
-                            progress.console.print(f"[red]✗ {hash_str}: {message}[/red]")
+                            progress.console.print(
+                                f"[red]✗ {hash_str}: {message}[/red]"
+                            )
 
                     progress.advance(task)
 
         # Retry failed downloads if requested
         if retry_failed and failed_hashes:
-            console.print(f"[yellow]Retrying {len(failed_hashes)} failed downloads...[/yellow]")
+            console.print(
+                f"[yellow]Retrying {len(failed_hashes)} failed downloads...[/yellow]"
+            )
 
             with Progress(
                 SpinnerColumn(),
@@ -963,8 +1043,9 @@ def batch(
                 TimeElapsedColumn(),
                 console=console,
             ) as progress:
-
-                retry_task = progress.add_task("Retrying failed downloads...", total=len(failed_hashes))
+                retry_task = progress.add_task(
+                    "Retrying failed downloads...", total=len(failed_hashes)
+                )
 
                 for hash_str, _original_error in failed_hashes:
                     try:
@@ -972,9 +1053,13 @@ def batch(
                         if success:
                             successful_downloads += 1
                             if verbose:
-                                progress.console.print(f"[green]✓ {hash_str}: {message} (retry successful)[/green]")
+                                progress.console.print(
+                                    f"[green]✓ {hash_str}: {message} (retry successful)[/green]"
+                                )
                             # Remove from failed list
-                            failed_hashes = [(h, e) for h, e in failed_hashes if h != hash_str]
+                            failed_hashes = [
+                                (h, e) for h, e in failed_hashes if h != hash_str
+                            ]
                     except Exception:
                         pass  # Keep in failed list
 
@@ -988,7 +1073,9 @@ def batch(
         table.add_row("Total Hashes", str(len(hashes)))
         table.add_row("Successful", str(successful_downloads))
         table.add_row("Failed", str(len(failed_hashes)))
-        table.add_row("Success Rate", f"{(successful_downloads / len(hashes)) * 100:.1f}%")
+        table.add_row(
+            "Success Rate", f"{(successful_downloads / len(hashes)) * 100:.1f}%"
+        )
 
         console.print(table)
 
@@ -999,7 +1086,9 @@ def batch(
             if len(failed_hashes) > 10:
                 console.print(f"  ... and {len(failed_hashes) - 10} more")
 
-        console.print(f"[green]Batch download completed. Files saved to {output_dir}[/green]")
+        console.print(
+            f"[green]Batch download completed. Files saved to {output_dir}[/green]"
+        )
 
     except Exception as e:
         logger.error("batch_fetch_failed", input_file=str(input_file), error=str(e))
@@ -1163,21 +1252,20 @@ def manifests(
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-
             task = progress.add_task("Fetching TACT manifests...", total=2)
 
             # Fetch versions manifest
             progress.update(task, description="Fetching versions manifest...")
             versions_data = tact_client.fetch_versions(product_enum)
             versions_path = output_dir / f"{product}_versions.txt"
-            _save_file(versions_data.encode('utf-8'), versions_path, console, False)
+            _save_file(versions_data.encode("utf-8"), versions_path, console, False)
             progress.advance(task)
 
             # Fetch CDNs manifest
             progress.update(task, description="Fetching CDNs manifest...")
             cdns_data = tact_client.fetch_cdns(product_enum)
             cdns_path = output_dir / f"{product}_cdns.txt"
-            _save_file(cdns_data.encode('utf-8'), cdns_path, console, False)
+            _save_file(cdns_data.encode("utf-8"), cdns_path, console, False)
             progress.advance(task)
 
         # Parse and show summary
@@ -1248,7 +1336,7 @@ def manifests(
     type=str,
     default=None,
     help="Specific build config hash (from Wago database). If not provided, "
-         "uses the current live build from the versions manifest.",
+    "uses the current live build from the versions manifest.",
 )
 @click.pass_context
 def zbsdiff(
@@ -1314,11 +1402,17 @@ def zbsdiff(
                         version_entry = v
                         break
             if version_entry is None:
-                console.print(f"[red]Error: No version entry found for region {region}[/red]")
+                console.print(
+                    f"[red]Error: No version entry found for region {region}[/red]"
+                )
                 sys.exit(1)
 
-            build_config_hash = version_entry.get("BuildConfig", version_entry.get("buildconfig"))
-            cdn_config_hash = version_entry.get("CDNConfig", version_entry.get("cdnconfig"))
+            build_config_hash = version_entry.get(
+                "BuildConfig", version_entry.get("buildconfig")
+            )
+            cdn_config_hash = version_entry.get(
+                "CDNConfig", version_entry.get("cdnconfig")
+            )
 
         if not build_config_hash:
             console.print("[red]Error: No BuildConfig hash available[/red]")
@@ -1335,8 +1429,10 @@ def zbsdiff(
 
             patch_info = parsed_build_config.get_patch_info()
             if patch_info is None:
-                console.print("[yellow]No patch field in build config. "
-                              "This product may not have patches available.[/yellow]")
+                console.print(
+                    "[yellow]No patch field in build config. "
+                    "This product may not have patches available.[/yellow]"
+                )
                 sys.exit(0)
 
             patch_ekey = patch_info.encoding_key or patch_info.content_key
@@ -1344,7 +1440,7 @@ def zbsdiff(
 
             # Get CDN config hash if not already available
             if not cdn_config_hash:
-                cdn_config_hash = parsed_build_config.extra_fields.get('cdn-config')
+                cdn_config_hash = parsed_build_config.extra_fields.get("cdn-config")
 
             # Step 3: Download and decode the patch manifest
             console.print("[blue]Fetching patch manifest...[/blue]")
@@ -1352,8 +1448,10 @@ def zbsdiff(
 
             if is_blte(patch_manifest_raw):
                 patch_manifest_data = decompress_blte(patch_manifest_raw)
-                console.print(f"  BLTE decoded: {format_size(len(patch_manifest_raw))} -> "
-                              f"{format_size(len(patch_manifest_data))}")
+                console.print(
+                    f"  BLTE decoded: {format_size(len(patch_manifest_raw))} -> "
+                    f"{format_size(len(patch_manifest_data))}"
+                )
             else:
                 patch_manifest_data = patch_manifest_raw
 
@@ -1371,7 +1469,9 @@ def zbsdiff(
             patch_fetcher = create_patch_archive_fetcher(cdn_client=cdn_client)
 
             if cdn_config_hash:
-                console.print("[blue]Fetching CDN config for patch archive list...[/blue]")
+                console.print(
+                    "[blue]Fetching CDN config for patch archive list...[/blue]"
+                )
                 cdn_config_data = cdn_client.fetch_config(cdn_config_hash, "cdn")
                 cdn_config_parser = CDNConfigParser()
                 parsed_cdn_config = cdn_config_parser.parse(cdn_config_data)
@@ -1388,20 +1488,27 @@ def zbsdiff(
                             if patch_fetcher.load_index_from_bytes(pa_hash, index_data):
                                 loaded += 1
                         except Exception as e:
-                            logger.debug("patch_index_load_failed",
-                                         hash=pa_hash, error=str(e))
+                            logger.debug(
+                                "patch_index_load_failed", hash=pa_hash, error=str(e)
+                            )
 
-                    console.print(f"  Loaded {loaded}/{len(patch_archive_hashes)} indexes "
-                                  f"({patch_fetcher.index_map.total_entries} entries)")
+                    console.print(
+                        f"  Loaded {loaded}/{len(patch_archive_hashes)} indexes "
+                        f"({patch_fetcher.index_map.total_entries} entries)"
+                    )
                 else:
                     console.print("[yellow]No patch archives in CDN config[/yellow]")
             else:
-                console.print("[yellow]No CDN config hash available, "
-                              "skipping patch archive index loading[/yellow]")
+                console.print(
+                    "[yellow]No CDN config hash available, "
+                    "skipping patch archive index loading[/yellow]"
+                )
 
             # Step 6: Download individual ZBSDIFF patches
             entries_to_fetch = pa_file.entries[:limit]
-            console.print(f"[blue]Downloading up to {len(entries_to_fetch)} patches...[/blue]")
+            console.print(
+                f"[blue]Downloading up to {len(entries_to_fetch)} patches...[/blue]"
+            )
 
             results: list[dict[str, str]] = []
             archive_hits = 0
@@ -1458,24 +1565,30 @@ def zbsdiff(
                         except Exception as parse_err:
                             status = f"saved [{source}] (parse warning: {parse_err})"
 
-                        results.append({
-                            "old_ckey": old_ckey[:16] + "...",
-                            "new_ckey": new_ckey[:16] + "...",
-                            "patch_ekey": patch_hash[:16] + "...",
-                            "size": format_size(len(patch_data)),
-                            "status": status,
-                        })
-                        console.print(f"  [{i+1}/{len(entries_to_fetch)}] {patch_hash[:16]}... "
-                                      f"({format_size(len(patch_data))}) [{source}]")
+                        results.append(
+                            {
+                                "old_ckey": old_ckey[:16] + "...",
+                                "new_ckey": new_ckey[:16] + "...",
+                                "patch_ekey": patch_hash[:16] + "...",
+                                "size": format_size(len(patch_data)),
+                                "status": status,
+                            }
+                        )
+                        console.print(
+                            f"  [{i + 1}/{len(entries_to_fetch)}] {patch_hash[:16]}... "
+                            f"({format_size(len(patch_data))}) [{source}]"
+                        )
                     else:
                         magic = patch_data[:8]
-                        results.append({
-                            "old_ckey": old_ckey[:16] + "...",
-                            "new_ckey": new_ckey[:16] + "...",
-                            "patch_ekey": patch_hash[:16] + "...",
-                            "size": format_size(len(patch_data)),
-                            "status": f"skipped (magic: {magic!r})",
-                        })
+                        results.append(
+                            {
+                                "old_ckey": old_ckey[:16] + "...",
+                                "new_ckey": new_ckey[:16] + "...",
+                                "patch_ekey": patch_hash[:16] + "...",
+                                "size": format_size(len(patch_data)),
+                                "status": f"skipped (magic: {magic!r})",
+                            }
+                        )
 
                 except Exception as e:
                     error_msg = str(e)
@@ -1483,15 +1596,18 @@ def zbsdiff(
                         status = "404 (not in archive or loose)"
                     else:
                         status = f"error: {error_msg[:60]}"
-                    results.append({
-                        "old_ckey": old_ckey[:16] + "...",
-                        "new_ckey": new_ckey[:16] + "...",
-                        "patch_ekey": patch_hash[:16] + "...",
-                        "size": "-",
-                        "status": status,
-                    })
-                    logger.warning("zbsdiff_fetch_entry_failed",
-                                   hash=patch_hash, error=error_msg)
+                    results.append(
+                        {
+                            "old_ckey": old_ckey[:16] + "...",
+                            "new_ckey": new_ckey[:16] + "...",
+                            "patch_ekey": patch_hash[:16] + "...",
+                            "size": "-",
+                            "status": status,
+                        }
+                    )
+                    logger.warning(
+                        "zbsdiff_fetch_entry_failed", hash=patch_hash, error=error_msg
+                    )
 
             # Summary table
             table = Table(title="ZBSDIFF Patch Download Summary")
@@ -1503,17 +1619,28 @@ def zbsdiff(
 
             for r in results:
                 table.add_row(
-                    r["old_ckey"], r["new_ckey"], r["patch_ekey"],
-                    r["size"], r["status"]
+                    r["old_ckey"],
+                    r["new_ckey"],
+                    r["patch_ekey"],
+                    r["size"],
+                    r["status"],
                 )
 
             console.print(table)
 
-            saved_count = sum(1 for r in results if r["status"].startswith("ok") or r["status"].startswith("saved"))
-            console.print(f"[green]Saved {saved_count} ZBSDIFF patches to {output_dir}[/green]")
+            saved_count = sum(
+                1
+                for r in results
+                if r["status"].startswith("ok") or r["status"].startswith("saved")
+            )
+            console.print(
+                f"[green]Saved {saved_count} ZBSDIFF patches to {output_dir}[/green]"
+            )
             if archive_hits or loose_hits:
-                console.print(f"[dim]Sources: {archive_hits} from archives, "
-                              f"{loose_hits} from loose files[/dim]")
+                console.print(
+                    f"[dim]Sources: {archive_hits} from archives, "
+                    f"{loose_hits} from loose files[/dim]"
+                )
 
     except Exception as e:
         logger.error("zbsdiff_fetch_failed", product=product, error=str(e))
@@ -1542,7 +1669,7 @@ def zbsdiff(
     type=str,
     default=None,
     help="Comma-separated version glob patterns (e.g., '6.*,8.*,10.*'). "
-         "If not provided, uses the current live build for each product.",
+    "If not provided, uses the current live build for each product.",
 )
 @click.option(
     "--use-wago/--no-wago",
@@ -1615,8 +1742,10 @@ def verify_pa(
                     matched_builds.append(b)
 
             if not matched_builds:
-                console.print(f"[yellow]No builds matching {version_filter} "
-                              f"for {product_str}[/yellow]")
+                console.print(
+                    f"[yellow]No builds matching {version_filter} "
+                    f"for {product_str}[/yellow]"
+                )
                 continue
 
             # Sample one build per major.minor version
@@ -1626,15 +1755,17 @@ def verify_pa(
                 major_minor = ".".join(parts[:2]) if len(parts) >= 2 else b.version
                 if major_minor not in seen_versions and b.build_config:
                     seen_versions.add(major_minor)
-                    builds_to_verify.append(
-                        (b.version, b.build_config, b.cdn_config)
-                    )
+                    builds_to_verify.append((b.version, b.build_config, b.cdn_config))
 
-            console.print(f"  Sampled {len(builds_to_verify)} builds from "
-                          f"{len(matched_builds)} matches")
+            console.print(
+                f"  Sampled {len(builds_to_verify)} builds from "
+                f"{len(matched_builds)} matches"
+            )
         else:
             # Use current live build from versions manifest
-            console.print(f"[blue]Fetching current versions for {product_str}...[/blue]")
+            console.print(
+                f"[blue]Fetching current versions for {product_str}...[/blue]"
+            )
             tact_client = TACTClient(region=region)
             versions_data = tact_client.fetch_versions(product_enum)
             versions = tact_client.parse_versions(versions_data)
@@ -1657,9 +1788,13 @@ def verify_pa(
                         break
 
             if version_entry:
-                bc = version_entry.get("BuildConfig", version_entry.get("buildconfig", ""))
+                bc = version_entry.get(
+                    "BuildConfig", version_entry.get("buildconfig", "")
+                )
                 cc = version_entry.get("CDNConfig", version_entry.get("cdnconfig"))
-                ver = version_entry.get("VersionsName", version_entry.get("versionsname", "live"))
+                ver = version_entry.get(
+                    "VersionsName", version_entry.get("versionsname", "live")
+                )
                 if bc:
                     builds_to_verify.append((ver, bc, cc))
 
@@ -1709,11 +1844,13 @@ def verify_pa(
 
                     result["entries"] = len(pa_file.entries)
                     result["blocks"] = len(pa_file.blocks)
-                    result["has_encoding_info"] = "yes" if pa_file.encoding_info else "no"
+                    result["has_encoding_info"] = (
+                        "yes" if pa_file.encoding_info else "no"
+                    )
 
                     # Try to load patch archive indexes
                     if not cc_hash:
-                        cc_hash = parsed_bc.extra_fields.get('cdn-config')
+                        cc_hash = parsed_bc.extra_fields.get("cdn-config")
 
                     index_hit_count = 0
                     if cc_hash:
@@ -1749,8 +1886,9 @@ def verify_pa(
                                     if loc is not None:
                                         index_hit_count += 1
                         except Exception as e:
-                            logger.debug("cdn_config_load_failed",
-                                         hash=cc_hash, error=str(e))
+                            logger.debug(
+                                "cdn_config_load_failed", hash=cc_hash, error=str(e)
+                            )
 
                     result["index_hits"] = index_hit_count
 
@@ -1765,9 +1903,11 @@ def verify_pa(
                     else:
                         result["status"] = "ok (empty)"
 
-                    console.print(f"  {product_str} {version_str}: "
-                                  f"{entry_count} entries, "
-                                  f"{index_hit_count}/{entry_count} in index")
+                    console.print(
+                        f"  {product_str} {version_str}: "
+                        f"{entry_count} entries, "
+                        f"{index_hit_count}/{entry_count} in index"
+                    )
 
                 except Exception as e:
                     result["status"] = f"error: {str(e)[:40]}"

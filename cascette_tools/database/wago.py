@@ -77,7 +77,7 @@ def convert_datetime_iso(val: bytes) -> datetime:
     Returns:
         timezone-aware datetime object in UTC
     """
-    datestr = val.decode('utf-8')
+    datestr = val.decode("utf-8")
     # Parse ISO format string and ensure UTC timezone
     dt = datetime.fromisoformat(datestr)
     if dt.tzinfo is None:
@@ -95,9 +95,21 @@ class WagoClient:
     CACHE_LIFETIME = timedelta(hours=24)
 
     # Product families supported by Wago.tools
-    SUPPORTED_PRODUCTS = ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
+    SUPPORTED_PRODUCTS = [
+        "wow",
+        "wow_classic",
+        "wow_classic_era",
+        "wow_classic_titan",
+        "wow_anniversary",
+    ]
     PRODUCT_FAMILIES = {
-        "wow": ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"],
+        "wow": [
+            "wow",
+            "wow_classic",
+            "wow_classic_era",
+            "wow_classic_titan",
+            "wow_anniversary",
+        ],
         "agent": ["agent"],
         "bna": ["bna"],
     }
@@ -130,7 +142,9 @@ class WagoClient:
             sqlite3.register_converter("TIMESTAMP", convert_datetime_iso)
 
             # Connect with parse_decltypes to enable type converters
-            self._conn = sqlite3.connect(str(self.db_path), detect_types=sqlite3.PARSE_DECLTYPES)
+            self._conn = sqlite3.connect(
+                str(self.db_path), detect_types=sqlite3.PARSE_DECLTYPES
+            )
             self._conn.row_factory = sqlite3.Row
 
         return self._conn
@@ -145,7 +159,7 @@ class WagoClient:
                 headers={
                     "User-Agent": "cascette-tools/0.1.0",
                     "Accept": "application/json",
-                }
+                },
             )
         return self._client
 
@@ -212,7 +226,10 @@ class WagoClient:
             # Already migrated or fresh database
             return
 
-        logger.info("migrating_builds_table", reason="UNIQUE(id, product) -> UNIQUE(product, build, build_config)")
+        logger.info(
+            "migrating_builds_table",
+            reason="UNIQUE(id, product) -> UNIQUE(product, build, build_config)",
+        )
 
         with self.conn:
             # Deduplicate: for rows with the same (product, build, build_config),
@@ -374,7 +391,10 @@ class WagoClient:
             return self._load_cache()
 
         # Fetch from API
-        logger.info("fetching_from_api", reason="cache_invalid" if not force_refresh else "forced")
+        logger.info(
+            "fetching_from_api",
+            reason="cache_invalid" if not force_refresh else "forced",
+        )
 
         try:
             # Fetch all builds from the single API endpoint
@@ -435,8 +455,11 @@ class WagoClient:
                         # Generate an ID if missing (use hash of version+product)
                         if not build_data.get("id"):
                             import hashlib
+
                             id_str = f"{build_data.get('version', '')}_{product_code}"
-                            build_data["id"] = int(hashlib.md5(id_str.encode()).hexdigest()[:8], 16)
+                            build_data["id"] = int(
+                                hashlib.md5(id_str.encode()).hexdigest()[:8], 16
+                            )
 
                         build = WagoBuild(**build_data)
                         all_builds.append(build)
@@ -472,9 +495,7 @@ class WagoClient:
             raise
 
     def get_builds_for_product(
-        self,
-        product: Product | str,
-        force_refresh: bool = False
+        self, product: Product | str, force_refresh: bool = False
     ) -> list[WagoBuild]:
         """Get builds for a specific product.
 
@@ -506,7 +527,7 @@ class WagoClient:
         self,
         version: str,
         product: Product | str | None = None,
-        force_refresh: bool = False
+        force_refresh: bool = False,
     ) -> WagoBuild | None:
         """Find a specific build by version.
 
@@ -538,9 +559,7 @@ class WagoClient:
         return None
 
     def get_latest_build(
-        self,
-        product: Product | str,
-        force_refresh: bool = False
+        self, product: Product | str, force_refresh: bool = False
     ) -> WagoBuild | None:
         """Get the latest build for a product.
 
@@ -560,7 +579,14 @@ class WagoClient:
         # Filter out builds without build_time first
         builds_with_time = [b for b in builds if b.build_time is not None]
         if builds_with_time:
-            latest = max(builds_with_time, key=lambda b: b.build_time if b.build_time is not None else datetime.min.replace(tzinfo=UTC))
+            latest = max(
+                builds_with_time,
+                key=lambda b: (
+                    b.build_time
+                    if b.build_time is not None
+                    else datetime.min.replace(tzinfo=UTC)
+                ),
+            )
         else:
             # Fallback to build number if no builds have timestamps
             latest = max(builds, key=lambda b: int(b.build) if b.build.isdigit() else 0)
@@ -628,7 +654,7 @@ class WagoClient:
         encoding_ekey: str | None = None,
         root_ekey: str | None = None,
         install_ekey: str | None = None,
-        download_ekey: str | None = None
+        download_ekey: str | None = None,
     ) -> bool:
         """Update EKEY fields for a specific build.
 
@@ -679,7 +705,7 @@ class WagoClient:
             # by the natural key (product, build) instead of the Wago id.
             build_number_row = self.conn.execute(
                 "SELECT build FROM builds WHERE id = ? AND product = ?",
-                (build_id, product)
+                (build_id, product),
             ).fetchone()
 
             if build_number_row:
@@ -696,10 +722,10 @@ class WagoClient:
                 cursor = self.conn.execute(
                     f"""
                     UPDATE builds
-                    SET {', '.join(updates)}
+                    SET {", ".join(updates)}
                     WHERE {where_clause}
                     """,
-                    params
+                    params,
                 )
 
                 # Check if any rows were updated
@@ -708,14 +734,14 @@ class WagoClient:
                         "build_ekeys_updated",
                         build_id=build_id,
                         product=product,
-                        rows_updated=cursor.rowcount
+                        rows_updated=cursor.rowcount,
                     )
                     return True
                 else:
                     logger.warning(
                         "build_ekeys_update_no_match",
                         build_id=build_id,
-                        product=product
+                        product=product,
                     )
                     return False
 
@@ -724,7 +750,7 @@ class WagoClient:
                 "build_ekeys_update_failed",
                 build_id=build_id,
                 product=product,
-                error=str(e)
+                error=str(e),
             )
             return False
 
@@ -737,9 +763,7 @@ class WagoClient:
         self.close()
 
     def import_builds_to_database(
-        self,
-        builds: list[WagoBuild] | None = None,
-        force_refresh: bool = False
+        self, builds: list[WagoBuild] | None = None, force_refresh: bool = False
     ) -> dict[str, int]:
         """Import builds into SQLite database.
 
@@ -757,7 +781,7 @@ class WagoClient:
             "fetched": len(builds),
             "imported": 0,
             "updated": 0,
-            "skipped": 0
+            "skipped": 0,
         }
 
         products_imported: set[str] = set()
@@ -778,7 +802,7 @@ class WagoClient:
                            FROM builds
                            WHERE product = ? AND build = ?
                            ORDER BY row_id""",
-                        (build.product, build.build)
+                        (build.product, build.build),
                     ).fetchall()
 
                     if existing:
@@ -802,7 +826,8 @@ class WagoClient:
                             inst = build.install_ekey or matched_row["install_ekey"]
                             dl = build.download_ekey or matched_row["download_ekey"]
 
-                            self.conn.execute("""
+                            self.conn.execute(
+                                """
                                 UPDATE builds SET
                                     id = ?, version = ?, build_time = ?,
                                     build_config = ?, cdn_config = ?,
@@ -811,31 +836,48 @@ class WagoClient:
                                     install_ekey = ?, download_ekey = ?,
                                     updated_at = CURRENT_TIMESTAMP
                                 WHERE row_id = ?
-                            """, (
-                                build.id, build.version, build.build_time,
-                                build.build_config, build.cdn_config,
-                                build.product_config,
-                                enc, root, inst, dl,
-                                matched_row["row_id"]
-                            ))
+                            """,
+                                (
+                                    build.id,
+                                    build.version,
+                                    build.build_time,
+                                    build.build_config,
+                                    build.cdn_config,
+                                    build.product_config,
+                                    enc,
+                                    root,
+                                    inst,
+                                    dl,
+                                    matched_row["row_id"],
+                                ),
+                            )
                             stats["updated"] += 1
                         elif build.build_config is not None:
                             # Different build_config -- legitimate second row
-                            self.conn.execute("""
+                            self.conn.execute(
+                                """
                                 INSERT INTO builds (
                                     id, build, version, product, build_time,
                                     build_config, cdn_config, product_config,
                                     encoding_ekey, root_ekey, install_ekey,
                                     download_ekey
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (
-                                build.id, build.build, build.version,
-                                build.product, build.build_time,
-                                build.build_config, build.cdn_config,
-                                build.product_config, build.encoding_ekey,
-                                build.root_ekey, build.install_ekey,
-                                build.download_ekey
-                            ))
+                            """,
+                                (
+                                    build.id,
+                                    build.build,
+                                    build.version,
+                                    build.product,
+                                    build.build_time,
+                                    build.build_config,
+                                    build.cdn_config,
+                                    build.product_config,
+                                    build.encoding_ekey,
+                                    build.root_ekey,
+                                    build.install_ekey,
+                                    build.download_ekey,
+                                ),
+                            )
                             stats["imported"] += 1
                         else:
                             # Incoming has NULL build_config and a row with
@@ -843,39 +885,49 @@ class WagoClient:
                             stats["skipped"] += 1
                     else:
                         # Insert new build
-                        self.conn.execute("""
+                        self.conn.execute(
+                            """
                             INSERT INTO builds (
                                 id, build, version, product, build_time,
                                 build_config, cdn_config, product_config,
                                 encoding_ekey, root_ekey, install_ekey,
                                 download_ekey
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            build.id, build.build, build.version,
-                            build.product, build.build_time,
-                            build.build_config, build.cdn_config,
-                            build.product_config, build.encoding_ekey,
-                            build.root_ekey, build.install_ekey,
-                            build.download_ekey
-                        ))
+                        """,
+                            (
+                                build.id,
+                                build.build,
+                                build.version,
+                                build.product,
+                                build.build_time,
+                                build.build_config,
+                                build.cdn_config,
+                                build.product_config,
+                                build.encoding_ekey,
+                                build.root_ekey,
+                                build.install_ekey,
+                                build.download_ekey,
+                            ),
+                        )
                         stats["imported"] += 1
 
                 # Log import operation
-                self.conn.execute("""
+                self.conn.execute(
+                    """
                     INSERT INTO wago_import_log (
                         builds_fetched, builds_imported, builds_updated,
                         products, success
                     ) VALUES (?, ?, ?, ?, 1)
-                """, (
-                    stats["fetched"], stats["imported"], stats["updated"],
-                    json.dumps(sorted(products_imported))
-                ))
+                """,
+                    (
+                        stats["fetched"],
+                        stats["imported"],
+                        stats["updated"],
+                        json.dumps(sorted(products_imported)),
+                    ),
+                )
 
-            logger.info(
-                "builds_imported",
-                **stats,
-                products=sorted(products_imported)
-            )
+            logger.info("builds_imported", **stats, products=sorted(products_imported))
 
         except Exception as e:
             logger.error("import_failed", error=str(e), **stats)
@@ -883,15 +935,21 @@ class WagoClient:
             # Log failed import
             try:
                 with self.conn:
-                    self.conn.execute("""
+                    self.conn.execute(
+                        """
                         INSERT INTO wago_import_log (
                             builds_fetched, builds_imported, builds_updated,
                             products, success, error_message
                         ) VALUES (?, ?, ?, ?, 0, ?)
-                    """, (
-                        stats["fetched"], stats["imported"], stats["updated"],
-                        json.dumps(sorted(products_imported)), str(e)
-                    ))
+                    """,
+                        (
+                            stats["fetched"],
+                            stats["imported"],
+                            stats["updated"],
+                            json.dumps(sorted(products_imported)),
+                            str(e),
+                        ),
+                    )
             except Exception:
                 pass  # Don't fail on logging errors
 
@@ -900,9 +958,7 @@ class WagoClient:
         return stats
 
     def get_database_builds(
-        self,
-        product: Product | str | None = None,
-        limit: int | None = None
+        self, product: Product | str | None = None, limit: int | None = None
     ) -> list[WagoBuild]:
         """Get builds from database.
 
@@ -960,7 +1016,9 @@ class WagoClient:
             GROUP BY product
             ORDER BY product
         """)
-        stats["builds_by_product"] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
+        stats["builds_by_product"] = {
+            str(row[0]): int(row[1]) for row in cursor.fetchall()
+        }
 
         # Total builds
         total = sum(stats["builds_by_product"].values())
@@ -979,7 +1037,7 @@ class WagoClient:
             str(row["product"]): {
                 "build_time": row["latest_build_time"],
                 "version": str(row["version"]),
-                "build": str(row["build"])
+                "build": str(row["build"]),
             }
             for row in cursor
         }
@@ -1008,10 +1066,16 @@ class WagoClient:
         stats["recent_imports"] = [
             {
                 "import_time": row["import_time"],
-                "builds_fetched": int(row["builds_fetched"]) if row["builds_fetched"] is not None else 0,
-                "builds_imported": int(row["builds_imported"]) if row["builds_imported"] is not None else 0,
-                "builds_updated": int(row["builds_updated"]) if row["builds_updated"] is not None else 0,
-                "products": json.loads(row["products"]) if row["products"] else []
+                "builds_fetched": int(row["builds_fetched"])
+                if row["builds_fetched"] is not None
+                else 0,
+                "builds_imported": int(row["builds_imported"])
+                if row["builds_imported"] is not None
+                else 0,
+                "builds_updated": int(row["builds_updated"])
+                if row["builds_updated"] is not None
+                else 0,
+                "products": json.loads(row["products"]) if row["products"] else [],
             }
             for row in cursor
         ]
@@ -1019,9 +1083,7 @@ class WagoClient:
         return stats
 
     def find_database_build(
-        self,
-        version: str,
-        product: Product | str | None = None
+        self, version: str, product: Product | str | None = None
     ) -> WagoBuild | None:
         """Find a build in the database by version.
 
@@ -1062,7 +1124,7 @@ class WagoClient:
         self,
         product: str | None = None,
         version: str | None = None,
-        limit: int | None = None
+        limit: int | None = None,
     ) -> list[WagoBuild]:
         """List builds from database with optional filtering.
 
@@ -1094,7 +1156,7 @@ class WagoClient:
 
         if version:
             # Support wildcards by replacing * with %
-            version_pattern = version.replace('*', '%')
+            version_pattern = version.replace("*", "%")
             query += " AND version LIKE ?"
             params.append(version_pattern)
 
@@ -1118,11 +1180,7 @@ class WagoClient:
 
         return builds
 
-    def search_builds(
-        self,
-        query: str,
-        field: str = "all"
-    ) -> list[WagoBuild]:
+    def search_builds(self, query: str, field: str = "all") -> list[WagoBuild]:
         """Search for builds matching a query.
 
         Args:
@@ -1233,7 +1291,9 @@ class WagoClient:
         product_count = int(product_row[0]) if product_row else 0
 
         # Version count
-        cursor.execute("SELECT COUNT(DISTINCT version) FROM builds WHERE version IS NOT NULL")
+        cursor.execute(
+            "SELECT COUNT(DISTINCT version) FROM builds WHERE version IS NOT NULL"
+        )
         version_row = cursor.fetchone()
         version_count = int(version_row[0]) if version_row else 0
 
@@ -1260,7 +1320,9 @@ class WagoClient:
             GROUP BY product
             ORDER BY count DESC
         """)
-        by_product: dict[str, int] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
+        by_product: dict[str, int] = {
+            str(row[0]): int(row[1]) for row in cursor.fetchall()
+        }
 
         # Builds by major version
         cursor.execute("""
@@ -1272,7 +1334,9 @@ class WagoClient:
             GROUP BY major_version
             ORDER BY CAST(major_version AS INTEGER) DESC
         """)
-        by_major_version: dict[str, int] = {str(row[0]): int(row[1]) for row in cursor.fetchall()}
+        by_major_version: dict[str, int] = {
+            str(row[0]): int(row[1]) for row in cursor.fetchall()
+        }
 
         return {
             "total_builds": total_builds,

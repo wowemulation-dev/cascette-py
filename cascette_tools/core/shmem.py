@@ -77,7 +77,9 @@ class PidTracking:
     last_modified_slot: int = 0
     generation: int = 0  # uint64, incremented on each add
     max_slots: int = PID_TRACKING_MAX_SLOTS
-    slots: list[PidSlot] = field(default_factory=lambda: [PidSlot() for _ in range(PID_TRACKING_MAX_SLOTS)])
+    slots: list[PidSlot] = field(
+        default_factory=lambda: [PidSlot() for _ in range(PID_TRACKING_MAX_SLOTS)]
+    )
 
     def add_process(self, pid: int, mode: int = 1) -> int:
         """Register a process in the slot array.
@@ -140,21 +142,21 @@ class PidTracking:
     def to_bytes(self) -> bytes:
         """Serialize PID tracking region to 0x228 bytes."""
         buf = bytearray(PID_TRACKING_SIZE)
-        struct.pack_into('<I', buf, 0x00, self.state)
-        struct.pack_into('<I', buf, 0x04, self.writer_count)
-        struct.pack_into('<I', buf, 0x08, self.total_count)
-        struct.pack_into('<I', buf, 0x0C, self.last_modified_slot)
-        struct.pack_into('<Q', buf, 0x10, self.generation)
-        struct.pack_into('<I', buf, 0x18, self.max_slots)
+        struct.pack_into("<I", buf, 0x00, self.state)
+        struct.pack_into("<I", buf, 0x04, self.writer_count)
+        struct.pack_into("<I", buf, 0x08, self.total_count)
+        struct.pack_into("<I", buf, 0x0C, self.last_modified_slot)
+        struct.pack_into("<Q", buf, 0x10, self.generation)
+        struct.pack_into("<I", buf, 0x18, self.max_slots)
 
         # PID array at +0x1C
         for i in range(self.max_slots):
-            struct.pack_into('<I', buf, 0x1C + i * 4, self.slots[i].pid)
+            struct.pack_into("<I", buf, 0x1C + i * 4, self.slots[i].pid)
 
         # Mode array after PIDs
         modes_offset = 0x1C + self.max_slots * 4
         for i in range(self.max_slots):
-            struct.pack_into('<I', buf, modes_offset + i * 4, self.slots[i].mode)
+            struct.pack_into("<I", buf, modes_offset + i * 4, self.slots[i].mode)
 
         return bytes(buf)
 
@@ -164,19 +166,27 @@ class PidTracking:
         if len(data) < 0x1C:
             raise ValueError(f"PID tracking data too short: {len(data)}")
 
-        state = struct.unpack_from('<I', data, 0x00)[0]
-        writer_count = struct.unpack_from('<I', data, 0x04)[0]
-        total_count = struct.unpack_from('<I', data, 0x08)[0]
-        last_modified_slot = struct.unpack_from('<I', data, 0x0C)[0]
-        generation = struct.unpack_from('<Q', data, 0x10)[0]
-        max_slots = struct.unpack_from('<I', data, 0x18)[0]
+        state = struct.unpack_from("<I", data, 0x00)[0]
+        writer_count = struct.unpack_from("<I", data, 0x04)[0]
+        total_count = struct.unpack_from("<I", data, 0x08)[0]
+        last_modified_slot = struct.unpack_from("<I", data, 0x0C)[0]
+        generation = struct.unpack_from("<Q", data, 0x10)[0]
+        max_slots = struct.unpack_from("<I", data, 0x18)[0]
 
         slots: list[PidSlot] = []
         for i in range(min(max_slots, PID_TRACKING_MAX_SLOTS)):
             pid_off = 0x1C + i * 4
             mode_off = 0x1C + max_slots * 4 + i * 4
-            pid = struct.unpack_from('<I', data, pid_off)[0] if pid_off + 4 <= len(data) else 0
-            mode = struct.unpack_from('<I', data, mode_off)[0] if mode_off + 4 <= len(data) else 0
+            pid = (
+                struct.unpack_from("<I", data, pid_off)[0]
+                if pid_off + 4 <= len(data)
+                else 0
+            )
+            mode = (
+                struct.unpack_from("<I", data, mode_off)[0]
+                if mode_off + 4 <= len(data)
+                else 0
+            )
             slots.append(PidSlot(pid=pid, mode=mode))
 
         # Pad to max_slots
@@ -195,7 +205,9 @@ class PidTracking:
 
         # Crash recovery: recount if state was 2 (modifying) at time of read
         if state == 2:
-            logger.warning("PID tracking state=2 on read, running crash recovery recount")
+            logger.warning(
+                "PID tracking state=2 on read, running crash recovery recount"
+            )
             tracking.recount()
 
         return tracking
@@ -204,7 +216,6 @@ class PidTracking:
 def _page_align(size: int, page_size: int = 4096) -> int:
     """Round up to next page boundary."""
     return (size + page_size - 1) & ~(page_size - 1)
-
 
 
 @dataclass
@@ -223,7 +234,11 @@ class ShmemControl:
     pid_tracking: PidTracking | None = None  # V5 only, when bit 1 set
 
     def __post_init__(self) -> None:
-        if self.version == 5 and self.exclusive_flag & 0x02 and self.pid_tracking is None:
+        if (
+            self.version == 5
+            and self.exclusive_flag & 0x02
+            and self.pid_tracking is None
+        ):
             self.pid_tracking = PidTracking()
 
     @property
@@ -260,30 +275,32 @@ class ShmemControl:
         buf[OFF_INIT_FLAG] = 1 if self.initialized else 0
 
         # Path string
-        path_bytes = self.path_string.encode('utf-8')
+        path_bytes = self.path_string.encode("utf-8")
         if path_bytes:
-            struct.pack_into('<I', buf, OFF_PATH_LEN, len(path_bytes) + 1)
+            struct.pack_into("<I", buf, OFF_PATH_LEN, len(path_bytes) + 1)
             end = min(OFF_PATH_STR + len(path_bytes), OFF_FREE_SPACE_FORMAT)
-            buf[OFF_PATH_STR:end] = path_bytes[:end - OFF_PATH_STR]
+            buf[OFF_PATH_STR:end] = path_bytes[: end - OFF_PATH_STR]
 
         # Free space table format (DWORD[0x42])
-        struct.pack_into('<I', buf, OFF_FREE_SPACE_FORMAT, FREE_SPACE_TABLE_FORMAT)
+        struct.pack_into("<I", buf, OFF_FREE_SPACE_FORMAT, FREE_SPACE_TABLE_FORMAT)
 
         # Data size (DWORD[0x43], must be non-zero)
-        struct.pack_into('<I', buf, OFF_DATA_SIZE, self.data_size if self.data_size > 0 else 0x1000)
+        struct.pack_into(
+            "<I", buf, OFF_DATA_SIZE, self.data_size if self.data_size > 0 else 0x1000
+        )
 
         # Generation numbers (DWORD[0x44]-[0x53])
         for i in range(16):
-            struct.pack_into('<I', buf, OFF_GENERATIONS + i * 4, self.generations[i])
+            struct.pack_into("<I", buf, OFF_GENERATIONS + i * 4, self.generations[i])
 
         # V5 exclusive access flag (DWORD[0x54])
         if self.version >= 5:
-            struct.pack_into('<I', buf, OFF_EXCLUSIVE_FLAG, self.exclusive_flag)
+            struct.pack_into("<I", buf, OFF_EXCLUSIVE_FLAG, self.exclusive_flag)
 
             # PID tracking region
             if self.has_pid_tracking and self.pid_tracking is not None:
                 pid_data = self.pid_tracking.to_bytes()
-                buf[OFF_PID_TRACKING:OFF_PID_TRACKING + len(pid_data)] = pid_data
+                buf[OFF_PID_TRACKING : OFF_PID_TRACKING + len(pid_data)] = pid_data
 
         # Free space table (all zeros = empty)
         # Table starts after the header region. Position depends on version.
@@ -314,14 +331,14 @@ class ShmemControl:
         initialized = data[OFF_INIT_FLAG] != 0
 
         # Path string
-        path_len = struct.unpack_from('<I', data, OFF_PATH_LEN)[0]
+        path_len = struct.unpack_from("<I", data, OFF_PATH_LEN)[0]
         path_string = ""
         if path_len > 1 and OFF_PATH_STR + path_len - 1 <= len(data):
-            path_bytes = data[OFF_PATH_STR:OFF_PATH_STR + path_len - 1]
-            path_string = path_bytes.rstrip(b'\x00').decode('utf-8', errors='replace')
+            path_bytes = data[OFF_PATH_STR : OFF_PATH_STR + path_len - 1]
+            path_string = path_bytes.rstrip(b"\x00").decode("utf-8", errors="replace")
 
         # Validate free space format
-        free_space_format = struct.unpack_from('<I', data, OFF_FREE_SPACE_FORMAT)[0]
+        free_space_format = struct.unpack_from("<I", data, OFF_FREE_SPACE_FORMAT)[0]
         if free_space_format != FREE_SPACE_TABLE_FORMAT:
             logger.warning(
                 "Unexpected free space table format",
@@ -329,7 +346,7 @@ class ShmemControl:
                 actual=f"{free_space_format:#06x}",
             )
 
-        data_size = struct.unpack_from('<I', data, OFF_DATA_SIZE)[0]
+        data_size = struct.unpack_from("<I", data, OFF_DATA_SIZE)[0]
 
         if not initialized:
             logger.warning("Shmem initialization flag is zero")
@@ -339,7 +356,7 @@ class ShmemControl:
         # Generation numbers
         generations: list[int] = []
         for i in range(16):
-            gen = struct.unpack_from('<I', data, OFF_GENERATIONS + i * 4)[0]
+            gen = struct.unpack_from("<I", data, OFF_GENERATIONS + i * 4)[0]
             generations.append(gen)
 
         # V5 exclusive flag
@@ -347,10 +364,10 @@ class ShmemControl:
         pid_tracking = None
 
         if version >= 5 and len(data) > OFF_EXCLUSIVE_FLAG + 4:
-            exclusive_flag = struct.unpack_from('<I', data, OFF_EXCLUSIVE_FLAG)[0]
+            exclusive_flag = struct.unpack_from("<I", data, OFF_EXCLUSIVE_FLAG)[0]
 
             if exclusive_flag & 0x02 and len(data) > OFF_PID_TRACKING + 0x1C:
-                pid_data = data[OFF_PID_TRACKING:OFF_PID_TRACKING + PID_TRACKING_SIZE]
+                pid_data = data[OFF_PID_TRACKING : OFF_PID_TRACKING + PID_TRACKING_SIZE]
                 pid_tracking = PidTracking.from_bytes(pid_data)
 
         return cls(
@@ -404,7 +421,7 @@ class ShmemLock:
     """
 
     def __init__(self, shmem_path: Path):
-        self.lock_path = shmem_path.with_suffix('.lock')
+        self.lock_path = shmem_path.with_suffix(".lock")
         self._fd: int | None = None
 
     def acquire(self, timeout_s: float = 10.0) -> bool:
@@ -438,7 +455,9 @@ class ShmemLock:
                     )
                     time.sleep(delay)
 
-        logger.warning("Failed to acquire shmem lock after retries", path=str(self.lock_path))
+        logger.warning(
+            "Failed to acquire shmem lock after retries", path=str(self.lock_path)
+        )
         return False
 
     def release(self) -> None:
@@ -450,7 +469,9 @@ class ShmemLock:
             self.lock_path.unlink(missing_ok=True)
             logger.debug("Released shmem lock", path=str(self.lock_path))
         except OSError as e:
-            logger.warning("Failed to remove lock file", path=str(self.lock_path), error=str(e))
+            logger.warning(
+                "Failed to remove lock file", path=str(self.lock_path), error=str(e)
+            )
 
     def __enter__(self) -> ShmemLock:
         if not self.acquire():

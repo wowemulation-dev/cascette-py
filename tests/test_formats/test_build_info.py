@@ -378,10 +378,7 @@ class TestBuildInfoParserEdgeCases:
 
     def test_parse_stream_input(self):
         """Test parse() accepts a BytesIO stream (not just bytes)."""
-        content = (
-            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16\n"
-            "us|1|abc123\n"
-        )
+        content = "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16\nus|1|abc123\n"
         parser = BuildInfoParser()
         stream = BytesIO(content.encode())
         result = parser.parse(stream)
@@ -465,8 +462,7 @@ class TestBuildInfoParserEdgeCases:
         """Test that fields not in FIELD_NAME_MAP are silently skipped."""
         # "UnknownCustomField" is not in FIELD_NAME_MAP — hits the `if not attr_name: continue`
         content = (
-            "Branch!STRING:0|UnknownCustomField!STRING:0|Active!DEC:1\n"
-            "us|somevalue|1\n"
+            "Branch!STRING:0|UnknownCustomField!STRING:0|Active!DEC:1\nus|somevalue|1\n"
         )
         parser = BuildInfoParser()
         result = parser.parse(content.encode())

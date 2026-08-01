@@ -32,6 +32,7 @@ logger = structlog.get_logger()
 
 class ArchiveIndexFooter(TypedDict):
     """Type definition for archive index footer fields."""
+
     toc_hash: bytes
     version: int
     reserved: bytes
@@ -47,6 +48,7 @@ class ArchiveIndexFooter(TypedDict):
 @dataclass
 class ArchiveIndexResult:
     """Result from searching an archive index."""
+
     offset: int
     size: int
     archive_index: int | None = None  # Only set for archive-groups
@@ -66,10 +68,10 @@ def parse_cdn_config_archives(cdn_config_path: Path) -> list[str]:
     content = cdn_config_path.read_text()
     archives: list[str] = []
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip()
-        if line.startswith('archives = '):
-            hashes: list[str] = line[len('archives = '):].split()
+        if line.startswith("archives = "):
+            hashes: list[str] = line[len("archives = ") :].split()
             archives.extend(hashes)
 
     return archives
@@ -83,30 +85,32 @@ def parse_archive_index_footer(index_data: bytes) -> ArchiveIndexFooter | None:
     footer_data = index_data[-28:]
 
     return {
-        'toc_hash': footer_data[0:8],
-        'version': footer_data[8],
-        'reserved': footer_data[9:11],
-        'page_size_kb': footer_data[11],
-        'offset_bytes': footer_data[12],
-        'size_bytes': footer_data[13],
-        'key_bytes': footer_data[14],
-        'hash_bytes': footer_data[15],
-        'entry_count': struct.unpack('<I', footer_data[16:20])[0],
-        'footer_hash': footer_data[20:28],
+        "toc_hash": footer_data[0:8],
+        "version": footer_data[8],
+        "reserved": footer_data[9:11],
+        "page_size_kb": footer_data[11],
+        "offset_bytes": footer_data[12],
+        "size_bytes": footer_data[13],
+        "key_bytes": footer_data[14],
+        "hash_bytes": footer_data[15],
+        "entry_count": struct.unpack("<I", footer_data[16:20])[0],
+        "footer_hash": footer_data[20:28],
     }
 
 
-def search_archive_index(index_data: bytes, target_key: bytes) -> ArchiveIndexResult | None:
+def search_archive_index(
+    index_data: bytes, target_key: bytes
+) -> ArchiveIndexResult | None:
     """Search an archive index for a specific encoding key."""
     footer = parse_archive_index_footer(index_data)
     if not footer:
         return None
 
-    version: int = footer['version']
-    offset_bytes: int = footer['offset_bytes']
-    size_bytes: int = footer['size_bytes']
-    key_bytes: int = footer['key_bytes']
-    entry_count: int = footer['entry_count']
+    version: int = footer["version"]
+    offset_bytes: int = footer["offset_bytes"]
+    size_bytes: int = footer["size_bytes"]
+    key_bytes: int = footer["key_bytes"]
+    entry_count: int = footer["entry_count"]
 
     if version != 1 or key_bytes != 16 or offset_bytes not in [4, 6] or size_bytes != 4:
         return None
@@ -120,23 +124,25 @@ def search_archive_index(index_data: bytes, target_key: bytes) -> ArchiveIndexRe
         if pos + entry_size > len(index_data) - 28:
             break
 
-        entry_key = index_data[pos:pos + key_bytes]
+        entry_key = index_data[pos : pos + key_bytes]
         pos += key_bytes
 
         if is_ag:
-            archive_idx = struct.unpack('>H', index_data[pos:pos + 2])[0]
-            offset = struct.unpack('>I', index_data[pos + 2:pos + 6])[0]
+            archive_idx = struct.unpack(">H", index_data[pos : pos + 2])[0]
+            offset = struct.unpack(">I", index_data[pos + 2 : pos + 6])[0]
             pos += 6
         else:
             archive_idx = None
-            offset = struct.unpack('>I', index_data[pos:pos + 4])[0]
+            offset = struct.unpack(">I", index_data[pos : pos + 4])[0]
             pos += 4
 
-        size = struct.unpack('>I', index_data[pos:pos + 4])[0]
+        size = struct.unpack(">I", index_data[pos : pos + 4])[0]
         pos += 4
 
         if entry_key == truncated_target:
-            return ArchiveIndexResult(offset=offset, size=size, archive_index=archive_idx)
+            return ArchiveIndexResult(
+                offset=offset, size=size, archive_index=archive_idx
+            )
 
     return None
 
@@ -150,7 +156,12 @@ def archive() -> None:
 @archive.command()
 @click.argument("index_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--show-entries", "-e", default=10, help="Number of entries to display")
-@click.option("--show-distribution", "-d", is_flag=True, help="Show archive index distribution (archive-groups only)")
+@click.option(
+    "--show-distribution",
+    "-d",
+    is_flag=True,
+    help="Show archive index distribution (archive-groups only)",
+)
 def examine(index_file: Path, show_entries: int, show_distribution: bool):
     """Examine a CDN archive index or archive-group file."""
 
@@ -159,7 +170,9 @@ def examine(index_file: Path, show_entries: int, show_distribution: bool):
 
     # Detect format
     if not is_cdn_archive_index(data):
-        click.echo(f"Error: {index_file} does not appear to be a CDN archive index", err=True)
+        click.echo(
+            f"Error: {index_file} does not appear to be a CDN archive index", err=True
+        )
         return
 
     is_ag = is_archive_group(data)
@@ -194,15 +207,19 @@ def examine(index_file: Path, show_entries: int, show_distribution: bool):
     click.echo("Statistics:")
     click.echo(f"  Total entries: {stats['total_entries']:,}")
 
-    if 'unique_archive_indices' in stats:
+    if "unique_archive_indices" in stats:
         click.echo(f"  Unique archive indices: {stats['unique_archive_indices']:,}")
-        if 'min_archive_index' in stats:
-            click.echo(f"  Archive index range: {stats['min_archive_index']} - {stats['max_archive_index']}")
+        if "min_archive_index" in stats:
+            click.echo(
+                f"  Archive index range: {stats['min_archive_index']} - {stats['max_archive_index']}"
+            )
 
-    if 'min_size' in stats:
+    if "min_size" in stats:
         click.echo(f"  Size range: {stats['min_size']:,} - {stats['max_size']:,} bytes")
         click.echo(f"  Average size: {stats['avg_size']:.0f} bytes")
-        click.echo(f"  Total size: {stats['total_size']:,} bytes ({stats['total_size'] / 1024 / 1024:.2f} MB)")
+        click.echo(
+            f"  Total size: {stats['total_size']:,} bytes ({stats['total_size'] / 1024 / 1024:.2f} MB)"
+        )
     click.echo()
 
     # Show sample entries
@@ -214,10 +231,14 @@ def examine(index_file: Path, show_entries: int, show_distribution: bool):
                 key_hex = f"{key_hex[:32]}..."
 
             if entry.archive_index is not None:
-                click.echo(f"  [{i:4d}] Key: {key_hex}, Archive: {entry.archive_index:5d}, "
-                          f"Offset: 0x{entry.offset:08x}, Size: {entry.size:,}")
+                click.echo(
+                    f"  [{i:4d}] Key: {key_hex}, Archive: {entry.archive_index:5d}, "
+                    f"Offset: 0x{entry.offset:08x}, Size: {entry.size:,}"
+                )
             else:
-                click.echo(f"  [{i:4d}] Key: {key_hex}, Offset: 0x{entry.offset:08x}, Size: {entry.size:,}")
+                click.echo(
+                    f"  [{i:4d}] Key: {key_hex}, Offset: 0x{entry.offset:08x}, Size: {entry.size:,}"
+                )
         click.echo()
 
     # Show archive distribution for archive-groups
@@ -228,12 +249,19 @@ def examine(index_file: Path, show_entries: int, show_distribution: bool):
             sorted_dist = sorted(distribution.items(), key=lambda x: x[1], reverse=True)
             for archive_idx, count in sorted_dist[:20]:
                 percentage = (count / len(index.entries)) * 100
-                click.echo(f"  Archive {archive_idx:5d}: {count:7,} entries ({percentage:.1f}%)")
+                click.echo(
+                    f"  Archive {archive_idx:5d}: {count:7,} entries ({percentage:.1f}%)"
+                )
 
 
 @archive.command()
 @click.argument("directory", type=click.Path(exists=True, path_type=Path))
-@click.option("--min-size", "-s", default=1024*1024, help="Minimum file size in bytes (default: 1MB)")
+@click.option(
+    "--min-size",
+    "-s",
+    default=1024 * 1024,
+    help="Minimum file size in bytes (default: 1MB)",
+)
 def scan(directory: Path, min_size: int):
     """Scan directory for archive-groups and CDN archive indices."""
 
@@ -274,7 +302,9 @@ def scan(directory: Path, min_size: int):
 
     if cdn_indices:
         click.echo(f"Found {len(cdn_indices)} CDN archive indices:")
-        for path, size in sorted(cdn_indices, key=lambda x: x[1], reverse=True)[:10]:  # Top 10
+        for path, size in sorted(cdn_indices, key=lambda x: x[1], reverse=True)[
+            :10
+        ]:  # Top 10
             click.echo(f"  {path.name}: {size:,} bytes ({size / 1024:.1f} KB)")
         if len(cdn_indices) > 10:
             click.echo(f"  ... and {len(cdn_indices) - 10} more")
@@ -349,9 +379,9 @@ def validate_mapping(archive_group: Path, cdn_config: Path):
     cdn_data = cdn_config.read_text()
     archives = []
 
-    for line in cdn_data.split('\n'):
-        if line.startswith('archives = '):
-            archives = line.split(' = ')[1].split()
+    for line in cdn_data.split("\n"):
+        if line.startswith("archives = "):
+            archives = line.split(" = ")[1].split()
             break
 
     if not archives:
@@ -359,7 +389,9 @@ def validate_mapping(archive_group: Path, cdn_config: Path):
         return
 
     click.echo(f"CDN has {len(archives)} archives defined")
-    click.echo(f"Archive-group uses {len(parser.get_archive_indices(ag_index))} unique indices")
+    click.echo(
+        f"Archive-group uses {len(parser.get_archive_indices(ag_index))} unique indices"
+    )
     click.echo()
 
     # Check archive index distribution
@@ -377,11 +409,17 @@ def validate_mapping(archive_group: Path, cdn_config: Path):
 
     total = len(ag_index.entries)
     click.echo("Archive Index Validation:")
-    click.echo(f"  Within CDN range (0-{len(archives)-1}): {valid_indices:,} entries ({valid_indices/total*100:.1f}%)")
-    click.echo(f"  Beyond CDN range: {beyond_cdn:,} entries ({beyond_cdn/total*100:.1f}%)")
+    click.echo(
+        f"  Within CDN range (0-{len(archives) - 1}): {valid_indices:,} entries ({valid_indices / total * 100:.1f}%)"
+    )
+    click.echo(
+        f"  Beyond CDN range: {beyond_cdn:,} entries ({beyond_cdn / total * 100:.1f}%)"
+    )
 
     # Show top indices beyond CDN range
-    high_indices = [(idx, cnt) for idx, cnt in distribution.items() if idx >= len(archives)]
+    high_indices = [
+        (idx, cnt) for idx, cnt in distribution.items() if idx >= len(archives)
+    ]
     if high_indices:
         high_indices.sort(key=lambda x: x[1], reverse=True)
         click.echo()
@@ -394,22 +432,19 @@ def validate_mapping(archive_group: Path, cdn_config: Path):
 @click.argument("cdn_config_path", type=click.Path(exists=True, path_type=Path))
 @click.argument("encoding_key", type=str)
 @click.option(
-    "--cdn-base", "-c",
+    "--cdn-base",
+    "-c",
     type=str,
     default="http://us.cdn.blizzard.com",
-    help="CDN base URL"
+    help="CDN base URL",
 )
+@click.option("--cdn-path", "-p", type=str, default="tpr/wow", help="CDN path")
 @click.option(
-    "--cdn-path", "-p",
-    type=str,
-    default="tpr/wow",
-    help="CDN path"
-)
-@click.option(
-    "--max-archives", "-m",
+    "--max-archives",
+    "-m",
     type=int,
     default=0,
-    help="Maximum archives to search (0 = all)"
+    help="Maximum archives to search (0 = all)",
 )
 @click.pass_context
 def find_key(
@@ -418,7 +453,7 @@ def find_key(
     encoding_key: str,
     cdn_base: str,
     cdn_path: str,
-    max_archives: int
+    max_archives: int,
 ) -> None:
     """Find which archive contains a specific encoding key.
 
@@ -430,7 +465,9 @@ def find_key(
     try:
         target_key = bytes.fromhex(encoding_key)
         if len(target_key) != 16:
-            raise click.ClickException("Encoding key must be 32 hex characters (16 bytes)")
+            raise click.ClickException(
+                "Encoding key must be 32 hex characters (16 bytes)"
+            )
 
         archives = parse_cdn_config_archives(cdn_config_path)
         console.print(f"Found {len(archives)} archives in CDN config")
@@ -449,7 +486,7 @@ def find_key(
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
-                console=console
+                console=console,
             ) as progress:
                 task = progress.add_task("Searching archives...", total=len(archives))
 
@@ -492,7 +529,9 @@ def find_key(
             console.print(table)
 
             console.print("\n[yellow]To fetch this data:[/yellow]")
-            console.print(f"curl -r {found_offset}-{found_offset + found_size - 1} '{archive_url}' -o output.bin")
+            console.print(
+                f"curl -r {found_offset}-{found_offset + found_size - 1} '{archive_url}' -o output.bin"
+            )
         else:
             console.print(f"[red]Key {encoding_key} not found in any archive[/red]")
 
@@ -506,17 +545,13 @@ def find_key(
 @click.argument("encoding_key", type=str)
 @click.argument("output_path", type=click.Path(path_type=Path))
 @click.option(
-    "--cdn-base", "-c",
+    "--cdn-base",
+    "-c",
     type=str,
     default="http://us.cdn.blizzard.com",
-    help="CDN base URL"
+    help="CDN base URL",
 )
-@click.option(
-    "--cdn-path", "-p",
-    type=str,
-    default="tpr/wow",
-    help="CDN path"
-)
+@click.option("--cdn-path", "-p", type=str, default="tpr/wow", help="CDN path")
 @click.pass_context
 def extract_key(
     ctx: click.Context,
@@ -524,7 +559,7 @@ def extract_key(
     encoding_key: str,
     output_path: Path,
     cdn_base: str,
-    cdn_path: str
+    cdn_path: str,
 ) -> None:
     """Find and extract data for an encoding key.
 
@@ -537,7 +572,9 @@ def extract_key(
     try:
         target_key = bytes.fromhex(encoding_key)
         if len(target_key) != 16:
-            raise click.ClickException("Encoding key must be 32 hex characters (16 bytes)")
+            raise click.ClickException(
+                "Encoding key must be 32 hex characters (16 bytes)"
+            )
 
         archives = parse_cdn_config_archives(cdn_config_path)
         console.print(f"Searching {len(archives)} archives...")
@@ -552,7 +589,7 @@ def extract_key(
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
-                console=console
+                console=console,
             ) as progress:
                 task = progress.add_task("Searching...", total=len(archives))
 
@@ -578,9 +615,13 @@ def extract_key(
                         continue
 
             if not found_archive or found_offset is None or found_size is None:
-                raise click.ClickException(f"Key {encoding_key} not found in any archive")
+                raise click.ClickException(
+                    f"Key {encoding_key} not found in any archive"
+                )
 
-            console.print(f"Found in archive {found_archive} at offset {found_offset}, size {found_size}")
+            console.print(
+                f"Found in archive {found_archive} at offset {found_offset}, size {found_size}"
+            )
 
             h = found_archive.lower()
             archive_url = f"{cdn_base}/{cdn_path}/data/{h[:2]}/{h[2:4]}/{h}"
@@ -591,10 +632,14 @@ def extract_key(
             response = client.get(archive_url, headers=headers)
 
             if response.status_code not in [200, 206]:
-                raise click.ClickException(f"Failed to fetch data: HTTP {response.status_code}")
+                raise click.ClickException(
+                    f"Failed to fetch data: HTTP {response.status_code}"
+                )
 
             output_path.write_bytes(response.content)
-            console.print(f"[green]Saved {len(response.content)} bytes to {output_path}[/green]")
+            console.print(
+                f"[green]Saved {len(response.content)} bytes to {output_path}[/green]"
+            )
 
     except click.ClickException:
         raise

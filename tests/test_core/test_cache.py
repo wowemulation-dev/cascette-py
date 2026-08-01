@@ -44,7 +44,16 @@ class TestDiskCache:
         hash_str = "abcdef1234567890"
         path = cache._get_cdn_cache_path(hash_str, "config", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "config" / "ab" / "cd" / "abcdef1234567890"
+        expected = (
+            tmp_path
+            / "cdn"
+            / "tpr"
+            / "wow"
+            / "config"
+            / "ab"
+            / "cd"
+            / "abcdef1234567890"
+        )
         assert path == expected
 
     def test_get_cdn_cache_path_data(self, tmp_path):
@@ -54,7 +63,9 @@ class TestDiskCache:
         hash_str = "1234abcd5678ef90"
         path = cache._get_cdn_cache_path(hash_str, "data", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "data" / "12" / "34" / "1234abcd5678ef90"
+        expected = (
+            tmp_path / "cdn" / "tpr" / "wow" / "data" / "12" / "34" / "1234abcd5678ef90"
+        )
         assert path == expected
 
     def test_get_cdn_cache_path_index(self, tmp_path):
@@ -64,7 +75,16 @@ class TestDiskCache:
         hash_str = "fedcba0987654321"
         path = cache._get_cdn_cache_path(hash_str, "index", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "data" / "fe" / "dc" / "fedcba0987654321.index"
+        expected = (
+            tmp_path
+            / "cdn"
+            / "tpr"
+            / "wow"
+            / "data"
+            / "fe"
+            / "dc"
+            / "fedcba0987654321.index"
+        )
         assert path == expected
 
     def test_get_cdn_cache_path_patch(self, tmp_path):
@@ -74,7 +94,16 @@ class TestDiskCache:
         hash_str = "abcd1234ef567890"
         path = cache._get_cdn_cache_path(hash_str, "patch", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "patch" / "ab" / "cd" / "abcd1234ef567890"
+        expected = (
+            tmp_path
+            / "cdn"
+            / "tpr"
+            / "wow"
+            / "patch"
+            / "ab"
+            / "cd"
+            / "abcd1234ef567890"
+        )
         assert path == expected
 
     def test_get_cdn_cache_path_patch_index(self, tmp_path):
@@ -84,7 +113,16 @@ class TestDiskCache:
         hash_str = "9876543210fedcba"
         path = cache._get_cdn_cache_path(hash_str, "patch_index", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "patch" / "98" / "76" / "9876543210fedcba.index"
+        expected = (
+            tmp_path
+            / "cdn"
+            / "tpr"
+            / "wow"
+            / "patch"
+            / "98"
+            / "76"
+            / "9876543210fedcba.index"
+        )
         assert path == expected
 
     def test_get_cdn_cache_path_uppercase_hash(self, tmp_path):
@@ -94,7 +132,16 @@ class TestDiskCache:
         hash_str = "ABCDEF1234567890"
         path = cache._get_cdn_cache_path(hash_str, "config", "tpr/wow")
 
-        expected = tmp_path / "cdn" / "tpr" / "wow" / "config" / "ab" / "cd" / "abcdef1234567890"
+        expected = (
+            tmp_path
+            / "cdn"
+            / "tpr"
+            / "wow"
+            / "config"
+            / "ab"
+            / "cd"
+            / "abcdef1234567890"
+        )
         assert path == expected
 
     def test_get_api_cache_path(self, tmp_path):
@@ -420,6 +467,7 @@ class TestDiskCache:
 
         # Should be able to read metadata
         import json
+
         with open(cache.metadata_file) as f:
             metadata = json.load(f)
 

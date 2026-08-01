@@ -96,14 +96,14 @@ def _build_archive_index(
     toc_keys = bytearray()
     toc_hashes = bytearray()
     for page_start in range(0, max(len(entries), 1), entries_per_page):
-        page_entries = entries[page_start:page_start + entries_per_page]
+        page_entries = entries[page_start : page_start + entries_per_page]
         page_data = bytearray()
-        last_key = b'\x00' * key_bytes
+        last_key = b"\x00" * key_bytes
         for key, offset, size in page_entries:
-            padded_key = (key + b'\x00' * key_bytes)[:key_bytes]
+            padded_key = (key + b"\x00" * key_bytes)[:key_bytes]
             last_key = padded_key
             page_data.extend(_build_entry(key, offset, size, key_bytes=key_bytes))
-        page_data.extend(b'\x00' * (page_size - len(page_data)))
+        page_data.extend(b"\x00" * (page_size - len(page_data)))
         pages.extend(page_data)
         toc_keys.extend(last_key)
         toc_hashes.extend(hashlib.md5(bytes(page_data)).digest()[:footer_hash_bytes])
@@ -112,13 +112,15 @@ def _build_archive_index(
     data.extend(pages)
     data.extend(toc_keys)
     data.extend(toc_hashes)
-    data.extend(_build_footer(
-        entry_count=len(entries),
-        key_bytes=key_bytes,
-        offset_bytes=offset_bytes,
-        page_size_kb=page_size_kb,
-        footer_hash_bytes=footer_hash_bytes,
-    ))
+    data.extend(
+        _build_footer(
+            entry_count=len(entries),
+            key_bytes=key_bytes,
+            offset_bytes=offset_bytes,
+            page_size_kb=page_size_kb,
+            footer_hash_bytes=footer_hash_bytes,
+        )
+    )
     return bytes(data)
 
 
@@ -138,16 +140,18 @@ def _build_archive_group(
     toc_keys = bytearray()
     toc_hashes = bytearray()
     for page_start in range(0, max(len(entries), 1), entries_per_page):
-        page_entries = entries[page_start:page_start + entries_per_page]
+        page_entries = entries[page_start : page_start + entries_per_page]
         page_data = bytearray()
-        last_key = b'\x00' * key_bytes
+        last_key = b"\x00" * key_bytes
         for key, archive_idx, offset, size in page_entries:
-            padded_key = (key + b'\x00' * key_bytes)[:key_bytes]
+            padded_key = (key + b"\x00" * key_bytes)[:key_bytes]
             last_key = padded_key
             page_data.extend(
-                _build_entry(key, offset, size, archive_index=archive_idx, key_bytes=key_bytes)
+                _build_entry(
+                    key, offset, size, archive_index=archive_idx, key_bytes=key_bytes
+                )
             )
-        page_data.extend(b'\x00' * (page_size - len(page_data)))
+        page_data.extend(b"\x00" * (page_size - len(page_data)))
         pages.extend(page_data)
         toc_keys.extend(last_key)
         toc_hashes.extend(hashlib.md5(bytes(page_data)).digest()[:footer_hash_bytes])
@@ -156,13 +160,15 @@ def _build_archive_group(
     data.extend(pages)
     data.extend(toc_keys)
     data.extend(toc_hashes)
-    data.extend(_build_footer(
-        entry_count=len(entries),
-        key_bytes=key_bytes,
-        offset_bytes=6,
-        page_size_kb=page_size_kb,
-        footer_hash_bytes=footer_hash_bytes,
-    ))
+    data.extend(
+        _build_footer(
+            entry_count=len(entries),
+            key_bytes=key_bytes,
+            offset_bytes=6,
+            page_size_kb=page_size_kb,
+            footer_hash_bytes=footer_hash_bytes,
+        )
+    )
     return bytes(data)
 
 
@@ -223,10 +229,7 @@ class TestCdnArchiveParser:
         assert result.entries[0].archive_index is None
 
     def test_parse_multiple_entries(self) -> None:
-        entries = [
-            (bytes([i] * 16), i * 100, i * 50)
-            for i in range(1, 4)
-        ]
+        entries = [(bytes([i] * 16), i * 100, i * 50) for i in range(1, 4)]
         data = _build_archive_index(entries)
         result = self.parser.parse(data)
         assert len(result.entries) == 3
@@ -264,7 +267,7 @@ class TestCdnArchiveParser:
         assert result.footer.key_bytes == 9
 
     def test_parse_from_stream(self) -> None:
-        raw = _build_archive_index([(b"\xAB" * 16, 100, 50)])
+        raw = _build_archive_index([(b"\xab" * 16, 100, 50)])
         stream = BytesIO(raw)
         result = self.parser.parse(stream)
         assert len(result.entries) == 1
@@ -298,7 +301,7 @@ class TestCdnArchiveParserFindEntry:
     def test_find_nonexistent_entry(self) -> None:
         data = _build_archive_index([(b"\x01" * 16, 100, 50)])
         index = self.parser.parse(data)
-        entry = self.parser.find_entry(index, b"\xFF" * 16)
+        entry = self.parser.find_entry(index, b"\xff" * 16)
         assert entry is None
 
     def test_find_with_longer_key(self) -> None:
@@ -481,10 +484,7 @@ class TestCdnArchivePageBoundaries:
         """Entries that don't fill a page must not leak checksum bytes."""
         # 3 entries at 24 bytes each = 72 bytes in a 4KB page.
         # Old parser would read through 4024 bytes of padding + checksum.
-        entries = [
-            (bytes([i] * 16), i * 1000, i * 100)
-            for i in range(1, 4)
-        ]
+        entries = [(bytes([i] * 16), i * 1000, i * 100) for i in range(1, 4)]
         data = _build_archive_index(entries)
         result = self.parser.parse(data)
         assert len(result.entries) == 3

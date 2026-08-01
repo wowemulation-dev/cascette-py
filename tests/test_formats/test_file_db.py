@@ -63,8 +63,8 @@ class TestFileDatabaseParser:
 
     def test_parse_with_entries(self):
         """Parse a file database with file entries."""
-        ekey = b'\x01' * 16
-        ckey = b'\x02' * 16
+        ekey = b"\x01" * 16
+        ckey = b"\x02" * 16
         entries = [(0, ekey, ckey, 1000, 2000, 0, r"Data\file.dat")]
 
         blob = _make_test_db(entries)
@@ -84,9 +84,9 @@ class TestFileDatabaseParser:
     def test_parse_multiple_entries(self):
         """Parse a file database with multiple entries."""
         entries = [
-            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file1.dat"),
-            (1, b'\x03' * 16, b'\x04' * 16, 300, 400, 1, "sub/file2.dat"),
-            (2, b'\x05' * 16, b'\x06' * 16, 500, 600, 0, r"Data\sub\file3.dat"),
+            (0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file1.dat"),
+            (1, b"\x03" * 16, b"\x04" * 16, 300, 400, 1, "sub/file2.dat"),
+            (2, b"\x05" * 16, b"\x06" * 16, 500, 600, 0, r"Data\sub\file3.dat"),
         ]
 
         blob = _make_test_db(entries, entry_count=3)
@@ -101,11 +101,11 @@ class TestFileDatabaseParser:
 
     def test_roundtrip_parse_build(self):
         """Round-trip: parse → build → parse produces identical results."""
-        ekey = b'\xaa' * 16
-        ckey = b'\xbb' * 16
+        ekey = b"\xaa" * 16
+        ckey = b"\xbb" * 16
         entries = [
             (0, ekey, ckey, 1234, 5678, 42, "game/data/model.m2"),
-            (1, b'\xcc' * 16, b'\xdd' * 16, 999, 1999, 0, "game/data/tex.blp"),
+            (1, b"\xcc" * 16, b"\xdd" * 16, 999, 1999, 0, "game/data/tex.blp"),
         ]
 
         blob = _make_test_db(entries, entry_count=2)
@@ -128,7 +128,7 @@ class TestFileDatabaseParser:
 
     def test_salsa20_encrypted_detection(self):
         """Encrypted file database raises ValueError."""
-        data = b'\x45' + b'\x00' * 100
+        data = b"\x45" + b"\x00" * 100
         parser = FileDatabaseParser()
 
         with pytest.raises(ValueError, match="Salsa20-encrypted"):
@@ -150,19 +150,19 @@ class TestFileDbTags:
 
         # Build a tags blob with one tag: "Windows", type=1, bitmask=[0x80]
         name = b"Windows"
-        blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
+        blob = struct.pack("<H", len(name)) + name + struct.pack("<H", 1) + b"\x80"
 
         tags = _parse_tags_blob(blob, entry_count=1)
         assert len(tags) == 1
         assert tags[0].name == "Windows"
         assert tags[0].tag_type == 1
-        assert tags[0].bit_mask == b'\x80'
+        assert tags[0].bit_mask == b"\x80"
 
     def test_build_tags_blob_roundtrip(self):
         """Tags blob roundtrip: build → parse produces identical tags."""
         tags = [
-            FileDbTag(name="Windows", tag_type=1, bit_mask=b'\xa4'),
-            FileDbTag(name="enUS", tag_type=2, bit_mask=b'\xc0'),
+            FileDbTag(name="Windows", tag_type=1, bit_mask=b"\xa4"),
+            FileDbTag(name="enUS", tag_type=2, bit_mask=b"\xc0"),
         ]
         blob = _build_tags_blob(tags)
         parsed = _parse_tags_blob(blob, entry_count=8)
@@ -170,22 +170,22 @@ class TestFileDbTags:
         assert len(parsed) == 2
         assert parsed[0].name == "Windows"
         assert parsed[0].tag_type == 1
-        assert parsed[0].bit_mask == b'\xa4'
+        assert parsed[0].bit_mask == b"\xa4"
         assert parsed[1].name == "enUS"
         assert parsed[1].tag_type == 2
-        assert parsed[1].bit_mask == b'\xc0'
+        assert parsed[1].bit_mask == b"\xc0"
 
     def test_tag_has_file_msb_ordering(self):
         """Test MSB bit ordering matches InstallTag behavior."""
         # Files 0, 2, 5 = 0x80 | 0x20 | 0x04 = 0xA4
         tag = FileDbTag(name="test", tag_type=1, bit_mask=bytes([0xA4]))
 
-        assert tag.has_file(0) is True   # 0x80
+        assert tag.has_file(0) is True  # 0x80
         assert tag.has_file(1) is False
-        assert tag.has_file(2) is True   # 0x20
+        assert tag.has_file(2) is True  # 0x20
         assert tag.has_file(3) is False
         assert tag.has_file(4) is False
-        assert tag.has_file(5) is True   # 0x04
+        assert tag.has_file(5) is True  # 0x04
         assert tag.has_file(6) is False
         assert tag.has_file(7) is False
         assert tag.has_file(8) is False  # out of range
@@ -195,9 +195,9 @@ class TestFileDbTags:
         import struct
 
         name = b"Windows"
-        tags_blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
+        tags_blob = struct.pack("<H", len(name)) + name + struct.pack("<H", 1) + b"\x80"
 
-        entries = [(0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file.dat")]
+        entries = [(0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file.dat")]
         blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=1)
 
         parser = FileDatabaseParser()
@@ -215,13 +215,19 @@ class TestFileDbTags:
         win_name = b"Windows"
         enus_name = b"enUS"
         tags_blob = (
-            struct.pack('<H', len(win_name)) + win_name + struct.pack('<H', 1) + b'\x80'
-            + struct.pack('<H', len(enus_name)) + enus_name + struct.pack('<H', 2) + b'\xc0'
+            struct.pack("<H", len(win_name))
+            + win_name
+            + struct.pack("<H", 1)
+            + b"\x80"
+            + struct.pack("<H", len(enus_name))
+            + enus_name
+            + struct.pack("<H", 2)
+            + b"\xc0"
         )
 
         entries = [
-            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file0.dat"),
-            (1, b'\x03' * 16, b'\x04' * 16, 100, 200, 0, "file1.dat"),
+            (0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file0.dat"),
+            (1, b"\x03" * 16, b"\x04" * 16, 100, 200, 0, "file1.dat"),
         ]
         blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=2)
 
@@ -252,6 +258,7 @@ class TestFileDatabaseParserEdgeCases:
     def test_parse_stream_input(self):
         """Test parse() accepts a BytesIO stream, not just bytes."""
         from io import BytesIO
+
         blob = _make_test_db([], entry_count=0)
         parser = FileDatabaseParser()
         db = parser.parse(BytesIO(blob))
@@ -281,9 +288,10 @@ class TestFileDatabaseParserEdgeCases:
     def test_build_with_tags(self):
         """Test build() includes tags in the resulting SQLite blob."""
         import struct
+
         name = b"Windows"
-        tags_blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
-        entries = [(0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file.dat")]
+        tags_blob = struct.pack("<H", len(name)) + name + struct.pack("<H", 1) + b"\x80"
+        entries = [(0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file.dat")]
         blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=1)
 
         parser = FileDatabaseParser()
@@ -298,11 +306,17 @@ class TestFileDatabaseParserEdgeCases:
     def test_filter_by_tags_arch(self):
         """Test filter_by_tags() with arch parameter."""
         import struct
+
         arch_name = b"x86_64"
-        tags_blob = struct.pack('<H', len(arch_name)) + arch_name + struct.pack('<H', 1) + b'\x80'
+        tags_blob = (
+            struct.pack("<H", len(arch_name))
+            + arch_name
+            + struct.pack("<H", 1)
+            + b"\x80"
+        )
         entries = [
-            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file0.dat"),
-            (1, b'\x03' * 16, b'\x04' * 16, 100, 200, 0, "file1.dat"),
+            (0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file0.dat"),
+            (1, b"\x03" * 16, b"\x04" * 16, 100, 200, 0, "file1.dat"),
         ]
         blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=2)
         db = FileDatabaseParser().parse(blob)
@@ -315,11 +329,12 @@ class TestFileDatabaseParserEdgeCases:
     def test_filter_by_tags_no_matching_tags_returns_all(self):
         """Test that filter_by_tags() returns all entries when no matching tags found."""
         import struct
+
         name = b"Windows"
-        tags_blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1) + b'\x80'
+        tags_blob = struct.pack("<H", len(name)) + name + struct.pack("<H", 1) + b"\x80"
         entries = [
-            (0, b'\x01' * 16, b'\x02' * 16, 100, 200, 0, "file0.dat"),
-            (1, b'\x03' * 16, b'\x04' * 16, 100, 200, 0, "file1.dat"),
+            (0, b"\x01" * 16, b"\x02" * 16, 100, 200, 0, "file0.dat"),
+            (1, b"\x03" * 16, b"\x04" * 16, 100, 200, 0, "file1.dat"),
         ]
         blob = _make_test_db(entries, tags_blob=tags_blob, entry_count=2)
         db = FileDatabaseParser().parse(blob)
@@ -334,32 +349,35 @@ class TestParseTagsBlobEdgeCases:
 
     def test_truncated_name_len(self):
         """Truncated name_len_data causes early break, returning empty list."""
-        blob = b'\x03'  # Only 1 byte instead of 2 for name_len
+        blob = b"\x03"  # Only 1 byte instead of 2 for name_len
         tags = _parse_tags_blob(blob, entry_count=1)
         assert len(tags) == 0
 
     def test_truncated_name(self):
         """Truncated name causes early break."""
         import struct
+
         # name_len=5 but only 3 name bytes
-        blob = struct.pack('<H', 5) + b'abc'
+        blob = struct.pack("<H", 5) + b"abc"
         tags = _parse_tags_blob(blob, entry_count=1)
         assert len(tags) == 0
 
     def test_truncated_tag_type(self):
         """Truncated tag type causes early break."""
         import struct
+
         name = b"test"
-        blob = struct.pack('<H', len(name)) + name + b'\x01'  # Only 1 byte of tag_type
+        blob = struct.pack("<H", len(name)) + name + b"\x01"  # Only 1 byte of tag_type
         tags = _parse_tags_blob(blob, entry_count=1)
         assert len(tags) == 0
 
     def test_truncated_bitmask(self):
         """Truncated bitmask causes early break."""
         import struct
+
         name = b"test"
         # mask_size = ceil(4/8) = 1, but we provide 0 bitmask bytes
-        blob = struct.pack('<H', len(name)) + name + struct.pack('<H', 1)  # no bitmask
+        blob = struct.pack("<H", len(name)) + name + struct.pack("<H", 1)  # no bitmask
         tags = _parse_tags_blob(blob, entry_count=4)
         assert len(tags) == 0
 
@@ -369,15 +387,15 @@ class TestIsFileDb:
 
     def test_sqlite_magic(self):
         """SQLite files are detected."""
-        assert is_file_db(b'SQLite format 3\x00' + b'\x00' * 100)
+        assert is_file_db(b"SQLite format 3\x00" + b"\x00" * 100)
 
     def test_encrypted_marker(self):
         """Salsa20 encrypted marker is detected."""
-        assert is_file_db(b'\x45' + b'\x00' * 100)
+        assert is_file_db(b"\x45" + b"\x00" * 100)
 
     def test_unknown_format(self):
         """Unknown formats are not detected."""
-        assert not is_file_db(b'\x00\x00\x00\x00')
-        assert not is_file_db(b'BLTE')
-        assert not is_file_db(b'')
-        assert not is_file_db(b'\x01')
+        assert not is_file_db(b"\x00\x00\x00\x00")
+        assert not is_file_db(b"BLTE")
+        assert not is_file_db(b"")
+        assert not is_file_db(b"\x01")

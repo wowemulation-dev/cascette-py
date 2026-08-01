@@ -28,9 +28,13 @@ class TestProductFamily:
 
     def test_wow_family_members(self) -> None:
         wow_members = [
-            Product.WOW, Product.WOW_CLASSIC, Product.WOW_CLASSIC_ERA,
-            Product.WOW_CLASSIC_TITAN, Product.WOW_ANNIVERSARY,
-            Product.WOW_BETA, Product.WOW_PTR,
+            Product.WOW,
+            Product.WOW_CLASSIC,
+            Product.WOW_CLASSIC_ERA,
+            Product.WOW_CLASSIC_TITAN,
+            Product.WOW_ANNIVERSARY,
+            Product.WOW_BETA,
+            Product.WOW_PTR,
         ]
         for product in wow_members:
             assert PRODUCT_FAMILY_MAP[product] == ProductFamily.WOW

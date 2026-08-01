@@ -62,6 +62,7 @@ logger = structlog.get_logger()
 
 class CheckResult(TypedDict):
     """Result of an integrity check."""
+
     type: str
     valid: bool
     message: str
@@ -73,6 +74,7 @@ class CheckResult(TypedDict):
 
 class IntegrityResults(TypedDict):
     """Results of integrity checking."""
+
     file: str
     file_size: int
     file_md5: str
@@ -82,6 +84,7 @@ class IntegrityResults(TypedDict):
 
 class FileResult(TypedDict):
     """Result of validating a single file."""
+
     path: str
     absolute_path: str
     size: int
@@ -97,12 +100,14 @@ class FileResult(TypedDict):
 
 class FormatCounts(TypedDict):
     """Count of valid/invalid files per format."""
+
     valid: int
     invalid: int
 
 
 class BatchSummary(TypedDict):
     """Summary of batch validation results."""
+
     valid: int
     invalid: int
     errors: int
@@ -111,6 +116,7 @@ class BatchSummary(TypedDict):
 
 class BatchResults(TypedDict):
     """Results of batch validation."""
+
     directory: str
     pattern: str
     recursive: bool
@@ -122,6 +128,7 @@ class BatchResults(TypedDict):
 
 class RelationshipCheck(TypedDict):
     """Result of a relationship check."""
+
     type: str
     total_checked: int | None
     found: int | None
@@ -135,6 +142,7 @@ class RelationshipCheck(TypedDict):
 
 class RelationshipResults(TypedDict):
     """Results of relationship validation."""
+
     root_file: str
     encoding_file: str
     root_content_keys: int
@@ -152,7 +160,10 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
-def _output_json(data: dict[str, Any] | IntegrityResults | RelationshipResults | BatchResults, console: Console) -> None:
+def _output_json(
+    data: dict[str, Any] | IntegrityResults | RelationshipResults | BatchResults,
+    console: Console,
+) -> None:
     """Output data as JSON."""
     print(json.dumps(data, indent=2, default=str))
 
@@ -188,7 +199,9 @@ def _fetch_from_cdn_or_path(
             raise click.ClickException(f"Failed to read file {path}: {e}") from e
 
     if not validate_hash_string(input_str):
-        raise click.ClickException(f"Invalid input: not a valid file path or hash: {input_str}")
+        raise click.ClickException(
+            f"Invalid input: not a valid file path or hash: {input_str}"
+        )
 
     try:
         cdn_config = config.create_cdn_config(Product.WOW)
@@ -198,7 +211,7 @@ def _fetch_from_cdn_or_path(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as progress:
             progress.add_task(description=progress_text, total=None)
             if cdn_type == "config":
@@ -226,18 +239,20 @@ def _detect_format_type(data: bytes) -> str | None:
         return "patch_archive"
     elif is_config_file(data):
         return detect_config_type(data)
-    elif len(data) >= 8 and data[:4] == b'TVFS':
+    elif len(data) >= 8 and data[:4] == b"TVFS":
         return "tvfs"
-    elif len(data) >= 8 and data[:8] == b'ZBSDIFF1':
+    elif len(data) >= 8 and data[:8] == b"ZBSDIFF1":
         return "zbsdiff"
-    elif len(data) >= 4 and data[-4:] in [b'\x00\x00\x00\x01', b'\x00\x00\x00\x02']:
+    elif len(data) >= 4 and data[-4:] in [b"\x00\x00\x00\x01", b"\x00\x00\x00\x02"]:
         # Possible archive index (check footer pattern)
         return "archive"
 
     return None
 
 
-def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str, dict[str, Any]]:
+def _validate_format_structure(
+    data: bytes, format_type: str
+) -> tuple[bool, str, dict[str, Any]]:
     """Validate format structure and return validation info."""
     info: dict[str, Any] = {}
 
@@ -247,8 +262,12 @@ def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str
             blte_file = parser.parse(data)
             info = {
                 "chunk_count": len(blte_file.chunks),
-                "total_compressed": sum(chunk.compressed_size for chunk in blte_file.chunks),
-                "total_decompressed": sum(chunk.decompressed_size for chunk in blte_file.chunks),
+                "total_compressed": sum(
+                    chunk.compressed_size for chunk in blte_file.chunks
+                ),
+                "total_decompressed": sum(
+                    chunk.decompressed_size for chunk in blte_file.chunks
+                ),
             }
 
         elif format_type == "encoding":
@@ -329,7 +348,7 @@ def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str
                 parser = ProductConfigParser()
 
             config_data = parser.parse(data)
-            if hasattr(config_data, 'model_dump'):
+            if hasattr(config_data, "model_dump"):
                 entries = config_data.model_dump()
             else:
                 entries = vars(config_data)
@@ -341,7 +360,9 @@ def _validate_format_structure(data: bytes, format_type: str) -> tuple[bool, str
         return False, f"Structure validation failed: {e}", info
 
 
-def _validate_checksums(data: bytes, format_type: str) -> tuple[bool, str, dict[str, Any]]:
+def _validate_checksums(
+    data: bytes, format_type: str
+) -> tuple[bool, str, dict[str, Any]]:
     """Validate checksums within the format."""
     info: dict[str, Any] = {}
 
@@ -380,10 +401,14 @@ def _validate_checksums(data: bytes, format_type: str) -> tuple[bool, str, dict[
             info = {
                 "toc_hash": archive_index.footer.toc_hash.hex(),
                 "element_count": archive_index.footer.element_count,
-                "actual_entries": sum(len(chunk.entries) for chunk in archive_index.chunks),
+                "actual_entries": sum(
+                    len(chunk.entries) for chunk in archive_index.chunks
+                ),
             }
 
-            if archive_index.footer.element_count != sum(len(chunk.entries) for chunk in archive_index.chunks):
+            if archive_index.footer.element_count != sum(
+                len(chunk.entries) for chunk in archive_index.chunks
+            ):
                 return False, "Element count mismatch in footer", info
 
         return True, "Checksums valid", info
@@ -401,24 +426,33 @@ def validate() -> None:
 @validate.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--format-type", "-t",
-    type=click.Choice([
-        "blte", "encoding", "root", "install", "download", "archive",
-        "build", "cdn", "patch", "product", "patch_archive", "tvfs", "zbsdiff"
-    ]),
-    help="Force specific format type (auto-detect if not specified)"
+    "--format-type",
+    "-t",
+    type=click.Choice(
+        [
+            "blte",
+            "encoding",
+            "root",
+            "install",
+            "download",
+            "archive",
+            "build",
+            "cdn",
+            "patch",
+            "product",
+            "patch_archive",
+            "tvfs",
+            "zbsdiff",
+        ]
+    ),
+    help="Force specific format type (auto-detect if not specified)",
 )
 @click.option(
-    "--strict", "-s",
-    is_flag=True,
-    help="Use strict validation (fail on warnings)"
+    "--strict", "-s", is_flag=True, help="Use strict validation (fail on warnings)"
 )
 @click.pass_context
 def format(
-    ctx: click.Context,
-    input_path: str,
-    format_type: str | None,
-    strict: bool
+    ctx: click.Context, input_path: str, format_type: str | None, strict: bool
 ) -> None:
     """Validate individual format files.
 
@@ -429,19 +463,27 @@ def format(
 
     try:
         # Fetch data
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching file for validation")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching file for validation"
+        )
 
         # Detect format type if not specified
         if not format_type:
             format_type = _detect_format_type(data)
             if not format_type:
-                raise click.ClickException("Could not detect format type. Use --format-type to specify.")
+                raise click.ClickException(
+                    "Could not detect format type. Use --format-type to specify."
+                )
 
         # Validate structure
-        structure_valid, structure_msg, structure_info = _validate_format_structure(data, format_type)
+        structure_valid, structure_msg, structure_info = _validate_format_structure(
+            data, format_type
+        )
 
         # Validate checksums
-        checksum_valid, checksum_msg, checksum_info = _validate_checksums(data, format_type)
+        checksum_valid, checksum_msg, checksum_info = _validate_checksums(
+            data, format_type
+        )
 
         # Overall validation result
         overall_valid = structure_valid and checksum_valid
@@ -457,14 +499,14 @@ def format(
                     "structure": {
                         "valid": structure_valid,
                         "message": structure_msg,
-                        "info": structure_info
+                        "info": structure_info,
                     },
                     "checksums": {
                         "valid": checksum_valid,
                         "message": checksum_msg,
-                        "info": checksum_info
-                    }
-                }
+                        "info": checksum_info,
+                    },
+                },
             }
             _output_json(result, console)
         else:
@@ -477,9 +519,17 @@ def format(
             main_table.add_row("Format Type", format_type)
             main_table.add_row("File Size", format_size(len(data)))
             main_table.add_row("File MD5", compute_md5(data).hex())
-            main_table.add_row("Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]")
-            main_table.add_row("Structure Valid", "[green]✓[/green]" if structure_valid else "[red]✗[/red]")
-            main_table.add_row("Checksums Valid", "[green]✓[/green]" if checksum_valid else "[red]✗[/red]")
+            main_table.add_row(
+                "Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]"
+            )
+            main_table.add_row(
+                "Structure Valid",
+                "[green]✓[/green]" if structure_valid else "[red]✗[/red]",
+            )
+            main_table.add_row(
+                "Checksums Valid",
+                "[green]✓[/green]" if checksum_valid else "[red]✗[/red]",
+            )
 
             _output_table(main_table, console)
 
@@ -511,21 +561,12 @@ def format(
 @validate.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--check-md5", "-m",
-    is_flag=True,
-    help="Verify MD5 checksums where available"
+    "--check-md5", "-m", is_flag=True, help="Verify MD5 checksums where available"
 )
-@click.option(
-    "--check-blte", "-b",
-    is_flag=True,
-    help="Verify BLTE chunk checksums"
-)
+@click.option("--check-blte", "-b", is_flag=True, help="Verify BLTE chunk checksums")
 @click.pass_context
 def integrity(
-    ctx: click.Context,
-    input_path: str,
-    check_md5: bool,
-    check_blte: bool
+    ctx: click.Context, input_path: str, check_md5: bool, check_blte: bool
 ) -> None:
     """Check file integrity and checksums.
 
@@ -536,7 +577,9 @@ def integrity(
 
     try:
         # Fetch data
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching file for integrity check")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching file for integrity check"
+        )
 
         # Compute file MD5
         file_md5 = compute_md5(data)
@@ -546,7 +589,7 @@ def integrity(
             "file_size": len(data),
             "file_md5": file_md5.hex(),
             "checks": [],
-            "overall_valid": True
+            "overall_valid": True,
         }
 
         if check_md5:
@@ -564,7 +607,7 @@ def integrity(
                     "expected": expected_hash,
                     "computed": computed_hash,
                     "decompressed_size": None,
-                    "decompressed_md5": None
+                    "decompressed_md5": None,
                 }
                 results["checks"].append(check_result)
 
@@ -581,7 +624,7 @@ def integrity(
                     "expected": None,
                     "computed": None,
                     "decompressed_size": len(decompressed),
-                    "decompressed_md5": decompressed_md5.hex()
+                    "decompressed_md5": decompressed_md5.hex(),
                 }
                 results["checks"].append(check_result_blte)
 
@@ -593,7 +636,7 @@ def integrity(
                     "expected": None,
                     "computed": None,
                     "decompressed_size": None,
-                    "decompressed_md5": None
+                    "decompressed_md5": None,
                 }
                 results["checks"].append(check_result_error)
 
@@ -612,7 +655,9 @@ def integrity(
             table.add_row("File", input_path)
             table.add_row("File Size", format_size(len(data)))
             table.add_row("File MD5", file_md5.hex())
-            table.add_row("Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]")
+            table.add_row(
+                "Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]"
+            )
 
             _output_table(table, console)
 
@@ -641,19 +686,29 @@ def integrity(
 @validate.command()
 @click.argument("input_path", type=str)
 @click.option(
-    "--format-type", "-t",
-    type=click.Choice([
-        "blte", "encoding", "root", "install", "download", "archive",
-        "build", "cdn", "patch", "product", "patch_archive", "tvfs", "zbsdiff"
-    ]),
-    help="Force specific format type (auto-detect if not specified)"
+    "--format-type",
+    "-t",
+    type=click.Choice(
+        [
+            "blte",
+            "encoding",
+            "root",
+            "install",
+            "download",
+            "archive",
+            "build",
+            "cdn",
+            "patch",
+            "product",
+            "patch_archive",
+            "tvfs",
+            "zbsdiff",
+        ]
+    ),
+    help="Force specific format type (auto-detect if not specified)",
 )
 @click.pass_context
-def roundtrip(
-    ctx: click.Context,
-    input_path: str,
-    format_type: str | None
-) -> None:
+def roundtrip(ctx: click.Context, input_path: str, format_type: str | None) -> None:
     """Test parse/build roundtrip validation.
 
     INPUT can be either a file path or CDN hash.
@@ -663,13 +718,17 @@ def roundtrip(
 
     try:
         # Fetch data
-        data = _fetch_from_cdn_or_path(input_path, console, config, "Fetching file for roundtrip test")
+        data = _fetch_from_cdn_or_path(
+            input_path, console, config, "Fetching file for roundtrip test"
+        )
 
         # Detect format type if not specified
         if not format_type:
             format_type = _detect_format_type(data)
             if not format_type:
-                raise click.ClickException("Could not detect format type. Use --format-type to specify.")
+                raise click.ClickException(
+                    "Could not detect format type. Use --format-type to specify."
+                )
 
         # Get appropriate parser and builder
         parser = None
@@ -715,7 +774,9 @@ def roundtrip(
             builder = ProductConfigBuilder()
 
         if not parser or not builder:
-            raise click.ClickException(f"Unsupported format type for roundtrip: {format_type}")
+            raise click.ClickException(
+                f"Unsupported format type for roundtrip: {format_type}"
+            )
 
         # Perform roundtrip test
         try:
@@ -723,7 +784,7 @@ def roundtrip(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
                 console=console,
-                transient=True
+                transient=True,
             ) as progress:
                 progress.add_task(description="Performing roundtrip test", total=None)
 
@@ -756,7 +817,7 @@ def roundtrip(
             "rebuilt_md5": compute_md5(rebuilt_data).hex() if rebuilt_data else None,
             "size_difference": size_diff,
             "roundtrip_valid": roundtrip_valid,
-            "error": error_msg
+            "error": error_msg,
         }
 
         if config.output_format == "json":
@@ -775,7 +836,10 @@ def roundtrip(
             if rebuilt_data:
                 table.add_row("Rebuilt Size", format_size(len(rebuilt_data)))
                 table.add_row("Rebuilt MD5", compute_md5(rebuilt_data).hex())
-                table.add_row("Size Difference", f"{size_diff:+d} bytes" if size_diff != 0 else "0 bytes")
+                table.add_row(
+                    "Size Difference",
+                    f"{size_diff:+d} bytes" if size_diff != 0 else "0 bytes",
+                )
 
             status = "[green]✓ PASS[/green]" if roundtrip_valid else "[red]✗ FAIL[/red]"
             table.add_row("Roundtrip Valid", status)
@@ -799,20 +863,17 @@ def roundtrip(
 @click.argument("root_file", type=str)
 @click.argument("encoding_file", type=str)
 @click.option(
-    "--install-file", "-i",
-    type=str,
-    help="Install manifest file to validate against"
+    "--install-file", "-i", type=str, help="Install manifest file to validate against"
 )
 @click.option(
-    "--download-file", "-d",
-    type=str,
-    help="Download manifest file to validate against"
+    "--download-file", "-d", type=str, help="Download manifest file to validate against"
 )
 @click.option(
-    "--limit", "-l",
+    "--limit",
+    "-l",
     type=int,
     default=1000,
-    help="Limit number of relationships to check"
+    help="Limit number of relationships to check",
 )
 @click.pass_context
 def relationships(
@@ -821,7 +882,7 @@ def relationships(
     encoding_file: str,
     install_file: str | None,
     download_file: str | None,
-    limit: int
+    limit: int,
 ) -> None:
     """Validate cross-format relationships.
 
@@ -832,14 +893,18 @@ def relationships(
 
     try:
         # Fetch and parse root file
-        root_data = _fetch_from_cdn_or_path(root_file, console, config, "Fetching root file")
+        root_data = _fetch_from_cdn_or_path(
+            root_file, console, config, "Fetching root file"
+        )
         if is_blte(root_data):
             root_data = decompress_blte(root_data)
         root_parser = RootParser()
         root_obj = root_parser.parse(root_data)
 
         # Fetch and parse encoding file
-        encoding_data = _fetch_from_cdn_or_path(encoding_file, console, config, "Fetching encoding file")
+        encoding_data = _fetch_from_cdn_or_path(
+            encoding_file, console, config, "Fetching encoding file"
+        )
         if is_blte(encoding_data):
             encoding_data = decompress_blte(encoding_data)
         encoding_parser = EncodingParser()
@@ -858,7 +923,7 @@ def relationships(
             "root_content_keys": len(root_content_keys),
             "encoding_available": len(encoding_obj.ckey_index),
             "checks": [],
-            "overall_valid": True
+            "overall_valid": True,
         }
 
         # Root -> Encoding validation
@@ -871,9 +936,12 @@ def relationships(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             console=console,
-            transient=True
+            transient=True,
         ) as progress:
-            task = progress.add_task(description="Checking root -> encoding relationships", total=len(root_content_keys))
+            task = progress.add_task(
+                description="Checking root -> encoding relationships",
+                total=len(root_content_keys),
+            )
 
             for _ckey in root_content_keys:
                 # Simplified check - in a full implementation, we would search the encoding index
@@ -890,13 +958,15 @@ def relationships(
             "install_entries": None,
             "download_entries": None,
             "found_in_root": None,
-            "missing_in_root": None
+            "missing_in_root": None,
         }
         results["checks"].append(root_check)
 
         # Install file validation if provided
         if install_file:
-            install_data = _fetch_from_cdn_or_path(install_file, console, config, "Fetching install file")
+            install_data = _fetch_from_cdn_or_path(
+                install_file, console, config, "Fetching install file"
+            )
             install_parser = InstallParser()
             install_obj = install_parser.parse(install_data)
 
@@ -913,18 +983,22 @@ def relationships(
                 "total_checked": None,
                 "found": None,
                 "missing": None,
-                "download_entries": None
+                "download_entries": None,
             }
             results["checks"].append(install_check)
 
         # Download file validation if provided
         if download_file:
-            download_data = _fetch_from_cdn_or_path(download_file, console, config, "Fetching download file")
+            download_data = _fetch_from_cdn_or_path(
+                download_file, console, config, "Fetching download file"
+            )
             download_parser = DownloadParser()
             download_obj = download_parser.parse(download_data)
 
             download_content_keys = {entry.ekey for entry in download_obj.entries}
-            download_in_root = len(download_content_keys.intersection(root_content_keys))
+            download_in_root = len(
+                download_content_keys.intersection(root_content_keys)
+            )
             download_missing = len(download_content_keys) - download_in_root
 
             download_check: RelationshipCheck = {
@@ -936,7 +1010,7 @@ def relationships(
                 "total_checked": None,
                 "found": None,
                 "missing": None,
-                "install_entries": None
+                "install_entries": None,
             }
             results["checks"].append(download_check)
 
@@ -955,7 +1029,9 @@ def relationships(
             summary_table.add_row("Root File", root_file)
             summary_table.add_row("Encoding File", encoding_file)
             summary_table.add_row("Root Content Keys", str(len(root_content_keys)))
-            summary_table.add_row("Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]")
+            summary_table.add_row(
+                "Overall Valid", "[green]✓[/green]" if overall_valid else "[red]✗[/red]"
+            )
 
             _output_table(summary_table, console)
 
@@ -976,7 +1052,9 @@ def relationships(
                         found_in_root = check.get("found_in_root", 0)
                         install_entries = check.get("install_entries", 0)
                         download_entries = check.get("download_entries", 0)
-                        total_entries = install_entries if install_entries else download_entries
+                        total_entries = (
+                            install_entries if install_entries else download_entries
+                        )
                         details = f"{found_in_root}/{total_entries} found in root"
                     else:
                         details = "N/A"
@@ -996,30 +1074,46 @@ def relationships(
 
 
 @validate.command()
-@click.argument("directory", type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path))
+@click.argument(
+    "directory",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+)
 @click.option(
-    "--recursive", "-r",
+    "--recursive",
+    "-r",
     is_flag=True,
-    help="Recursively validate files in subdirectories"
+    help="Recursively validate files in subdirectories",
 )
 @click.option(
-    "--pattern", "-p",
-    type=str,
-    default="*",
-    help="File pattern to match (glob syntax)"
+    "--pattern", "-p", type=str, default="*", help="File pattern to match (glob syntax)"
 )
 @click.option(
-    "--format-type", "-t",
-    type=click.Choice([
-        "blte", "encoding", "root", "install", "download", "archive",
-        "build", "cdn", "patch", "product", "patch_archive", "tvfs", "zbsdiff"
-    ]),
-    help="Only validate files of specific format type"
+    "--format-type",
+    "-t",
+    type=click.Choice(
+        [
+            "blte",
+            "encoding",
+            "root",
+            "install",
+            "download",
+            "archive",
+            "build",
+            "cdn",
+            "patch",
+            "product",
+            "patch_archive",
+            "tvfs",
+            "zbsdiff",
+        ]
+    ),
+    help="Only validate files of specific format type",
 )
 @click.option(
-    "--report-file", "-o",
+    "--report-file",
+    "-o",
     type=click.Path(path_type=Path),
-    help="Save validation report to file"
+    help="Save validation report to file",
 )
 @click.pass_context
 def batch(
@@ -1028,7 +1122,7 @@ def batch(
     recursive: bool,
     pattern: str,
     format_type: str | None,
-    report_file: Path | None
+    report_file: Path | None,
 ) -> None:
     """Batch validate multiple files in a directory.
 
@@ -1047,7 +1141,9 @@ def batch(
         files = [f for f in files if f.is_file()]
 
         if not files:
-            console.print(f"[yellow]No files found matching pattern '{pattern}' in {directory}[/yellow]")
+            console.print(
+                f"[yellow]No files found matching pattern '{pattern}' in {directory}[/yellow]"
+            )
             return
 
         console.print(f"Found {len(files)} files to validate")
@@ -1059,12 +1155,7 @@ def batch(
             "format_filter": format_type,
             "total_files": len(files),
             "files": [],
-            "summary": {
-                "valid": 0,
-                "invalid": 0,
-                "errors": 0,
-                "by_format": {}
-            }
+            "summary": {"valid": 0, "invalid": 0, "errors": 0, "by_format": {}},
         }
 
         # Validate each file
@@ -1081,10 +1172,14 @@ def batch(
                     continue
 
                 # Validate structure
-                structure_valid, structure_msg, _structure_info = _validate_format_structure(data, detected_format or "unknown")
+                structure_valid, structure_msg, _structure_info = (
+                    _validate_format_structure(data, detected_format or "unknown")
+                )
 
                 # Validate checksums
-                checksum_valid, checksum_msg, _checksum_info = _validate_checksums(data, detected_format or "unknown")
+                checksum_valid, checksum_msg, _checksum_info = _validate_checksums(
+                    data, detected_format or "unknown"
+                )
 
                 overall_valid = structure_valid and checksum_valid
 
@@ -1099,7 +1194,7 @@ def batch(
                     "structure_message": structure_msg,
                     "checksum_valid": checksum_valid,
                     "checksum_message": checksum_msg,
-                    "error": None
+                    "error": None,
                 }
 
                 results["files"].append(file_result)
@@ -1113,7 +1208,10 @@ def batch(
                 # Update format counts
                 if detected_format:
                     if detected_format not in results["summary"]["by_format"]:
-                        results["summary"]["by_format"][detected_format] = {"valid": 0, "invalid": 0}
+                        results["summary"]["by_format"][detected_format] = {
+                            "valid": 0,
+                            "invalid": 0,
+                        }
 
                     if overall_valid:
                         results["summary"]["by_format"][detected_format]["valid"] += 1
@@ -1132,7 +1230,7 @@ def batch(
                     "structure_message": "Error during validation",
                     "checksum_valid": False,
                     "checksum_message": "Error during validation",
-                    "error": str(e)
+                    "error": str(e),
                 }
 
                 results["files"].append(file_result_error)
@@ -1153,10 +1251,23 @@ def batch(
 
             summary_table.add_row("Directory", str(directory))
             summary_table.add_row("Pattern", pattern)
-            summary_table.add_row("Total Files", str(results["summary"]["valid"] + results["summary"]["invalid"] + results["summary"]["errors"]))
-            summary_table.add_row("Valid Files", f"[green]{results['summary']['valid']}[/green]")
-            summary_table.add_row("Invalid Files", f"[red]{results['summary']['invalid']}[/red]")
-            summary_table.add_row("Error Files", f"[yellow]{results['summary']['errors']}[/yellow]")
+            summary_table.add_row(
+                "Total Files",
+                str(
+                    results["summary"]["valid"]
+                    + results["summary"]["invalid"]
+                    + results["summary"]["errors"]
+                ),
+            )
+            summary_table.add_row(
+                "Valid Files", f"[green]{results['summary']['valid']}[/green]"
+            )
+            summary_table.add_row(
+                "Invalid Files", f"[red]{results['summary']['invalid']}[/red]"
+            )
+            summary_table.add_row(
+                "Error Files", f"[yellow]{results['summary']['errors']}[/yellow]"
+            )
 
             _output_table(summary_table, console)
 
@@ -1171,10 +1282,7 @@ def batch(
                 for fmt, counts in results["summary"]["by_format"].items():
                     total = counts["valid"] + counts["invalid"]
                     format_table.add_row(
-                        fmt,
-                        str(counts["valid"]),
-                        str(counts["invalid"]),
-                        str(total)
+                        fmt, str(counts["valid"]), str(counts["invalid"]), str(total)
                     )
 
                 _output_table(format_table, console)
@@ -1188,17 +1296,23 @@ def batch(
                 invalid_table.add_column("Issue", style="red")
 
                 for file_info in invalid_files[:20]:  # Show first 20
-                    issue = file_info.get("error") or file_info.get("structure_message") or file_info.get("checksum_message")
+                    issue = (
+                        file_info.get("error")
+                        or file_info.get("structure_message")
+                        or file_info.get("checksum_message")
+                    )
                     invalid_table.add_row(
                         file_info["path"],
                         file_info["format"] or "unknown",
-                        issue or "validation failed"
+                        issue or "validation failed",
                     )
 
                 _output_table(invalid_table, console)
 
                 if len(invalid_files) > 20:
-                    console.print(f"[yellow]... and {len(invalid_files) - 20} more invalid files[/yellow]")
+                    console.print(
+                        f"[yellow]... and {len(invalid_files) - 20} more invalid files[/yellow]"
+                    )
 
             # Save report if requested
             if report_file:

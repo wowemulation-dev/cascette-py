@@ -89,7 +89,9 @@ class DownloadQueue:
         return self._progress_callback
 
     @progress_callback.setter
-    def progress_callback(self, callback: Callable[[int, int, int], None] | None) -> None:
+    def progress_callback(
+        self, callback: Callable[[int, int, int], None] | None
+    ) -> None:
         """Set progress callback: (completed, total, bytes_downloaded)."""
         self._progress_callback = callback
 
@@ -121,7 +123,9 @@ class DownloadQueue:
             coro_factory: Callable that creates the download coroutine.
                           Called fresh on each retry attempt.
         """
-        await self._queue.put(_QueueItem(priority=priority, ekey=ekey, coro_factory=coro_factory))
+        await self._queue.put(
+            _QueueItem(priority=priority, ekey=ekey, coro_factory=coro_factory)
+        )
 
     async def run(self, total: int) -> AsyncIterator[DownloadResult]:
         """Process queued downloads concurrently, yielding results.

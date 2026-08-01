@@ -55,8 +55,8 @@ class TestContainerlessStorage:
 
     def test_write_content(self, tmp_path: Path):
         """Write content creates file at expected path."""
-        ekey = b'\x01' * 16
-        ckey = b'\x02' * 16
+        ekey = b"\x01" * 16
+        ckey = b"\x02" * 16
         content = b"Hello, World!"
 
         entries = [_make_entry(0, ekey, ckey, "Data/file.txt")]
@@ -74,8 +74,8 @@ class TestContainerlessStorage:
 
     def test_write_content_with_backslash_path(self, tmp_path: Path):
         """Windows-style backslash paths are normalized."""
-        ekey = b'\x01' * 16
-        ckey = b'\x02' * 16
+        ekey = b"\x01" * 16
+        ckey = b"\x02" * 16
         content = b"test data"
 
         entries = [_make_entry(0, ekey, ckey, r"Data\sub\file.dat")]
@@ -92,8 +92,8 @@ class TestContainerlessStorage:
 
     def test_write_content_dedup(self, tmp_path: Path):
         """Duplicate writes are skipped."""
-        ekey = b'\x01' * 16
-        ckey = b'\x02' * 16
+        ekey = b"\x01" * 16
+        ckey = b"\x02" * 16
         content = b"data"
 
         entries = [_make_entry(0, ekey, ckey, "file.txt")]
@@ -112,7 +112,7 @@ class TestContainerlessStorage:
         """Content key verification passes when MD5 matches."""
         content = b"verified content"
         ckey = hashlib.md5(content).digest()
-        ekey = b'\x01' * 16
+        ekey = b"\x01" * 16
 
         entries = [_make_entry(0, ekey, ckey, "file.txt")]
         db = _make_file_db(entries)
@@ -127,8 +127,8 @@ class TestContainerlessStorage:
     def test_write_content_ckey_verification_fail(self, tmp_path: Path):
         """Content key verification fails when MD5 does not match."""
         content = b"wrong content"
-        expected_ckey = b'\xff' * 16
-        ekey = b'\x01' * 16
+        expected_ckey = b"\xff" * 16
+        ekey = b"\x01" * 16
 
         entries = [_make_entry(0, ekey, expected_ckey, "file.txt")]
         db = _make_file_db(entries)
@@ -142,21 +142,21 @@ class TestContainerlessStorage:
 
     def test_write_content_unknown_ekey(self, tmp_path: Path):
         """Writing with unknown encoding key raises KeyError."""
-        entries = [_make_entry(0, b'\x01' * 16, b'\x02' * 16, "file.txt")]
+        entries = [_make_entry(0, b"\x01" * 16, b"\x02" * 16, "file.txt")]
         db = _make_file_db(entries)
 
         storage = ContainerlessStorage(tmp_path)
         storage.set_file_database(db)
         storage.initialize()
 
-        unknown_ekey = b'\xff' * 16
+        unknown_ekey = b"\xff" * 16
         with pytest.raises(KeyError):
             storage.write_content(unknown_ekey, b"data")
 
     def test_file_exists(self, tmp_path: Path):
         """file_exists returns True when file is on disk."""
-        ekey = b'\x01' * 16
-        entries = [_make_entry(0, ekey, b'\x02' * 16, "file.txt")]
+        ekey = b"\x01" * 16
+        entries = [_make_entry(0, ekey, b"\x02" * 16, "file.txt")]
         db = _make_file_db(entries)
 
         storage = ContainerlessStorage(tmp_path)
@@ -171,8 +171,8 @@ class TestContainerlessStorage:
 
     def test_get_file_path(self, tmp_path: Path):
         """get_file_path resolves ekey to full path."""
-        ekey = b'\x01' * 16
-        entries = [_make_entry(0, ekey, b'\x02' * 16, "game/model.m2")]
+        ekey = b"\x01" * 16
+        entries = [_make_entry(0, ekey, b"\x02" * 16, "game/model.m2")]
         db = _make_file_db(entries)
 
         storage = ContainerlessStorage(tmp_path)
@@ -182,13 +182,13 @@ class TestContainerlessStorage:
         assert path == tmp_path / "game" / "model.m2"
 
         # Unknown key returns None
-        assert storage.get_file_path(b'\xff' * 16) is None
+        assert storage.get_file_path(b"\xff" * 16) is None
 
     def test_identify_file_matching(self, tmp_path: Path):
         """identify_file detects matching content."""
         content = b"test content for hashing"
         ckey = hashlib.md5(content).digest()
-        ekey = b'\x01' * 16
+        ekey = b"\x01" * 16
 
         entry = _make_entry(0, ekey, ckey, "file.txt")
         db = _make_file_db([entry])
@@ -206,8 +206,8 @@ class TestContainerlessStorage:
 
     def test_identify_file_not_matching(self, tmp_path: Path):
         """identify_file detects non-matching content."""
-        ekey = b'\x01' * 16
-        ckey = b'\xaa' * 16  # Won't match actual content
+        ekey = b"\x01" * 16
+        ckey = b"\xaa" * 16  # Won't match actual content
 
         entry = _make_entry(0, ekey, ckey, "file.txt")
         db = _make_file_db([entry])
@@ -223,8 +223,8 @@ class TestContainerlessStorage:
 
     def test_identify_file_missing(self, tmp_path: Path):
         """identify_file handles missing files."""
-        ekey = b'\x01' * 16
-        entry = _make_entry(0, ekey, b'\x02' * 16, "missing.txt")
+        ekey = b"\x01" * 16
+        entry = _make_entry(0, ekey, b"\x02" * 16, "missing.txt")
         db = _make_file_db([entry])
 
         storage = ContainerlessStorage(tmp_path)
@@ -232,4 +232,4 @@ class TestContainerlessStorage:
 
         actual_md5, matches = storage.identify_file(entry)
         assert matches is False
-        assert actual_md5 == b''
+        assert actual_md5 == b""

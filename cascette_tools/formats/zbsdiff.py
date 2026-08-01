@@ -83,16 +83,22 @@ class ZbsdiffFile(BaseModel):
     """Complete ZBSDIFF1 file structure."""
 
     header: ZbsdiffHeader = Field(description="File header")
-    control_entries: list[ZbsdiffControlEntry] = Field(description="Control block entries")
+    control_entries: list[ZbsdiffControlEntry] = Field(
+        description="Control block entries"
+    )
     diff_data: bytes = Field(description="Diff block data (decompressed)")
     extra_data: bytes = Field(description="Extra block data (decompressed)")
 
     @field_validator("control_entries")
     @classmethod
-    def validate_control_entries(cls, v: list[ZbsdiffControlEntry]) -> list[ZbsdiffControlEntry]:
+    def validate_control_entries(
+        cls, v: list[ZbsdiffControlEntry]
+    ) -> list[ZbsdiffControlEntry]:
         """Validate control entries count."""
         if len(v) > MAX_CONTROL_ENTRIES:
-            raise ValueError(f"Too many control entries: {len(v)} > {MAX_CONTROL_ENTRIES}")
+            raise ValueError(
+                f"Too many control entries: {len(v)} > {MAX_CONTROL_ENTRIES}"
+            )
         return v
 
 
@@ -122,19 +128,25 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
         try:
             # Parse header
             header = self._parse_header(stream)
-            logger.debug("Parsed header",
-                        control_length=header.control_length,
-                        diff_length=header.diff_length,
-                        new_size=header.new_size)
+            logger.debug(
+                "Parsed header",
+                control_length=header.control_length,
+                diff_length=header.diff_length,
+                new_size=header.new_size,
+            )
 
             # Extract compressed blocks
             control_compressed = stream.read(header.control_length)
             if len(control_compressed) != header.control_length:
-                raise ValueError(f"Control block too short: {len(control_compressed)} < {header.control_length}")
+                raise ValueError(
+                    f"Control block too short: {len(control_compressed)} < {header.control_length}"
+                )
 
             diff_compressed = stream.read(header.diff_length)
             if len(diff_compressed) != header.diff_length:
-                raise ValueError(f"Diff block too short: {len(diff_compressed)} < {header.diff_length}")
+                raise ValueError(
+                    f"Diff block too short: {len(diff_compressed)} < {header.diff_length}"
+                )
 
             extra_compressed = stream.read()  # Read remaining data
 
@@ -150,23 +162,27 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
                 raise ValueError(f"Failed to decompress diff block: {e}") from e
 
             try:
-                extra_data = zlib.decompress(extra_compressed) if extra_compressed else b""
+                extra_data = (
+                    zlib.decompress(extra_compressed) if extra_compressed else b""
+                )
             except zlib.error as e:
                 raise ValueError(f"Failed to decompress extra block: {e}") from e
 
             # Parse control entries
             control_entries = self._parse_control_entries(control_data)
 
-            logger.debug("Parsed ZBSDIFF1 file",
-                        control_entries=len(control_entries),
-                        diff_size=len(diff_data),
-                        extra_size=len(extra_data))
+            logger.debug(
+                "Parsed ZBSDIFF1 file",
+                control_entries=len(control_entries),
+                diff_size=len(diff_data),
+                extra_size=len(extra_data),
+            )
 
             return ZbsdiffFile(
                 header=header,
                 control_entries=control_entries,
                 diff_data=diff_data,
-                extra_data=extra_data
+                extra_data=extra_data,
             )
 
         except struct.error as e:
@@ -194,7 +210,7 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
             magic=self.MAGIC,
             control_length=len(control_compressed),
             diff_length=len(diff_compressed),
-            new_size=obj.header.new_size
+            new_size=obj.header.new_size,
         )
 
         # Build header
@@ -236,7 +252,9 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
                     # Add diff data to old data
                     for j in range(entry.add_length):
                         if old_pos + j < len(old_data):
-                            new_data[new_pos + j] = (old_data[old_pos + j] + patch.diff_data[diff_pos + j]) & 0xFF
+                            new_data[new_pos + j] = (
+                                old_data[old_pos + j] + patch.diff_data[diff_pos + j]
+                            ) & 0xFF
                         else:
                             new_data[new_pos + j] = patch.diff_data[diff_pos + j]
 
@@ -251,7 +269,9 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
                     if new_pos + entry.copy_length > len(new_data):
                         raise ValueError(f"New data overflow at entry {i}")
 
-                    new_data[new_pos:new_pos + entry.copy_length] = patch.extra_data[extra_pos:extra_pos + entry.copy_length]
+                    new_data[new_pos : new_pos + entry.copy_length] = patch.extra_data[
+                        extra_pos : extra_pos + entry.copy_length
+                    ]
 
                     new_pos += entry.copy_length
                     extra_pos += entry.copy_length
@@ -270,7 +290,9 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
         """Parse ZBSDIFF1 header."""
         header_data = stream.read(self.HEADER_SIZE)
         if len(header_data) != self.HEADER_SIZE:
-            raise ValueError(f"Header too short: {len(header_data)} < {self.HEADER_SIZE}")
+            raise ValueError(
+                f"Header too short: {len(header_data)} < {self.HEADER_SIZE}"
+            )
 
         # Parse header fields (all little-endian signed, matching Agent.exe)
         magic = header_data[0:8]
@@ -282,16 +304,16 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
             magic=magic,
             control_length=control_length,
             diff_length=diff_length,
-            new_size=new_size
+            new_size=new_size,
         )
 
     def _build_header(self, header: ZbsdiffHeader) -> bytes:
         """Build ZBSDIFF1 header (little-endian, matching Agent.exe)."""
         return (
-            header.magic +
-            struct.pack("<q", header.control_length) +
-            struct.pack("<q", header.diff_length) +
-            struct.pack("<q", header.new_size)
+            header.magic
+            + struct.pack("<q", header.control_length)
+            + struct.pack("<q", header.diff_length)
+            + struct.pack("<q", header.new_size)
         )
 
     @staticmethod
@@ -317,9 +339,9 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
 
         while offset + entry_size <= len(control_data):
             # Read three sign-magnitude encoded 64-bit integers (bsdiff offtin)
-            add_length = self._offtin(control_data[offset:offset+8])
-            copy_length = self._offtin(control_data[offset+8:offset+16])
-            seek_offset = self._offtin(control_data[offset+16:offset+24])
+            add_length = self._offtin(control_data[offset : offset + 8])
+            copy_length = self._offtin(control_data[offset + 8 : offset + 16])
+            seek_offset = self._offtin(control_data[offset + 16 : offset + 24])
 
             # Sizes should be non-negative
             if add_length < 0:
@@ -328,9 +350,7 @@ class ZbsdiffParser(FormatParser[ZbsdiffFile]):
                 copy_length = 0
 
             entry = ZbsdiffControlEntry(
-                add_length=add_length,
-                copy_length=copy_length,
-                offset=seek_offset
+                add_length=add_length, copy_length=copy_length, offset=seek_offset
             )
             entries.append(entry)
 
@@ -395,17 +415,11 @@ class ZbsdiffBuilder:
             Empty ZBSDIFF file object
         """
         header = ZbsdiffHeader(
-            magic=b'ZBSDIFF1',
-            control_length=0,
-            diff_length=0,
-            new_size=new_size
+            magic=b"ZBSDIFF1", control_length=0, diff_length=0, new_size=new_size
         )
 
         return ZbsdiffFile(
-            header=header,
-            control_entries=[],
-            diff_data=b'',
-            extra_data=b''
+            header=header, control_entries=[], diff_data=b"", extra_data=b""
         )
 
     @classmethod
@@ -414,7 +428,7 @@ class ZbsdiffBuilder:
         control_entries: list[ZbsdiffControlEntry],
         diff_data: bytes,
         extra_data: bytes,
-        new_size: int
+        new_size: int,
     ) -> ZbsdiffFile:
         """Create ZBSDIFF file with given data.
 
@@ -428,15 +442,15 @@ class ZbsdiffBuilder:
             ZBSDIFF file object
         """
         header = ZbsdiffHeader(
-            magic=b'ZBSDIFF1',
+            magic=b"ZBSDIFF1",
             control_length=len(control_entries) * 24,  # 3 * 8 bytes per entry
             diff_length=len(diff_data),
-            new_size=new_size
+            new_size=new_size,
         )
 
         return ZbsdiffFile(
             header=header,
             control_entries=control_entries,
             diff_data=diff_data,
-            extra_data=extra_data
+            extra_data=extra_data,
         )

@@ -80,26 +80,32 @@ class InstallParser(FormatParser[InstallFile]):
             stream = data
 
         # Parse header
-        header_data = stream.read(10)  # IN(2) + version(1) + hash_size(1) + tag_count(2) + entry_count(4)
+        header_data = stream.read(
+            10
+        )  # IN(2) + version(1) + hash_size(1) + tag_count(2) + entry_count(4)
         if len(header_data) < 10:
             raise ValueError("Insufficient data for header")
 
         magic = header_data[0:2]
-        if magic != b'IN':
+        if magic != b"IN":
             raise ValueError(f"Invalid magic: {magic.hex()}, expected 494E (IN)")
 
         version = header_data[2]
         hash_size = header_data[3]
-        tag_count = struct.unpack('>H', header_data[4:6])[0]  # big-endian
-        entry_count = struct.unpack('>I', header_data[6:10])[0]  # big-endian
+        tag_count = struct.unpack(">H", header_data[4:6])[0]  # big-endian
+        entry_count = struct.unpack(">I", header_data[6:10])[0]  # big-endian
 
         # Validate version (accept V1 and V2, matching Agent.exe)
         if version == 0 or version > 2:
             raise ValueError(f"Unsupported install version: {version}")
 
-        logger.debug("Parsed install header",
-                    version=version, hash_size=hash_size,
-                    tag_count=tag_count, entry_count=entry_count)
+        logger.debug(
+            "Parsed install header",
+            version=version,
+            hash_size=hash_size,
+            tag_count=tag_count,
+            entry_count=entry_count,
+        )
 
         # Calculate tag mask size
         mask_size = (entry_count + 7) // 8
@@ -111,28 +117,26 @@ class InstallParser(FormatParser[InstallFile]):
             name_bytes = bytearray()
             while True:
                 byte = stream.read(1)
-                if not byte or byte == b'\x00':
+                if not byte or byte == b"\x00":
                     break
                 name_bytes.extend(byte)
 
-            tag_name = name_bytes.decode('utf-8', errors='replace')
+            tag_name = name_bytes.decode("utf-8", errors="replace")
 
             # Read tag type (2 bytes big-endian)
             tag_type_data = stream.read(2)
             if len(tag_type_data) < 2:
                 raise ValueError(f"Insufficient data for tag type: {tag_name}")
-            tag_type = struct.unpack('>H', tag_type_data)[0]
+            tag_type = struct.unpack(">H", tag_type_data)[0]
 
             # Read bit mask
             bit_mask_data = stream.read(mask_size)
             if len(bit_mask_data) < mask_size:
                 raise ValueError(f"Insufficient data for bit mask: {tag_name}")
 
-            tags.append(InstallTag(
-                name=tag_name,
-                tag_type=tag_type,
-                bit_mask=bit_mask_data
-            ))
+            tags.append(
+                InstallTag(name=tag_name, tag_type=tag_type, bit_mask=bit_mask_data)
+            )
 
         # Parse file entries
         entries: list[InstallEntry] = []
@@ -141,11 +145,11 @@ class InstallParser(FormatParser[InstallFile]):
             filename_bytes = bytearray()
             while True:
                 byte = stream.read(1)
-                if not byte or byte == b'\x00':
+                if not byte or byte == b"\x00":
                     break
                 filename_bytes.extend(byte)
 
-            filename = filename_bytes.decode('utf-8', errors='replace')
+            filename = filename_bytes.decode("utf-8", errors="replace")
 
             # Read MD5 hash
             md5_data = stream.read(hash_size)
@@ -156,7 +160,7 @@ class InstallParser(FormatParser[InstallFile]):
             size_data = stream.read(4)
             if len(size_data) < 4:
                 raise ValueError(f"Insufficient data for file size: {filename}")
-            file_size = struct.unpack('>I', size_data)[0]
+            file_size = struct.unpack(">I", size_data)[0]
 
             # Read file type for V2 (1 byte after file_size)
             file_type = None
@@ -172,19 +176,18 @@ class InstallParser(FormatParser[InstallFile]):
                 if tag.has_file(i):
                     file_tags.append(tag.name)
 
-            entries.append(InstallEntry(
-                filename=filename,
-                md5_hash=md5_data,
-                size=file_size,
-                file_type=file_type,
-                tags=file_tags
-            ))
+            entries.append(
+                InstallEntry(
+                    filename=filename,
+                    md5_hash=md5_data,
+                    size=file_size,
+                    file_type=file_type,
+                    tags=file_tags,
+                )
+            )
 
         return InstallFile(
-            version=version,
-            hash_size=hash_size,
-            entries=entries,
-            tags=tags
+            version=version, hash_size=hash_size, entries=entries, tags=tags
         )
 
     def build(self, obj: InstallFile) -> bytes:
@@ -199,11 +202,11 @@ class InstallParser(FormatParser[InstallFile]):
         result = BytesIO()
 
         # Write header
-        result.write(b'IN')  # Magic
-        result.write(struct.pack('B', obj.version))  # Version
-        result.write(struct.pack('B', obj.hash_size))  # Hash size
-        result.write(struct.pack('>H', len(obj.tags)))  # Tag count (big-endian)
-        result.write(struct.pack('>I', len(obj.entries)))  # Entry count (big-endian)
+        result.write(b"IN")  # Magic
+        result.write(struct.pack("B", obj.version))  # Version
+        result.write(struct.pack("B", obj.hash_size))  # Hash size
+        result.write(struct.pack(">H", len(obj.tags)))  # Tag count (big-endian)
+        result.write(struct.pack(">I", len(obj.entries)))  # Entry count (big-endian)
 
         # Calculate mask size
         mask_size = (len(obj.entries) + 7) // 8
@@ -216,17 +219,17 @@ class InstallParser(FormatParser[InstallFile]):
                 if tag.name in entry.tags:
                     byte_index = i // 8
                     bit_offset = i % 8
-                    mask[byte_index] |= (0x80 >> bit_offset)
+                    mask[byte_index] |= 0x80 >> bit_offset
             tag_masks[tag.name] = bytes(mask)
 
         # Write tags
         for tag in obj.tags:
             # Write tag name (null-terminated)
-            result.write(tag.name.encode('utf-8'))
-            result.write(b'\x00')
+            result.write(tag.name.encode("utf-8"))
+            result.write(b"\x00")
 
             # Write tag type (2 bytes big-endian)
-            result.write(struct.pack('>H', tag.tag_type))
+            result.write(struct.pack(">H", tag.tag_type))
 
             # Write bit mask (use rebuilt mask to ensure consistency)
             result.write(tag_masks[tag.name])
@@ -234,18 +237,18 @@ class InstallParser(FormatParser[InstallFile]):
         # Write file entries
         for entry in obj.entries:
             # Write filename (null-terminated)
-            result.write(entry.filename.encode('utf-8'))
-            result.write(b'\x00')
+            result.write(entry.filename.encode("utf-8"))
+            result.write(b"\x00")
 
             # Write MD5 hash
             result.write(entry.md5_hash)
 
             # Write file size (4 bytes big-endian)
-            result.write(struct.pack('>I', entry.size))
+            result.write(struct.pack(">I", entry.size))
 
             # Write file type for V2
             if entry.file_type is not None:
-                result.write(struct.pack('B', entry.file_type))
+                result.write(struct.pack("B", entry.file_type))
 
         return result.getvalue()
 
@@ -276,15 +279,12 @@ class InstallBuilder:
         Returns:
             Empty install file object
         """
-        return InstallFile(
-            version=1,
-            hash_size=16,
-            tags=[],
-            entries=[]
-        )
+        return InstallFile(version=1, hash_size=16, tags=[], entries=[])
 
     @classmethod
-    def create_with_entries(cls, entries: list[InstallEntry], tags: list[InstallTag] | None = None) -> InstallFile:
+    def create_with_entries(
+        cls, entries: list[InstallEntry], tags: list[InstallTag] | None = None
+    ) -> InstallFile:
         """Create install file with given entries.
 
         Args:
@@ -294,12 +294,7 @@ class InstallBuilder:
         Returns:
             Install file object
         """
-        return InstallFile(
-            version=1,
-            hash_size=16,
-            tags=tags or [],
-            entries=entries
-        )
+        return InstallFile(version=1, hash_size=16, tags=tags or [], entries=entries)
 
 
 def is_install(data: bytes) -> bool:
@@ -315,4 +310,4 @@ def is_install(data: bytes) -> bool:
         return False
 
     # Check for IN magic
-    return data[:2] == b'IN'
+    return data[:2] == b"IN"

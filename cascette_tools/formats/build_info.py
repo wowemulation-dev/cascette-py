@@ -61,17 +61,27 @@ class LocalBuildInfo(BaseModel):
     im_size: int | None = Field(default=None, description="Install manifest size")
     cdn_path: str = Field(default="", description="CDN path prefix")
     cdn_hosts: str = Field(default="", description="CDN hostnames (space-separated)")
-    cdn_servers: str = Field(default="", description="CDN server URLs (space-separated)")
+    cdn_servers: str = Field(
+        default="", description="CDN server URLs (space-separated)"
+    )
     tags: str = Field(default="", description="Raw tag string")
     armadillo: str = Field(default="", description="Armadillo anti-cheat identifier")
     last_activated: str = Field(default="", description="Last activation timestamp")
-    version: str = Field(default="", description="Version string (e.g., '1.15.8.65300')")
+    version: str = Field(
+        default="", description="Version string (e.g., '1.15.8.65300')"
+    )
     keyring: str = Field(default="", description="Keyring hash")
-    product: str = Field(default="", description="Product code (e.g., 'wow_classic_era')")
+    product: str = Field(
+        default="", description="Product code (e.g., 'wow_classic_era')"
+    )
 
     # Parsed tag data (computed from 'tags' field)
-    platform: str | None = Field(default=None, description="Target platform (e.g., Windows)")
-    architecture: str | None = Field(default=None, description="Target architecture (e.g., x86_64)")
+    platform: str | None = Field(
+        default=None, description="Target platform (e.g., Windows)"
+    )
+    architecture: str | None = Field(
+        default=None, description="Target architecture (e.g., x86_64)"
+    )
     locale_configs: list[LocaleConfig] = Field(  # pyright: ignore[reportUnknownVariableType]
         default_factory=list, description="Installed locale configurations"
     )
@@ -135,11 +145,15 @@ def parse_header(header_line: str) -> list[FieldDefinition]:
             )
         else:
             # Handle fields without proper format
-            fields.append(FieldDefinition(name=field_spec, field_type=FieldType.STRING, size=0))
+            fields.append(
+                FieldDefinition(name=field_spec, field_type=FieldType.STRING, size=0)
+            )
     return fields
 
 
-def parse_tags(tags_str: str) -> tuple[str | None, str | None, list[LocaleConfig], str | None]:
+def parse_tags(
+    tags_str: str,
+) -> tuple[str | None, str | None, list[LocaleConfig], str | None]:
     """Parse tags string into structured components.
 
     The tags field has format like:
@@ -168,7 +182,9 @@ def parse_tags(tags_str: str) -> tuple[str | None, str | None, list[LocaleConfig
         architecture = arch_match.group(1)
 
     # Parse locale configurations from colon-separated groups
-    locale_pattern = re.compile(r"\b(enUS|deDE|esES|esMX|frFR|koKR|ptBR|ruRU|zhCN|zhTW)\b")
+    locale_pattern = re.compile(
+        r"\b(enUS|deDE|esES|esMX|frFR|koKR|ptBR|ruRU|zhCN|zhTW)\b"
+    )
     for group in tags_str.split(":"):
         locale_match = locale_pattern.search(group)
         if locale_match:
@@ -399,7 +415,9 @@ def create_build_info(
     Returns:
         Configured LocalBuildInfo
     """
-    tags_str = build_tags_string(platform, architecture, locale, region, has_speech, has_text)
+    tags_str = build_tags_string(
+        platform, architecture, locale, region, has_speech, has_text
+    )
     cdn_hosts_str = " ".join(cdn_hosts)
 
     # Build locale config

@@ -265,5 +265,6 @@ class TestCryptoModuleExports:
 
     def test_import_from_crypto(self) -> None:
         from cascette_tools.crypto import hashlittle, hashlittle2
+
         assert callable(hashlittle)
         assert callable(hashlittle2)

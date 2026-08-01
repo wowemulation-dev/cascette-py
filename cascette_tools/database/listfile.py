@@ -19,6 +19,7 @@ from cascette_tools.core.config import AppConfig
 
 _base_logger = structlog.get_logger()
 
+
 class SafeLogger:
     """Logger wrapper that gracefully handles configuration issues."""
 
@@ -33,16 +34,17 @@ class SafeLogger:
             pass
 
     def info(self, msg: str, **kwargs: Any) -> None:
-        self._safe_log('info', msg, **kwargs)
+        self._safe_log("info", msg, **kwargs)
 
     def debug(self, msg: str, **kwargs: Any) -> None:
-        self._safe_log('debug', msg, **kwargs)
+        self._safe_log("debug", msg, **kwargs)
 
     def warning(self, msg: str, **kwargs: Any) -> None:
-        self._safe_log('warning', msg, **kwargs)
+        self._safe_log("warning", msg, **kwargs)
 
     def error(self, msg: str, **kwargs: Any) -> None:
-        self._safe_log('error', msg, **kwargs)
+        self._safe_log("error", msg, **kwargs)
+
 
 logger = SafeLogger(_base_logger)
 
@@ -54,8 +56,12 @@ class FileDataEntry(BaseModel):
     path: str = Field(description="File path")
     verified: bool = Field(default=False, description="Verification status")
     lookup_hash: int | None = Field(default=None, description="Jenkins96 lookup hash")
-    added_date: datetime | None = Field(default=None, description="When entry was added")
-    product: str | None = Field(default=None, description="Product this file belongs to")
+    added_date: datetime | None = Field(
+        default=None, description="When entry was added"
+    )
+    product: str | None = Field(
+        default=None, description="Product this file belongs to"
+    )
 
 
 class ListfileCacheMetadata(BaseModel):
@@ -107,7 +113,7 @@ class ListfileManager:
             self._client = httpx.Client(
                 timeout=60.0,  # Longer timeout for large files
                 follow_redirects=True,
-                headers={"User-Agent": "cascette-tools/0.1.0"}
+                headers={"User-Agent": "cascette-tools/0.1.0"},
             )
         return self._client
 
@@ -227,10 +233,10 @@ class ListfileManager:
                 fetch_time=datetime.now(UTC),
                 entry_count=len(entries),
                 file_size=cache_file.stat().st_size,
-                source="wowdev/wow-listfile"
+                source="wowdev/wow-listfile",
             )
             with open(metadata_file, "w") as f:
-                json.dump(metadata.model_dump(mode='json'), f, indent=2, default=str)
+                json.dump(metadata.model_dump(mode="json"), f, indent=2, default=str)
 
             return entries
 
@@ -262,7 +268,7 @@ class ListfileManager:
                     entry = FileDataEntry(
                         fdid=int(row["fdid"]),
                         path=row["path"],
-                        verified=True  # Community listfile entries are verified
+                        verified=True,  # Community listfile entries are verified
                     )
                     entries.append(entry)
                 except (ValueError, KeyError) as e:
@@ -298,11 +304,7 @@ class ListfileManager:
                     path = row.get("path", row.get("filename", ""))
 
                 if fdid and path:
-                    entry = FileDataEntry(
-                        fdid=fdid,
-                        path=path.strip(),
-                        verified=True
-                    )
+                    entry = FileDataEntry(fdid=fdid, path=path.strip(), verified=True)
                     entries.append(entry)
 
             except (ValueError, KeyError) as e:
@@ -310,7 +312,9 @@ class ListfileManager:
 
         return entries
 
-    def import_entries(self, entries: list[FileDataEntry], source: str = "wowdev") -> int:
+    def import_entries(
+        self, entries: list[FileDataEntry], source: str = "wowdev"
+    ) -> int:
         """Import file entries into database, replacing all existing data.
 
         Drops FTS triggers before bulk loading and rebuilds the FTS index
@@ -392,7 +396,11 @@ class ListfileManager:
                     INSERT INTO listfile_sources (source, entry_count, metadata)
                     VALUES (?, ?, ?)
                     """,
-                    (source, imported, json.dumps({"timestamp": datetime.now().isoformat()})),
+                    (
+                        source,
+                        imported,
+                        json.dumps({"timestamp": datetime.now().isoformat()}),
+                    ),
                 )
         except sqlite3.Error as e:
             logger.error("listfile_import_failed", error=str(e))
@@ -411,8 +419,7 @@ class ListfileManager:
             File path if found
         """
         row = self.conn.execute(
-            "SELECT path FROM file_entries WHERE fdid = ?",
-            (fdid,)
+            "SELECT path FROM file_entries WHERE fdid = ?", (fdid,)
         ).fetchone()
 
         return str(row["path"]) if row else None
@@ -429,7 +436,7 @@ class ListfileManager:
         # Try exact match first
         row = self.conn.execute(
             "SELECT fdid FROM file_entries WHERE path = ? OR path_lower = ?",
-            (path, path.lower())
+            (path, path.lower()),
         ).fetchone()
 
         return int(row["fdid"]) if row else None
@@ -450,31 +457,39 @@ class ListfileManager:
         # multi-term search (e.g. "world maps").
         if "*" in pattern or "?" in pattern:
             like_pattern = pattern.lower().replace("*", "%").replace("?", "_")
-            rows = self.conn.execute("""
+            rows = self.conn.execute(
+                """
                 SELECT fdid, path, verified, product
                 FROM file_entries
                 WHERE path_lower LIKE ?
                 ORDER BY path_lower
                 LIMIT ?
-            """, (like_pattern, limit)).fetchall()
+            """,
+                (like_pattern, limit),
+            ).fetchall()
         else:
-            rows = self.conn.execute("""
+            rows = self.conn.execute(
+                """
                 SELECT e.fdid, e.path, e.verified, e.product
                 FROM file_search s
                 JOIN file_entries e ON s.fdid = e.fdid
                 WHERE s.path MATCH ?
                 ORDER BY rank
                 LIMIT ?
-            """, (pattern, limit)).fetchall()
+            """,
+                (pattern, limit),
+            ).fetchall()
 
         entries: list[FileDataEntry] = []
         for row in rows:
-            entries.append(FileDataEntry(
-                fdid=int(row["fdid"]),
-                path=str(row["path"]),
-                verified=bool(row["verified"]),
-                product=str(row["product"]) if row["product"] is not None else None
-            ))
+            entries.append(
+                FileDataEntry(
+                    fdid=int(row["fdid"]),
+                    path=str(row["path"]),
+                    verified=bool(row["verified"]),
+                    product=str(row["product"]) if row["product"] is not None else None,
+                )
+            )
 
         return entries
 
@@ -524,8 +539,7 @@ class ListfileManager:
 
         if products:
             stats["by_product"] = {
-                str(row["product"]): int(row["count"])
-                for row in products
+                str(row["product"]): int(row["count"]) for row in products
             }
 
         # File extensions
@@ -541,8 +555,7 @@ class ListfileManager:
         """).fetchall()
 
         stats["top_extensions"] = {
-            str(row["ext"]): int(row["count"])
-            for row in extensions
+            str(row["ext"]): int(row["count"]) for row in extensions
         }
 
         # Last update
@@ -555,8 +568,10 @@ class ListfileManager:
         if last_source:
             stats["last_update"] = {
                 "time": str(last_source["fetch_time"]),
-                "count": int(last_source["entry_count"]) if last_source["entry_count"] is not None else 0,
-                "source": str(last_source["source"])
+                "count": int(last_source["entry_count"])
+                if last_source["entry_count"] is not None
+                else 0,
+                "source": str(last_source["source"]),
             }
 
         return stats
@@ -588,17 +603,22 @@ class ListfileManager:
                 writer = csv.writer(f)
                 writer.writerow(["fdid", "path", "verified", "product"])
                 for row in rows:
-                    writer.writerow([row["fdid"], row["path"],
-                                     row["verified"], row["product"]])
+                    writer.writerow(
+                        [row["fdid"], row["path"], row["verified"], row["product"]]
+                    )
         else:  # json
             entries: list[dict[str, Any]] = []
             for row in rows:
-                entries.append({
-                    "fdid": int(row["fdid"]),
-                    "path": str(row["path"]),
-                    "verified": bool(row["verified"]),
-                    "product": str(row["product"]) if row["product"] is not None else None
-                })
+                entries.append(
+                    {
+                        "fdid": int(row["fdid"]),
+                        "path": str(row["path"]),
+                        "verified": bool(row["verified"]),
+                        "product": str(row["product"])
+                        if row["product"] is not None
+                        else None,
+                    }
+                )
 
             with open(output_file, "w") as f:
                 json.dump(entries, f, indent=2)

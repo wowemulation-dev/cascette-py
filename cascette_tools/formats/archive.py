@@ -63,9 +63,9 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
     """Parser for archive index format."""
 
     CHUNK_SIZE = 4096  # 4KB chunks
-    ENTRY_SIZE = 24    # Each entry is 24 bytes
+    ENTRY_SIZE = 24  # Each entry is 24 bytes
     MAX_ENTRIES_PER_CHUNK = CHUNK_SIZE // ENTRY_SIZE  # 170 entries
-    FOOTER_SIZE = 28   # CASC footer is 28 bytes
+    FOOTER_SIZE = 28  # CASC footer is 28 bytes
     TRUNCATED_KEY_SIZE = 9  # Truncated encoding key size
 
     def parse(self, data: bytes | BinaryIO) -> ArchiveIndex:
@@ -96,27 +96,31 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
     def _parse_footer(self, data: bytes) -> ArchiveIndexFooter:
         """Parse archive index footer from end of file."""
         if len(data) < self.FOOTER_SIZE:
-            raise ValueError(f"Data too short for footer: {len(data)} < {self.FOOTER_SIZE}")
+            raise ValueError(
+                f"Data too short for footer: {len(data)} < {self.FOOTER_SIZE}"
+            )
 
         # Footer is exactly 28 bytes at the end
-        footer_data = data[-self.FOOTER_SIZE:]
+        footer_data = data[-self.FOOTER_SIZE :]
 
         # Parse footer structure (big-endian except element_count)
         toc_hash = footer_data[0:8]  # First 8 bytes of MD5 hash of TOC
-        version = footer_data[8]     # Index format version (must be 0 or 1)
-        reserved = footer_data[9:11] # Reserved bytes (must be [0, 0])
-        page_size_kb = footer_data[11]   # Page size in KB (always 4)
-        offset_bytes = footer_data[12]   # Archive offset field size (4 for archives)
-        size_bytes = footer_data[13]     # Compressed size field size (always 4)
-        ekey_length = footer_data[14]    # EKey length in bytes (always 16 for full MD5)
+        version = footer_data[8]  # Index format version (must be 0 or 1)
+        reserved = footer_data[9:11]  # Reserved bytes (must be [0, 0])
+        page_size_kb = footer_data[11]  # Page size in KB (always 4)
+        offset_bytes = footer_data[12]  # Archive offset field size (4 for archives)
+        size_bytes = footer_data[13]  # Compressed size field size (always 4)
+        ekey_length = footer_data[14]  # EKey length in bytes (always 16 for full MD5)
         footer_hash_bytes = footer_data[15]  # Footer hash length (always 8)
 
         # Validate version: Agent.exe CdnIndexFooterValidator requires version <= 1
         if version > 1:
-            raise ValueError(f"Unsupported CDN index footer version {version}: must be 0 or 1")
+            raise ValueError(
+                f"Unsupported CDN index footer version {version}: must be 0 or 1"
+            )
 
         # Element count is little-endian (special case!)
-        element_count = struct.unpack('<I', footer_data[16:20])[0]
+        element_count = struct.unpack("<I", footer_data[16:20])[0]
 
         # Footer hash is last 8 bytes
         footer_hash = footer_data[20:28]
@@ -131,10 +135,12 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             ekey_length=ekey_length,
             footer_hash_bytes=footer_hash_bytes,
             element_count=element_count,
-            footer_hash=footer_hash
+            footer_hash=footer_hash,
         )
 
-    def _parse_chunks_and_toc(self, data: bytes, footer: ArchiveIndexFooter) -> tuple[list[ArchiveIndexChunk], list[bytes]]:
+    def _parse_chunks_and_toc(
+        self, data: bytes, footer: ArchiveIndexFooter
+    ) -> tuple[list[ArchiveIndexChunk], list[bytes]]:
         """Parse chunks and table of contents.
 
         The footer's element_count is the total number of entries (not chunks).
@@ -148,7 +154,11 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         record_size = footer.ekey_length + footer.size_bytes + footer.offset_bytes
         records_per_block = block_size // record_size
 
-        chunk_count = math.ceil(footer.element_count / records_per_block) if footer.element_count > 0 else 0
+        chunk_count = (
+            math.ceil(footer.element_count / records_per_block)
+            if footer.element_count > 0
+            else 0
+        )
 
         footer_size = 20 + footer.footer_hash_bytes
         toc_key_size = footer.ekey_length
@@ -160,7 +170,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         toc: list[bytes] = []
         for i in range(chunk_count):
             key_offset = toc_offset + i * toc_key_size
-            key = data[key_offset:key_offset + toc_key_size]
+            key = data[key_offset : key_offset + toc_key_size]
             toc.append(key)
 
         # Parse data chunks
@@ -169,13 +179,15 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             chunk_offset = chunk_index * block_size
             # Last chunk may be partial
             chunk_size = min(block_size, data_size - chunk_offset)
-            chunk_data = data[chunk_offset:chunk_offset + chunk_size]
+            chunk_data = data[chunk_offset : chunk_offset + chunk_size]
             chunk = self._parse_chunk(chunk_index, chunk_data, footer)
             chunks.append(chunk)
 
         return chunks, toc
 
-    def _parse_chunk(self, chunk_index: int, chunk_data: bytes, footer: ArchiveIndexFooter) -> ArchiveIndexChunk:
+    def _parse_chunk(
+        self, chunk_index: int, chunk_data: bytes, footer: ArchiveIndexFooter
+    ) -> ArchiveIndexChunk:
         """Parse a single chunk using dynamic field sizes from footer."""
         ekey_length = footer.ekey_length
         size_bytes = footer.size_bytes
@@ -183,11 +195,11 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         record_size = ekey_length + size_bytes + offset_bytes_count
 
         entries: list[ArchiveIndexEntry] = []
-        last_key = b''
+        last_key = b""
         pos = 0
 
         while pos + record_size <= len(chunk_data):
-            entry_data = chunk_data[pos:pos + record_size]
+            entry_data = chunk_data[pos : pos + record_size]
 
             ekey = entry_data[0:ekey_length]
             # Stop at zero-padded entries
@@ -200,8 +212,8 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             offset_start = size_end
             offset_end = offset_start + offset_bytes_count
 
-            size = int.from_bytes(entry_data[size_start:size_end], 'big')
-            offset = int.from_bytes(entry_data[offset_start:offset_end], 'big')
+            size = int.from_bytes(entry_data[size_start:size_end], "big")
+            offset = int.from_bytes(entry_data[offset_start:offset_end], "big")
 
             entry = ArchiveIndexEntry(ekey=ekey, offset=offset, size=size)
             entries.append(entry)
@@ -209,9 +221,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             pos += record_size
 
         return ArchiveIndexChunk(
-            chunk_index=chunk_index,
-            entries=entries,
-            last_key=last_key
+            chunk_index=chunk_index, entries=entries, last_key=last_key
         )
 
     def find_entry(self, obj: ArchiveIndex, ekey: bytes) -> ArchiveIndexEntry | None:
@@ -233,8 +243,9 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         return None
 
-    def find_entries_in_range(self, obj: ArchiveIndex,
-                              start_offset: int, end_offset: int) -> list[ArchiveIndexEntry]:
+    def find_entries_in_range(
+        self, obj: ArchiveIndex, start_offset: int, end_offset: int
+    ) -> list[ArchiveIndexEntry]:
         """Find entries within offset range.
 
         Args:
@@ -264,7 +275,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             True if TOC hash is valid
         """
         # Concatenate all TOC keys
-        toc_data = b''.join(obj.toc)
+        toc_data = b"".join(obj.toc)
 
         # Calculate MD5 hash
         md5_hash = hashlib.md5(toc_data).digest()
@@ -295,7 +306,7 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
         data[7] = footer.footer_hash_bytes
 
         # Element count is little-endian
-        element_count_bytes = struct.pack('<I', footer.element_count)
+        element_count_bytes = struct.pack("<I", footer.element_count)
         data[8:12] = element_count_bytes
 
         # Calculate MD5 hash
@@ -319,7 +330,9 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
 
         # Calculate size statistics
         if total_entries > 0:
-            sizes: list[int] = [entry.size for chunk in obj.chunks for entry in chunk.entries]
+            sizes: list[int] = [
+                entry.size for chunk in obj.chunks for entry in chunk.entries
+            ]
             min_size = min(sizes)
             max_size = max(sizes)
             avg_size = sum(sizes) / len(sizes)
@@ -327,15 +340,15 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             min_size = max_size = avg_size = 0
 
         return {
-            'total_chunks': len(obj.chunks),
-            'non_empty_chunks': non_empty_chunks,
-            'total_entries': total_entries,
-            'entries_per_chunk': total_entries / len(obj.chunks) if obj.chunks else 0,
-            'min_entry_size': min_size,
-            'max_entry_size': max_size,
-            'avg_entry_size': avg_size,
-            'toc_hash_valid': self.validate_toc_hash(obj),
-            'footer_hash_valid': self.validate_footer_hash(obj)
+            "total_chunks": len(obj.chunks),
+            "non_empty_chunks": non_empty_chunks,
+            "total_entries": total_entries,
+            "entries_per_chunk": total_entries / len(obj.chunks) if obj.chunks else 0,
+            "min_entry_size": min_size,
+            "max_entry_size": max_size,
+            "avg_entry_size": avg_size,
+            "toc_hash_valid": self.validate_toc_hash(obj),
+            "footer_hash_valid": self.validate_footer_hash(obj),
         }
 
     def build(self, obj: ArchiveIndex) -> bytes:
@@ -366,10 +379,14 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
                     break
 
                 pos = i * record_size
-                ekey_bytes = entry.ekey[:ekey_len].ljust(ekey_len, b'\x00')
-                chunk_data[pos:pos + ekey_len] = ekey_bytes
-                chunk_data[pos + ekey_len:pos + ekey_len + size_len] = entry.size.to_bytes(size_len, 'big')
-                chunk_data[pos + ekey_len + size_len:pos + record_size] = entry.offset.to_bytes(offset_len, 'big')
+                ekey_bytes = entry.ekey[:ekey_len].ljust(ekey_len, b"\x00")
+                chunk_data[pos : pos + ekey_len] = ekey_bytes
+                chunk_data[pos + ekey_len : pos + ekey_len + size_len] = (
+                    entry.size.to_bytes(size_len, "big")
+                )
+                chunk_data[pos + ekey_len + size_len : pos + record_size] = (
+                    entry.offset.to_bytes(offset_len, "big")
+                )
 
             result.write(chunk_data)
 
@@ -380,18 +397,18 @@ class ArchiveIndexParser(FormatParser[ArchiveIndex]):
             result.write(key)
         # Per-block hashes (zero-filled; actual hash computation not implemented)
         chunk_count = len(obj.toc)
-        result.write(b'\x00' * (chunk_count * footer.footer_hash_bytes))
+        result.write(b"\x00" * (chunk_count * footer.footer_hash_bytes))
 
         # Write footer
         result.write(footer.toc_hash)
-        result.write(struct.pack('B', footer.version))
+        result.write(struct.pack("B", footer.version))
         result.write(footer.reserved)
-        result.write(struct.pack('B', footer.page_size_kb))
-        result.write(struct.pack('B', footer.offset_bytes))
-        result.write(struct.pack('B', footer.size_bytes))
-        result.write(struct.pack('B', footer.ekey_length))
-        result.write(struct.pack('B', footer.footer_hash_bytes))
-        result.write(struct.pack('<I', footer.element_count))  # Little-endian
+        result.write(struct.pack("B", footer.page_size_kb))
+        result.write(struct.pack("B", footer.offset_bytes))
+        result.write(struct.pack("B", footer.size_bytes))
+        result.write(struct.pack("B", footer.ekey_length))
+        result.write(struct.pack("B", footer.footer_hash_bytes))
+        result.write(struct.pack("<I", footer.element_count))  # Little-endian
         result.write(footer.footer_hash)
 
         return result.getvalue()
@@ -424,23 +441,19 @@ class ArchiveBuilder:
             Empty archive index object
         """
         footer = ArchiveIndexFooter(
-            toc_hash=b'\x00' * 16,
+            toc_hash=b"\x00" * 16,
             version=1,
-            reserved=b'\x00' * 2,
+            reserved=b"\x00" * 2,
             page_size_kb=4,
             offset_bytes=4,
             size_bytes=4,
             ekey_length=16,
             footer_hash_bytes=8,
             element_count=0,
-            footer_hash=b'\x00' * 8
+            footer_hash=b"\x00" * 8,
         )
 
-        return ArchiveIndex(
-            footer=footer,
-            chunks=[],
-            toc=[]
-        )
+        return ArchiveIndex(footer=footer, chunks=[], toc=[])
 
     @classmethod
     def create_with_entries(cls, entries: list[ArchiveIndexEntry]) -> ArchiveIndex:
@@ -457,41 +470,37 @@ class ArchiveBuilder:
         chunk_size = 4096 // 24  # 170 entries per chunk
 
         for i in range(0, len(entries), chunk_size):
-            chunk_entries = entries[i:i + chunk_size]
-            last_key = chunk_entries[-1].ekey if chunk_entries else b'\x00' * 9
+            chunk_entries = entries[i : i + chunk_size]
+            last_key = chunk_entries[-1].ekey if chunk_entries else b"\x00" * 9
 
             chunk = ArchiveIndexChunk(
-                chunk_index=len(chunks),
-                entries=chunk_entries,
-                last_key=last_key
+                chunk_index=len(chunks), entries=chunk_entries, last_key=last_key
             )
             chunks.append(chunk)
 
         # Create TOC from last keys
-        toc: list[bytes] = [chunk.last_key + b'\x00' * 7 for chunk in chunks]  # Pad to 16 bytes
+        toc: list[bytes] = [
+            chunk.last_key + b"\x00" * 7 for chunk in chunks
+        ]  # Pad to 16 bytes
 
         # Calculate TOC hash
-        toc_data = b''.join(toc)
+        toc_data = b"".join(toc)
         toc_hash = hashlib.md5(toc_data).digest()
 
         footer = ArchiveIndexFooter(
             toc_hash=toc_hash,
             version=1,
-            reserved=b'\x00' * 2,
+            reserved=b"\x00" * 2,
             page_size_kb=4,
             offset_bytes=4,
             size_bytes=4,
             ekey_length=16,
             footer_hash_bytes=8,
             element_count=len(entries),
-            footer_hash=b'\x00' * 8  # Would need to calculate actual hash
+            footer_hash=b"\x00" * 8,  # Would need to calculate actual hash
         )
 
-        return ArchiveIndex(
-            footer=footer,
-            chunks=chunks,
-            toc=toc
-        )
+        return ArchiveIndex(footer=footer, chunks=chunks, toc=toc)
 
 
 def is_obj(data: bytes) -> bool:
@@ -517,11 +526,13 @@ def is_obj(data: bytes) -> bool:
         footer_hash_bytes = footer_data[15]
 
         # Validate expected values
-        return (version <= 1 and
-                page_size_kb == 4 and
-                offset_bytes == 4 and
-                size_bytes == 4 and
-                ekey_length == 16 and
-                footer_hash_bytes == 8)
+        return (
+            version <= 1
+            and page_size_kb == 4
+            and offset_bytes == 4
+            and size_bytes == 4
+            and ekey_length == 16
+            and footer_hash_bytes == 8
+        )
     except Exception:
         return False

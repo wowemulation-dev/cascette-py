@@ -18,10 +18,7 @@ class TestWagoBuild:
     def test_wagobuild_basic_fields(self):
         """Test WagoBuild with basic required fields."""
         build = WagoBuild(
-            id=12345,
-            build="10.2.5.52902",
-            version="10.2.5.52902",
-            product="wow"
+            id=12345, build="10.2.5.52902", version="10.2.5.52902", product="wow"
         )
         assert build.id == 12345
         assert build.build == "10.2.5.52902"
@@ -45,7 +42,7 @@ class TestWagoBuild:
             encoding_ekey="encoding123",
             root_ekey="root456",
             install_ekey="install789",
-            download_ekey="download012"
+            download_ekey="download012",
         )
         assert build.build_time == build_time
         assert build.build_config == "abc123def456"
@@ -66,9 +63,7 @@ class TestWagoCacheMetadata:
         expires_at = fetch_time + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
-            fetch_time=fetch_time,
-            expires_at=expires_at,
-            build_count=100
+            fetch_time=fetch_time, expires_at=expires_at, build_count=100
         )
         assert metadata.fetch_time == fetch_time
         assert metadata.expires_at == expires_at
@@ -81,7 +76,7 @@ class TestWagoCacheMetadata:
             fetch_time=datetime.now(UTC),
             expires_at=datetime.now(UTC) + timedelta(hours=24),
             build_count=50,
-            api_version="v2"
+            api_version="v2",
         )
         assert metadata.api_version == "v2"
 
@@ -114,7 +109,7 @@ class TestWagoClient:
                     "encoding_ekey": "encoding123",
                     "root_ekey": "root456",
                     "install_ekey": "install789",
-                    "download_ekey": "download012"
+                    "download_ekey": "download012",
                 },
                 {
                     "id": 12346,
@@ -124,11 +119,11 @@ class TestWagoClient:
                     "created_at": "2024-01-16T11:30:00Z",
                     "build_config": "def456abc789",
                     "cdn_config": "789fed456abc",
-                    "product_config": "456abc789def"
-                }
+                    "product_config": "456abc789def",
+                },
             ],
             "wow_classic": [],
-            "wow_classic_era": []
+            "wow_classic_era": [],
         }
 
     @pytest.fixture
@@ -140,7 +135,7 @@ class TestWagoClient:
 
     def test_init_default_config(self, tmp_path):
         """Test WagoClient initialization with default config."""
-        with patch('cascette_tools.database.wago.AppConfig') as mock_config:
+        with patch("cascette_tools.database.wago.AppConfig") as mock_config:
             mock_config.return_value.data_dir = tmp_path
             with WagoClient() as client:
                 assert client.config is not None
@@ -205,7 +200,7 @@ class TestWagoClient:
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
-            build_count=1
+            build_count=1,
         )
         with open(wago_client.metadata_file, "w") as f:
             json.dump(metadata.model_dump(mode="json"), f, default=str)
@@ -226,7 +221,7 @@ class TestWagoClient:
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=25),
             expires_at=now - timedelta(hours=1),
-            build_count=1
+            build_count=1,
         )
         with open(wago_client.metadata_file, "w") as f:
             json.dump(metadata.model_dump(mode="json"), f, default=str)
@@ -239,14 +234,16 @@ class TestWagoClient:
 
         # Create cache data with datetime
         build_time = datetime.now(UTC)
-        cache_data = [{
-            "id": 12345,
-            "build": "10.2.5.52902",
-            "version": "10.2.5.52902",
-            "product": "wow",
-            "build_time": build_time.isoformat(),
-            "build_config": "abc123"
-        }]
+        cache_data = [
+            {
+                "id": 12345,
+                "build": "10.2.5.52902",
+                "version": "10.2.5.52902",
+                "product": "wow",
+                "build_time": build_time.isoformat(),
+                "build_config": "abc123",
+            }
+        ]
 
         with open(wago_client.cache_file, "w") as f:
             json.dump(cache_data, f)
@@ -264,14 +261,16 @@ class TestWagoClient:
 
         # Create builds to save
         build_time = datetime.now(UTC)
-        builds = [WagoBuild(
-            id=12345,
-            build="10.2.5.52902",
-            version="10.2.5.52902",
-            product="wow",
-            build_time=build_time,
-            build_config="abc123"
-        )]
+        builds = [
+            WagoBuild(
+                id=12345,
+                build="10.2.5.52902",
+                version="10.2.5.52902",
+                product="wow",
+                build_time=build_time,
+                build_config="abc123",
+            )
+        ]
 
         wago_client._save_cache(builds)
 
@@ -293,8 +292,10 @@ class TestWagoClient:
         assert "fetch_time" in metadata_data
         assert "expires_at" in metadata_data
 
-    @patch('cascette_tools.database.wago.httpx.Client')
-    def test_fetch_builds_from_api(self, mock_client_class, wago_client, mock_builds_response):
+    @patch("cascette_tools.database.wago.httpx.Client")
+    def test_fetch_builds_from_api(
+        self, mock_client_class, wago_client, mock_builds_response
+    ):
         """Test fetching builds from API."""
         # Setup mock client
         mock_client = Mock()
@@ -317,8 +318,10 @@ class TestWagoClient:
         assert wow_builds[0].build == "10.2.5.52902"
         assert isinstance(wow_builds[0].build_time, datetime)
 
-    @patch('cascette_tools.database.wago.httpx.Client')
-    def test_fetch_builds_http_error_with_cache_fallback(self, mock_client_class, wago_client):
+    @patch("cascette_tools.database.wago.httpx.Client")
+    def test_fetch_builds_http_error_with_cache_fallback(
+        self, mock_client_class, wago_client
+    ):
         """Test fetch_builds falls back to cache on HTTP error."""
         # Setup mock client to raise HTTP error
         mock_client = Mock()
@@ -336,7 +339,7 @@ class TestWagoClient:
         assert len(builds) == 1
         assert builds[0].id == 1
 
-    @patch('cascette_tools.database.wago.httpx.Client')
+    @patch("cascette_tools.database.wago.httpx.Client")
     def test_fetch_builds_http_error_no_cache(self, mock_client_class, wago_client):
         """Test fetch_builds raises error when no cache available."""
         # Setup mock client to raise HTTP error
@@ -353,7 +356,9 @@ class TestWagoClient:
         # Create valid cache
         wago_client.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        cache_data = [{"id": 1, "build": "cached", "version": "cached", "product": "wow"}]
+        cache_data = [
+            {"id": 1, "build": "cached", "version": "cached", "product": "wow"}
+        ]
         with open(wago_client.cache_file, "w") as f:
             json.dump(cache_data, f)
 
@@ -362,13 +367,13 @@ class TestWagoClient:
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
-            build_count=1
+            build_count=1,
         )
         with open(wago_client.metadata_file, "w") as f:
             json.dump(metadata.model_dump(mode="json"), f, default=str)
 
         # Should use cache without making API call
-        with patch('cascette_tools.database.wago.httpx.Client') as mock_client_class:
+        with patch("cascette_tools.database.wago.httpx.Client") as mock_client_class:
             builds = wago_client.fetch_builds()
             # Client should not be instantiated since cache is used
             mock_client_class.assert_not_called()
@@ -384,7 +389,7 @@ class TestWagoClient:
             WagoBuild(id=3, build="3", version="3", product="wow"),
         ]
 
-        with patch.object(wago_client, 'fetch_builds', return_value=builds):
+        with patch.object(wago_client, "fetch_builds", return_value=builds):
             # Test with string
             wow_builds = wago_client.get_builds_for_product("wow")
             assert len(wow_builds) == 2
@@ -402,7 +407,7 @@ class TestWagoClient:
             WagoBuild(id=2, build="2.0.0", version="2.0.0", product="wow_classic"),
         ]
 
-        with patch.object(wago_client, 'fetch_builds', return_value=builds):
+        with patch.object(wago_client, "fetch_builds", return_value=builds):
             # Find without product filter
             build = wago_client.find_build("1.0.0")
             assert build is not None
@@ -434,7 +439,7 @@ class TestWagoClient:
             WagoBuild(id=2, build="20000", version="2.0.0.20000", product="wow"),
         ]
 
-        with patch.object(wago_client, 'get_builds_for_product', return_value=builds):
+        with patch.object(wago_client, "get_builds_for_product", return_value=builds):
             latest = wago_client.get_latest_build("wow")
             assert latest is not None
             assert latest.build == "30000"  # Highest build number
@@ -442,7 +447,7 @@ class TestWagoClient:
 
     def test_get_latest_build_no_builds(self, wago_client):
         """Test getting latest build when no builds exist."""
-        with patch.object(wago_client, 'get_builds_for_product', return_value=[]):
+        with patch.object(wago_client, "get_builds_for_product", return_value=[]):
             latest = wago_client.get_latest_build("wow")
             assert latest is None
 
@@ -485,7 +490,7 @@ class TestWagoClient:
         metadata = WagoCacheMetadata(
             fetch_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=23),
-            build_count=5
+            build_count=5,
         )
         with open(wago_client.metadata_file, "w") as f:
             json.dump(metadata.model_dump(mode="json"), f, default=str)
@@ -501,13 +506,20 @@ class TestWagoClient:
         """Test importing builds to database."""
         builds = [
             WagoBuild(
-                id=1, build="1.0.0", version="1.0.0", product="wow",
-                build_config="abc123", cdn_config="def456"
+                id=1,
+                build="1.0.0",
+                version="1.0.0",
+                product="wow",
+                build_config="abc123",
+                cdn_config="def456",
             ),
             WagoBuild(
-                id=2, build="2.0.0", version="2.0.0", product="wow_classic",
-                encoding_ekey="enc789"
-            )
+                id=2,
+                build="2.0.0",
+                version="2.0.0",
+                product="wow_classic",
+                encoding_ekey="enc789",
+            ),
         ]
 
         stats = wago_client.import_builds_to_database(builds)
@@ -534,15 +546,22 @@ class TestWagoClient:
         """
         # Insert initial build
         initial_build = WagoBuild(
-            id=1, build="12345", version="1.0.0.12345", product="wow",
-            build_config="config_abc"
+            id=1,
+            build="12345",
+            version="1.0.0.12345",
+            product="wow",
+            build_config="config_abc",
         )
         wago_client.import_builds_to_database([initial_build])
 
         # Import same build number with updated metadata, same build_config
         updated_build = WagoBuild(
-            id=2, build="12345", version="1.0.0.12345", product="wow",
-            build_config="config_abc", encoding_ekey="enc123"
+            id=2,
+            build="12345",
+            version="1.0.0.12345",
+            product="wow",
+            build_config="config_abc",
+            encoding_ekey="enc123",
         )
         stats = wago_client.import_builds_to_database([updated_build])
 
@@ -607,12 +626,18 @@ class TestWagoClient:
         """Test getting import statistics."""
         builds = [
             WagoBuild(
-                id=1, build="1.0.0", version="1.0.0", product="wow",
-                build_time=datetime.now(UTC)
+                id=1,
+                build="1.0.0",
+                version="1.0.0",
+                product="wow",
+                build_time=datetime.now(UTC),
             ),
             WagoBuild(
-                id=2, build="2.0.0", version="2.0.0", product="wow_classic",
-                build_time=datetime.now(UTC)
+                id=2,
+                build="2.0.0",
+                version="2.0.0",
+                product="wow_classic",
+                build_time=datetime.now(UTC),
             ),
         ]
         wago_client.import_builds_to_database(builds)
@@ -632,7 +657,7 @@ class TestWagoClient:
         """Test WagoClient as context manager."""
         with WagoClient(temp_config) as client:
             assert client is not None
-            assert hasattr(client, 'conn')
+            assert hasattr(client, "conn")
 
         # Client should be closed after context exit
         # Note: We can't easily test the closed state without accessing private attributes
@@ -648,7 +673,13 @@ class TestWagoClient:
 
     def test_supported_products_constant(self):
         """Test that supported products constant is correct."""
-        assert WagoClient.SUPPORTED_PRODUCTS == ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
+        assert WagoClient.SUPPORTED_PRODUCTS == [
+            "wow",
+            "wow_classic",
+            "wow_classic_era",
+            "wow_classic_titan",
+            "wow_anniversary",
+        ]
 
     def test_product_families_constant(self):
         """Test that product families mapping is correct."""
@@ -656,7 +687,13 @@ class TestWagoClient:
         assert "wow" in families
         assert "agent" in families
         assert "bna" in families
-        assert families["wow"] == ["wow", "wow_classic", "wow_classic_era", "wow_classic_titan", "wow_anniversary"]
+        assert families["wow"] == [
+            "wow",
+            "wow_classic",
+            "wow_classic_era",
+            "wow_classic_titan",
+            "wow_anniversary",
+        ]
 
     def test_cache_lifetime_constant(self):
         """Test that cache lifetime is 24 hours."""

@@ -35,7 +35,7 @@ class BPSVParser:
             stripped = line.strip()
             if stripped.startswith(self._SEQN_PREFIX):
                 try:
-                    return int(stripped[len(self._SEQN_PREFIX):].strip())
+                    return int(stripped[len(self._SEQN_PREFIX) :].strip())
                 except ValueError:
                     return None
         return None
@@ -57,7 +57,7 @@ class BPSVParser:
         if not manifest.strip():
             return []
 
-        lines = [line.strip() for line in manifest.strip().split('\n') if line.strip()]
+        lines = [line.strip() for line in manifest.strip().split("\n") if line.strip()]
         if not lines:
             return []
 
@@ -65,7 +65,7 @@ class BPSVParser:
         header_line = None
         header_idx = 0
         for i, line in enumerate(lines):
-            if not line.startswith('#'):
+            if not line.startswith("#"):
                 header_line = line
                 header_idx = i
                 break
@@ -77,20 +77,20 @@ class BPSVParser:
         # Format: ColumnName!TYPE:SIZE|ColumnName2!TYPE:SIZE
         # Type names are case-insensitive per tact::PsvReader::ParseHeaderLine (0x6f19e6)
         columns: list[str] = []
-        for column_def in header_line.split('|'):
-            if '!' in column_def:
-                column_name = column_def.split('!')[0]
+        for column_def in header_line.split("|"):
+            if "!" in column_def:
+                column_name = column_def.split("!")[0]
             else:
                 column_name = column_def
             columns.append(column_name)
 
         # Parse data lines, skipping comment lines (# prefix)
         results: list[dict[str, str]] = []
-        for line in lines[header_idx + 1:]:
-            if not line or line.startswith('#'):
+        for line in lines[header_idx + 1 :]:
+            if not line or line.startswith("#"):
                 continue
 
-            values = line.split('|')
+            values = line.split("|")
             entry: dict[str, str] = {}
 
             for i, column in enumerate(columns):
@@ -154,8 +154,7 @@ class TACTClient:
         for attempt in range(self.config.max_retries + 1):
             try:
                 with httpx.Client(
-                    timeout=self.config.timeout,
-                    verify=self.config.verify_ssl
+                    timeout=self.config.timeout, verify=self.config.verify_ssl
                 ) as client:
                     response = client.get(url)
                     response.raise_for_status()
@@ -164,13 +163,13 @@ class TACTClient:
             except httpx.HTTPError as e:
                 last_error = e
                 if attempt < self.config.max_retries:
-                    wait_time = 2 ** attempt  # Exponential backoff
+                    wait_time = 2**attempt  # Exponential backoff
                     logger.debug(
                         "tact_retry",
                         url=url,
                         attempt=attempt + 1,
                         wait=wait_time,
-                        error=str(e)
+                        error=str(e),
                     )
                     time.sleep(wait_time)
                     continue

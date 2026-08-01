@@ -141,30 +141,32 @@ def _parse_tags_blob(data: bytes, entry_count: int) -> list[FileDbTag]:
         name_len_data = stream.read(2)
         if len(name_len_data) < 2:
             break
-        name_len = struct.unpack('<H', name_len_data)[0]
+        name_len = struct.unpack("<H", name_len_data)[0]
 
         # Read name
         name_data = stream.read(name_len)
         if len(name_data) < name_len:
             break
-        name = name_data.decode('utf-8', errors='replace')
+        name = name_data.decode("utf-8", errors="replace")
 
         # Read tag type
         type_data = stream.read(2)
         if len(type_data) < 2:
             break
-        tag_type = struct.unpack('<H', type_data)[0]
+        tag_type = struct.unpack("<H", type_data)[0]
 
         # Read bitmask
         bit_mask = stream.read(mask_size)
         if len(bit_mask) < mask_size:
             break
 
-        tags.append(FileDbTag(
-            name=name,
-            tag_type=tag_type,
-            bit_mask=bit_mask,
-        ))
+        tags.append(
+            FileDbTag(
+                name=name,
+                tag_type=tag_type,
+                bit_mask=bit_mask,
+            )
+        )
 
     return tags
 
@@ -176,10 +178,10 @@ def _build_tags_blob(tags: list[FileDbTag]) -> bytes:
     """
     result = BytesIO()
     for tag in tags:
-        name_bytes = tag.name.encode('utf-8')
-        result.write(struct.pack('<H', len(name_bytes)))
+        name_bytes = tag.name.encode("utf-8")
+        result.write(struct.pack("<H", len(name_bytes)))
         result.write(name_bytes)
-        result.write(struct.pack('<H', tag.tag_type))
+        result.write(struct.pack("<H", tag.tag_type))
         result.write(tag.bit_mask)
     return result.getvalue()
 
@@ -230,7 +232,11 @@ class FileDatabaseParser(FormatParser[FileDatabase]):
             cursor = conn.execute("SELECT data FROM tags WHERE id = 1")
             tags_row = cursor.fetchone()
             if tags_row is not None and tags_row[0] is not None:
-                tags_data: bytes = bytes(tags_row[0]) if isinstance(tags_row[0], memoryview) else tags_row[0]
+                tags_data: bytes = (
+                    bytes(tags_row[0])
+                    if isinstance(tags_row[0], memoryview)
+                    else tags_row[0]
+                )
                 tags = _parse_tags_blob(tags_data, meta.entry_count)
 
             # Query files table
@@ -240,18 +246,24 @@ class FileDatabaseParser(FormatParser[FileDatabase]):
                 "flags, relative_path FROM files ORDER BY file_index"
             )
             for row in cursor:
-                ekey: bytes = bytes(row[1]) if isinstance(row[1], memoryview) else row[1]
-                ckey: bytes = bytes(row[2]) if isinstance(row[2], memoryview) else row[2]
+                ekey: bytes = (
+                    bytes(row[1]) if isinstance(row[1], memoryview) else row[1]
+                )
+                ckey: bytes = (
+                    bytes(row[2]) if isinstance(row[2], memoryview) else row[2]
+                )
 
-                entries.append(FileDbEntry(
-                    file_index=row[0],
-                    ekey=ekey,
-                    ckey=ckey,
-                    encoded_size=row[3],
-                    decoded_size=row[4],
-                    flags=row[5],
-                    relative_path=row[6],
-                ))
+                entries.append(
+                    FileDbEntry(
+                        file_index=row[0],
+                        ekey=ekey,
+                        ckey=ckey,
+                        encoded_size=row[3],
+                        decoded_size=row[4],
+                        flags=row[5],
+                        relative_path=row[6],
+                    )
+                )
 
         finally:
             conn.close()
@@ -284,9 +296,7 @@ class FileDatabaseParser(FormatParser[FileDatabase]):
             conn.execute(
                 "CREATE TABLE meta (id INTEGER PRIMARY KEY, entry_count INTEGER)"
             )
-            conn.execute(
-                "CREATE TABLE tags (id INTEGER PRIMARY KEY, data BLOB)"
-            )
+            conn.execute("CREATE TABLE tags (id INTEGER PRIMARY KEY, data BLOB)")
             conn.execute(
                 "CREATE TABLE files ("
                 "file_index INTEGER PRIMARY KEY, "
@@ -347,7 +357,7 @@ def is_file_db(data: bytes) -> bool:
     if len(data) < 4:
         return False
     # SQLite magic: "SQLite format 3\x00"
-    if data[:6] == b'SQLite':
+    if data[:6] == b"SQLite":
         return True
     # Salsa20 encrypted
     if data[0] == 0x45:

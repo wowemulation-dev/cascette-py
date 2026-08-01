@@ -75,7 +75,7 @@ def identify_existing_files(
     checked = 0
 
     for entry in file_db.entries:
-        rel_path = entry.relative_path.replace('\\', '/')
+        rel_path = entry.relative_path.replace("\\", "/")
         full_path = base_path / rel_path
 
         if full_path.exists():
@@ -134,10 +134,10 @@ def classify_containerless_files(
     # Step 3: Find obsolete entries
     if old_file_db is not None:
         new_paths: set[str] = {
-            e.relative_path.replace('\\', '/') for e in new_file_db.entries
+            e.relative_path.replace("\\", "/") for e in new_file_db.entries
         }
         for entry in old_file_db.entries:
-            normalized = entry.relative_path.replace('\\', '/')
+            normalized = entry.relative_path.replace("\\", "/")
             if normalized not in new_paths:
                 delta.obsolete_paths.append(normalized)
                 delta.obsolete_count += 1

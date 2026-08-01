@@ -34,8 +34,8 @@ class ContainerlessStorage:
             base_path: Base installation directory
         """
         self.base_path = base_path
-        self._path_index: dict[bytes, str] = {}   # ekey → relative_path
-        self._ckey_index: dict[bytes, str] = {}    # ckey → relative_path
+        self._path_index: dict[bytes, str] = {}  # ekey → relative_path
+        self._ckey_index: dict[bytes, str] = {}  # ckey → relative_path
         self._entry_index: dict[bytes, FileDbEntry] = {}  # ekey → entry
         self._written_keys: set[bytes] = set()
 
@@ -50,7 +50,7 @@ class ContainerlessStorage:
         self._entry_index.clear()
 
         for entry in file_db.entries:
-            normalized_path = entry.relative_path.replace('\\', '/')
+            normalized_path = entry.relative_path.replace("\\", "/")
             self._path_index[entry.ekey] = normalized_path
             self._ckey_index[entry.ckey] = normalized_path
             self._entry_index[entry.ekey] = entry
@@ -158,11 +158,11 @@ class ContainerlessStorage:
         Returns:
             (actual_md5, matches_ckey) tuple
         """
-        rel_path = entry.relative_path.replace('\\', '/')
+        rel_path = entry.relative_path.replace("\\", "/")
         full_path = self.base_path / rel_path
 
         if not full_path.exists():
-            return b'', False
+            return b"", False
 
         actual_md5 = hashlib.md5(full_path.read_bytes()).digest()
         return actual_md5, actual_md5 == entry.ckey

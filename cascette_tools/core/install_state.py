@@ -127,9 +127,7 @@ class InstallState:
         """
         return ekey.hex() in self.downloaded
 
-    def get_pending_entries(
-        self, entries: list[DownloadEntry]
-    ) -> list[DownloadEntry]:
+    def get_pending_entries(self, entries: list[DownloadEntry]) -> list[DownloadEntry]:
         """Filter out already-downloaded entries.
 
         Args:

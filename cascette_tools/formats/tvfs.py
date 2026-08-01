@@ -203,7 +203,9 @@ class TVFSParser(FormatParser[TVFSFile]):
             # Read entry data (28 bytes: 16 + 8 + 4)
             entry_data = stream.read(28)
             if len(entry_data) != 28:
-                raise ValueError(f"Invalid entry {i} size: {len(entry_data)}, expected 28")
+                raise ValueError(
+                    f"Invalid entry {i} size: {len(entry_data)}, expected 28"
+                )
 
             try:
                 # Unpack: content key (16), path hash (8, little-endian), file data id (4, little-endian)
@@ -260,7 +262,9 @@ class TVFSParser(FormatParser[TVFSFile]):
             try:
                 # Content key (16 bytes)
                 if len(entry.ckey) != 16:
-                    raise ValueError(f"Entry {i} content key must be 16 bytes, got {len(entry.ckey)}")
+                    raise ValueError(
+                        f"Entry {i} content key must be 16 bytes, got {len(entry.ckey)}"
+                    )
                 output.write(entry.ckey)
 
                 # Path hash (8 bytes, little-endian)
@@ -297,7 +301,9 @@ class TVFSParser(FormatParser[TVFSFile]):
             hash_value = ((hash_value << 5) + hash_value + byte) & 0xFFFFFFFFFFFFFFFF
         return hash_value
 
-    def find_entries_by_path_hash(self, obj: TVFSFile, path_hash: int) -> list[TVFSEntry]:
+    def find_entries_by_path_hash(
+        self, obj: TVFSFile, path_hash: int
+    ) -> list[TVFSEntry]:
         """Find entries by path hash.
 
         Args:
@@ -309,7 +315,9 @@ class TVFSParser(FormatParser[TVFSFile]):
         """
         return obj.get_entries_by_path_hash(path_hash)
 
-    def find_entry_by_file_data_id(self, obj: TVFSFile, file_data_id: int) -> TVFSEntry | None:
+    def find_entry_by_file_data_id(
+        self, obj: TVFSFile, file_data_id: int
+    ) -> TVFSEntry | None:
         """Find entry by file data ID.
 
         Args:
@@ -349,13 +357,13 @@ class TVFSBuilder:
             Empty TVFS file object
         """
         header = TVFSHeader(
-            magic=b'TVFS',
+            magic=b"TVFS",
             version=1,
             flags=0,
             data_version=1,
             block_count=0,
             entry_count=0,
-            max_file_data_id=0
+            max_file_data_id=0,
         )
 
         return TVFSFile(header=header, entries=[])
@@ -371,13 +379,13 @@ class TVFSBuilder:
             TVFS file object
         """
         header = TVFSHeader(
-            magic=b'TVFS',
+            magic=b"TVFS",
             version=1,
             flags=0,
             data_version=1,
             block_count=1,
             entry_count=len(entries),
-            max_file_data_id=max(e.file_data_id for e in entries) if entries else 0
+            max_file_data_id=max(e.file_data_id for e in entries) if entries else 0,
         )
 
         return TVFSFile(header=header, entries=entries)

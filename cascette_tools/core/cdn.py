@@ -23,10 +23,7 @@ class CDNClient:
     """
 
     def __init__(
-        self,
-        product: Product,
-        region: str = "us",
-        config: CDNConfig | None = None
+        self, product: Product, region: str = "us", config: CDNConfig | None = None
     ):
         """Initialize CDN client.
 
@@ -93,7 +90,7 @@ class CDNClient:
                     "cdn_initialized",
                     product=self.product.value,
                     path=self.cdn_path,
-                    servers=len(self.cdn_servers)
+                    servers=len(self.cdn_servers),
                 )
                 self._initialized = True
                 return
@@ -142,7 +139,7 @@ class CDNClient:
             mirror=mirror,
             cdn_path=self.cdn_path,
             content_type=content_type,
-            hash=hash_str
+            hash=hash_str,
         )
         return url
 
@@ -175,21 +172,18 @@ class CDNClient:
             mirrors=mirrors,
             cdn_servers=self.cdn_servers,
             fallbacks=fallbacks,
-            cdn_path=self.cdn_path
+            cdn_path=self.cdn_path,
         )
 
         if not mirrors:
-            raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")
+            raise ValueError(
+                "No CDN mirrors available (Ribbit servers and fallback mirrors empty)"
+            )
 
         # Try each mirror in order
         for mirror_idx, mirror in enumerate(mirrors):
             url = self._build_url(hash_str, file_type, mirror)
-            logger.info(
-                "cdn_url_built",
-                url=url,
-                cdn_path=self.cdn_path,
-                mirror=mirror
-            )
+            logger.info("cdn_url_built", url=url, cdn_path=self.cdn_path, mirror=mirror)
 
             for attempt in range(self.config.max_retries):
                 try:
@@ -202,7 +196,7 @@ class CDNClient:
                         type=file_type,
                         mirror=mirror,
                         mirror_idx=mirror_idx,
-                        attempt=attempt + 1
+                        attempt=attempt + 1,
                     )
                     return response.content
 
@@ -214,7 +208,7 @@ class CDNClient:
                         type=file_type,
                         mirror=mirror,
                         attempt=attempt + 1,
-                        error=str(e)
+                        error=str(e),
                     )
                     continue  # Try next attempt
 
@@ -226,7 +220,7 @@ class CDNClient:
                 hash=hash_str,
                 type=file_type,
                 mirror=mirror,
-                mirror_idx=mirror_idx
+                mirror_idx=mirror_idx,
             )
 
         # All mirrors failed
@@ -259,7 +253,7 @@ class CDNClient:
                 hash=hash_str,
                 type="config",
                 config_type=config_type,
-                path=self.cdn_path
+                path=self.cdn_path,
             )
             return cached
 
@@ -273,7 +267,7 @@ class CDNClient:
             hash=hash_str,
             type="config",
             config_type=config_type,
-            size=len(data)
+            size=len(data),
         )
 
         return data
@@ -299,12 +293,7 @@ class CDNClient:
         # Check cache first
         cached = self.cache.get_cdn(hash_str, file_type, self.cdn_path)
         if cached:
-            logger.debug(
-                "cache_hit",
-                hash=hash_str,
-                type=file_type,
-                path=self.cdn_path
-            )
+            logger.debug("cache_hit", hash=hash_str, type=file_type, path=self.cdn_path)
             return cached
 
         # Fetch from CDN with mirror fallback
@@ -312,12 +301,7 @@ class CDNClient:
 
         # Store in cache
         self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
-        logger.debug(
-            "cache_store",
-            hash=hash_str,
-            type=file_type,
-            size=len(data)
-        )
+        logger.debug("cache_store", hash=hash_str, type=file_type, size=len(data))
 
         return data
 
@@ -346,7 +330,9 @@ class CDNClient:
         mirrors = self.cdn_servers + fallbacks
 
         if not mirrors:
-            raise ValueError("No CDN mirrors available (Ribbit servers and fallback mirrors empty)")
+            raise ValueError(
+                "No CDN mirrors available (Ribbit servers and fallback mirrors empty)"
+            )
 
         for mirror_idx, mirror in enumerate(mirrors):
             url = self._build_url(hash_str, file_type, mirror)
@@ -362,7 +348,7 @@ class CDNClient:
                         type=file_type,
                         mirror=mirror,
                         mirror_idx=mirror_idx,
-                        attempt=attempt + 1
+                        attempt=attempt + 1,
                     )
                     return response.content
 
@@ -374,7 +360,7 @@ class CDNClient:
                         type=file_type,
                         mirror=mirror,
                         attempt=attempt + 1,
-                        error=str(e)
+                        error=str(e),
                     )
                     continue
 
@@ -383,7 +369,7 @@ class CDNClient:
                 hash=hash_str,
                 type=file_type,
                 mirror=mirror,
-                mirror_idx=mirror_idx
+                mirror_idx=mirror_idx,
             )
 
         if quiet:
@@ -418,12 +404,7 @@ class CDNClient:
         # Check cache first (sync - local disk)
         cached = self.cache.get_cdn(hash_str, file_type, self.cdn_path)
         if cached:
-            logger.debug(
-                "cache_hit",
-                hash=hash_str,
-                type=file_type,
-                path=self.cdn_path
-            )
+            logger.debug("cache_hit", hash=hash_str, type=file_type, path=self.cdn_path)
             return cached
 
         # Fetch from CDN with mirror fallback (async)
@@ -431,17 +412,15 @@ class CDNClient:
 
         # Store in cache (sync - local disk)
         self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
-        logger.debug(
-            "cache_store",
-            hash=hash_str,
-            type=file_type,
-            size=len(data)
-        )
+        logger.debug("cache_store", hash=hash_str, type=file_type, size=len(data))
 
         return data
 
     async def fetch_patch_async(
-        self, hash_str: str, is_index: bool = False, quiet: bool = False,
+        self,
+        hash_str: str,
+        is_index: bool = False,
+        quiet: bool = False,
     ) -> bytes:
         """Fetch patch file asynchronously with caching.
 
@@ -504,12 +483,7 @@ class CDNClient:
         # Check cache first
         cached = self.cache.get_cdn(hash_str, file_type, self.cdn_path)
         if cached:
-            logger.debug(
-                "cache_hit",
-                hash=hash_str,
-                type=file_type,
-                path=self.cdn_path
-            )
+            logger.debug("cache_hit", hash=hash_str, type=file_type, path=self.cdn_path)
             return cached
 
         # Fetch from CDN with mirror fallback
@@ -517,12 +491,7 @@ class CDNClient:
 
         # Store in cache
         self.cache.put_cdn(hash_str, data, file_type, self.cdn_path)
-        logger.debug(
-            "cache_store",
-            hash=hash_str,
-            type=file_type,
-            size=len(data)
-        )
+        logger.debug("cache_store", hash=hash_str, type=file_type, size=len(data))
 
         return data
 

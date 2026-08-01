@@ -103,14 +103,18 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_blte_data
+        sample_blte_data,
     ):
         """Test format command with BLTE file."""
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_blte_data
         mock_detect_format.return_value = "blte"
         mock_validate_structure.return_value = (True, "Valid structure", {"chunks": 1})
-        mock_validate_checksums.return_value = (True, "Valid checksums", {"verified": True})
+        mock_validate_checksums.return_value = (
+            True,
+            "Valid checksums",
+            {"verified": True},
+        )
 
         result = runner.invoke(validate, ["format", "test.blte"])
 
@@ -132,23 +136,33 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_encoding_data
+        sample_encoding_data,
     ):
         """Test format command with encoding file and explicit type."""
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_encoding_data
-        mock_validate_structure.return_value = (True, "Valid structure", {"entries": 100})
-        mock_validate_checksums.return_value = (True, "Valid checksums", {"verified": True})
+        mock_validate_structure.return_value = (
+            True,
+            "Valid structure",
+            {"entries": 100},
+        )
+        mock_validate_checksums.return_value = (
+            True,
+            "Valid checksums",
+            {"verified": True},
+        )
 
-        result = runner.invoke(validate, [
-            "format",
-            "test.encoding",
-            "--format-type", "encoding"
-        ])
+        result = runner.invoke(
+            validate, ["format", "test.encoding", "--format-type", "encoding"]
+        )
 
         assert result.exit_code == 0
-        mock_validate_structure.assert_called_once_with(sample_encoding_data, "encoding")
-        mock_validate_checksums.assert_called_once_with(sample_encoding_data, "encoding")
+        mock_validate_structure.assert_called_once_with(
+            sample_encoding_data, "encoding"
+        )
+        mock_validate_checksums.assert_called_once_with(
+            sample_encoding_data, "encoding"
+        )
 
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate._fetch_from_cdn_or_path")
@@ -160,19 +174,20 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_blte_data
+        sample_blte_data,
     ):
         """Test format command in strict mode with validation failure."""
         mock_get_context.return_value = mock_context_objects
         mock_fetch.return_value = sample_blte_data
-        mock_validate_structure.return_value = (False, "Invalid structure", {"error": "Parse failed"})
+        mock_validate_structure.return_value = (
+            False,
+            "Invalid structure",
+            {"error": "Parse failed"},
+        )
 
-        result = runner.invoke(validate, [
-            "format",
-            "test.blte",
-            "--format-type", "blte",
-            "--strict"
-        ])
+        result = runner.invoke(
+            validate, ["format", "test.blte", "--format-type", "blte", "--strict"]
+        )
 
         assert result.exit_code != 0
 
@@ -185,7 +200,7 @@ class TestValidateCommands:
         mock_fetch,
         mock_get_context,
         runner,
-        mock_context_objects
+        mock_context_objects,
     ):
         """Test format command when format type cannot be detected."""
         mock_get_context.return_value = mock_context_objects
@@ -207,7 +222,7 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_encoding_data
+        sample_encoding_data,
     ):
         """Test integrity command with manifest files."""
         mock_get_context.return_value = mock_context_objects
@@ -216,11 +231,9 @@ class TestValidateCommands:
         mock_hash_obj.hex.return_value = "abcdef1234567890abcdef1234567890"
         mock_compute_md5.return_value = mock_hash_obj
 
-        result = runner.invoke(validate, [
-            "integrity",
-            "abcdef1234567890abcdef1234567890",
-            "--check-md5"
-        ])
+        result = runner.invoke(
+            validate, ["integrity", "abcdef1234567890abcdef1234567890", "--check-md5"]
+        )
 
         assert result.exit_code == 0
         mock_fetch.assert_called_once()
@@ -238,7 +251,7 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_blte_data
+        sample_blte_data,
     ):
         """Test integrity command with BLTE file validation."""
         mock_get_context.return_value = mock_context_objects
@@ -248,14 +261,12 @@ class TestValidateCommands:
         mock_hash_obj.hex.return_value = "abcdef1234567890abcdef1234567890"
         mock_compute_md5.return_value = mock_hash_obj
 
-        with patch("cascette_tools.commands.validate.decompress_blte") as mock_decompress:
+        with patch(
+            "cascette_tools.commands.validate.decompress_blte"
+        ) as mock_decompress:
             mock_decompress.return_value = b"decompressed data"
 
-            result = runner.invoke(validate, [
-                "integrity",
-                "test.blte",
-                "--check-blte"
-            ])
+            result = runner.invoke(validate, ["integrity", "test.blte", "--check-blte"])
 
             assert result.exit_code == 0
             mock_fetch.assert_called_once()
@@ -273,7 +284,7 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_blte_data
+        sample_blte_data,
     ):
         """Test roundtrip command with BLTE file."""
         mock_get_context.return_value = mock_context_objects
@@ -293,11 +304,9 @@ class TestValidateCommands:
                 mock_parser.return_value.parse.return_value = mock_blte
                 mock_builder.return_value.build.return_value = sample_blte_data
 
-                result = runner.invoke(validate, [
-                    "roundtrip",
-                    "test.blte",
-                    "--format-type", "blte"
-                ])
+                result = runner.invoke(
+                    validate, ["roundtrip", "test.blte", "--format-type", "blte"]
+                )
 
                 assert result.exit_code == 0
                 mock_parser.return_value.parse.assert_called_once()
@@ -315,7 +324,7 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_encoding_data
+        sample_encoding_data,
     ):
         """Test roundtrip command with encoding file."""
         mock_get_context.return_value = mock_context_objects
@@ -330,16 +339,17 @@ class TestValidateCommands:
         mock_progress_class.return_value = mock_progress
 
         with patch("cascette_tools.commands.validate.EncodingParser") as mock_parser:
-            with patch("cascette_tools.commands.validate.EncodingBuilder") as mock_builder:
+            with patch(
+                "cascette_tools.commands.validate.EncodingBuilder"
+            ) as mock_builder:
                 mock_encoding = Mock()
                 mock_parser.return_value.parse.return_value = mock_encoding
                 mock_builder.return_value.build.return_value = sample_encoding_data
 
-                result = runner.invoke(validate, [
-                    "roundtrip",
-                    "test.encoding",
-                    "--format-type", "encoding"
-                ])
+                result = runner.invoke(
+                    validate,
+                    ["roundtrip", "test.encoding", "--format-type", "encoding"],
+                )
 
                 assert result.exit_code == 0
 
@@ -355,7 +365,7 @@ class TestValidateCommands:
         mock_get_context,
         runner,
         mock_context_objects,
-        sample_blte_data
+        sample_blte_data,
     ):
         """Test roundtrip command when data doesn't match after roundtrip."""
         mock_get_context.return_value = mock_context_objects
@@ -376,11 +386,9 @@ class TestValidateCommands:
                 # Return different data to simulate mismatch
                 mock_builder.return_value.build.return_value = b"different data"
 
-                result = runner.invoke(validate, [
-                    "roundtrip",
-                    "test.blte",
-                    "--format-type", "blte"
-                ])
+                result = runner.invoke(
+                    validate, ["roundtrip", "test.blte", "--format-type", "blte"]
+                )
 
                 assert result.exit_code == 1  # Should fail due to mismatch
 
@@ -395,7 +403,7 @@ class TestValidateCommands:
         runner,
         mock_context_objects,
         sample_root_data,
-        sample_encoding_data
+        sample_encoding_data,
     ):
         """Test relationships command with root and encoding files."""
         mock_get_context.return_value = mock_context_objects
@@ -409,7 +417,9 @@ class TestValidateCommands:
         mock_progress_class.return_value = mock_progress
 
         with patch("cascette_tools.commands.validate.RootParser") as mock_root_parser:
-            with patch("cascette_tools.commands.validate.EncodingParser") as mock_encoding_parser:
+            with patch(
+                "cascette_tools.commands.validate.EncodingParser"
+            ) as mock_encoding_parser:
                 # Mock root object
                 mock_root = Mock()
                 mock_block = Mock()
@@ -424,11 +434,9 @@ class TestValidateCommands:
                 mock_encoding.ckey_index = {b"shared_key": Mock()}
                 mock_encoding_parser.return_value.parse.return_value = mock_encoding
 
-                result = runner.invoke(validate, [
-                    "relationships",
-                    "root_hash",
-                    "encoding_hash"
-                ])
+                result = runner.invoke(
+                    validate, ["relationships", "root_hash", "encoding_hash"]
+                )
 
                 assert result.exit_code == 0
                 assert mock_fetch.call_count == 2
@@ -436,12 +444,7 @@ class TestValidateCommands:
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate.track")
     def test_batch_validate_multiple_files(
-        self,
-        mock_track,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_track, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with multiple files in a directory."""
         mock_get_context.return_value = mock_context_objects
@@ -454,21 +457,34 @@ class TestValidateCommands:
         test_file2 = tmp_path / "test2.encoding"
         test_file2.write_bytes(b"EN encoding data")
 
-        with patch("cascette_tools.commands.validate._detect_format_type") as mock_detect:
-            with patch("cascette_tools.commands.validate._validate_format_structure") as mock_validate_structure:
-                with patch("cascette_tools.commands.validate._validate_checksums") as mock_validate_checksums:
-                    with patch("cascette_tools.commands.validate.compute_md5") as mock_compute_md5:
+        with patch(
+            "cascette_tools.commands.validate._detect_format_type"
+        ) as mock_detect:
+            with patch(
+                "cascette_tools.commands.validate._validate_format_structure"
+            ) as mock_validate_structure:
+                with patch(
+                    "cascette_tools.commands.validate._validate_checksums"
+                ) as mock_validate_checksums:
+                    with patch(
+                        "cascette_tools.commands.validate.compute_md5"
+                    ) as mock_compute_md5:
                         mock_detect.side_effect = ["blte", "encoding"]
-                        mock_validate_structure.return_value = (True, "Valid structure", {})
-                        mock_validate_checksums.return_value = (True, "Valid checksums", {})
+                        mock_validate_structure.return_value = (
+                            True,
+                            "Valid structure",
+                            {},
+                        )
+                        mock_validate_checksums.return_value = (
+                            True,
+                            "Valid checksums",
+                            {},
+                        )
                         mock_hash = Mock()
                         mock_hash.hex.return_value = "abc123"
                         mock_compute_md5.return_value = mock_hash
 
-                        result = runner.invoke(validate, [
-                            "batch",
-                            str(tmp_path)
-                        ])
+                        result = runner.invoke(validate, ["batch", str(tmp_path)])
 
                         assert result.exit_code == 0
                         # Should validate both files in the directory
@@ -488,36 +504,33 @@ class TestValidateCommands:
 
     def test_roundtrip_unsupported_format(self, runner):
         """Test roundtrip command with unsupported format."""
-        result = runner.invoke(validate, [
-            "roundtrip",
-            "test.unknown",
-            "--format-type", "unknown"
-        ])
+        result = runner.invoke(
+            validate, ["roundtrip", "test.unknown", "--format-type", "unknown"]
+        )
 
         assert result.exit_code != 0
         assert "is not one of" in result.output
 
     def test_relationships_unsupported_type(self, runner):
         """Test relationships command with unsupported type."""
-        with patch("cascette_tools.commands.validate._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.validate._fetch_from_cdn_or_path") as mock_fetch:
+        with patch(
+            "cascette_tools.commands.validate._get_context_objects"
+        ) as mock_get_context:
+            with patch(
+                "cascette_tools.commands.validate._fetch_from_cdn_or_path"
+            ) as mock_fetch:
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 mock_fetch.return_value = b"test data"
 
-                result = runner.invoke(validate, [
-                    "relationships",
-                    "test_hash",
-                    "--type", "unsupported"
-                ])
+                result = runner.invoke(
+                    validate, ["relationships", "test_hash", "--type", "unsupported"]
+                )
 
                 assert result.exit_code != 0
 
     def test_batch_nonexistent_file(self, runner):
         """Test batch command with nonexistent file list."""
-        result = runner.invoke(validate, [
-            "batch",
-            "nonexistent_list.txt"
-        ])
+        result = runner.invoke(validate, ["batch", "nonexistent_list.txt"])
 
         assert result.exit_code != 0
 
@@ -559,11 +572,7 @@ class TestValidateCommands:
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate._fetch_from_cdn_or_path")
     def test_format_fetch_error(
-        self,
-        mock_fetch,
-        mock_get_context,
-        runner,
-        mock_context_objects
+        self, mock_fetch, mock_get_context, runner, mock_context_objects
     ):
         """Test format command with fetch error."""
         mock_get_context.return_value = mock_context_objects
@@ -577,21 +586,25 @@ class TestValidateCommands:
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate._output_json")
     def test_format_json_output(
-        self,
-        mock_output_json,
-        mock_get_context,
-        runner,
-        sample_blte_data
+        self, mock_output_json, mock_get_context, runner, sample_blte_data
     ):
         """Test format command with JSON output."""
         config, console, verbose, debug = Mock(), Mock(), False, False
         config.output_format = "json"
         mock_get_context.return_value = config, console, verbose, debug
 
-        with patch("cascette_tools.commands.validate._fetch_from_cdn_or_path") as mock_fetch:
-            with patch("cascette_tools.commands.validate._detect_format_type") as mock_detect:
-                with patch("cascette_tools.commands.validate._validate_format_structure") as mock_structure:
-                    with patch("cascette_tools.commands.validate._validate_checksums") as mock_checksum:
+        with patch(
+            "cascette_tools.commands.validate._fetch_from_cdn_or_path"
+        ) as mock_fetch:
+            with patch(
+                "cascette_tools.commands.validate._detect_format_type"
+            ) as mock_detect:
+                with patch(
+                    "cascette_tools.commands.validate._validate_format_structure"
+                ) as mock_structure:
+                    with patch(
+                        "cascette_tools.commands.validate._validate_checksums"
+                    ) as mock_checksum:
                         mock_fetch.return_value = sample_blte_data
                         mock_detect.return_value = "blte"
                         mock_structure.return_value = (True, "Valid", {})
@@ -605,12 +618,7 @@ class TestValidateCommands:
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate.track")
     def test_batch_invalid_line_format(
-        self,
-        mock_track,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_track, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with directory containing invalid files."""
         mock_get_context.return_value = mock_context_objects
@@ -621,8 +629,12 @@ class TestValidateCommands:
         invalid_file = tmp_path / "invalid.txt"
         invalid_file.write_bytes(b"invalid data that cannot be detected")
 
-        with patch("cascette_tools.commands.validate._detect_format_type") as mock_detect_format:
-            with patch("cascette_tools.commands.validate.compute_md5") as mock_compute_md5:
+        with patch(
+            "cascette_tools.commands.validate._detect_format_type"
+        ) as mock_detect_format:
+            with patch(
+                "cascette_tools.commands.validate.compute_md5"
+            ) as mock_compute_md5:
                 mock_detect_format.return_value = None  # Cannot detect format
                 mock_hash = Mock()
                 mock_hash.hex.return_value = "abc123"
@@ -635,11 +647,7 @@ class TestValidateCommands:
 
     @patch("cascette_tools.commands.validate._get_context_objects")
     def test_batch_empty_file_list(
-        self,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with empty directory."""
         mock_get_context.return_value = mock_context_objects
@@ -691,7 +699,9 @@ class TestValidateHelperFunctions:
 
         mock_console.print.assert_called_once_with(table)
 
-    def test_fetch_from_cdn_or_path_file_exists(self, mock_config, mock_console, tmp_path):
+    def test_fetch_from_cdn_or_path_file_exists(
+        self, mock_config, mock_console, tmp_path
+    ):
         """Test _fetch_from_cdn_or_path with existing file."""
         test_data = b"test file content"
         test_file = tmp_path / "test.dat"
@@ -711,7 +721,9 @@ class TestValidateHelperFunctions:
     def test_fetch_from_cdn_or_path_file_read_error(self, mock_config, mock_console):
         """Test _fetch_from_cdn_or_path with file read error."""
         with patch("pathlib.Path.exists", return_value=True):
-            with patch("pathlib.Path.read_bytes", side_effect=OSError("Permission denied")):
+            with patch(
+                "pathlib.Path.read_bytes", side_effect=OSError("Permission denied")
+            ):
                 with pytest.raises(Exception, match="Failed to read file"):
                     _fetch_from_cdn_or_path("/test/file.dat", mock_console, mock_config)
 
@@ -719,7 +731,12 @@ class TestValidateHelperFunctions:
     @patch("cascette_tools.commands.validate.CDNClient")
     @patch("cascette_tools.commands.validate.Progress")
     def test_fetch_from_cdn_or_path_valid_hash(
-        self, mock_progress_class, mock_cdn_class, mock_validate_hash, mock_config, mock_console
+        self,
+        mock_progress_class,
+        mock_cdn_class,
+        mock_validate_hash,
+        mock_config,
+        mock_console,
     ):
         """Test _fetch_from_cdn_or_path with valid hash."""
         mock_validate_hash.return_value = True
@@ -742,18 +759,27 @@ class TestValidateHelperFunctions:
         mock_cdn.fetch_data.assert_called_once_with("abc123")
 
     @patch("cascette_tools.commands.validate.validate_hash_string")
-    def test_fetch_from_cdn_or_path_invalid_hash(self, mock_validate_hash, mock_config, mock_console):
+    def test_fetch_from_cdn_or_path_invalid_hash(
+        self, mock_validate_hash, mock_config, mock_console
+    ):
         """Test _fetch_from_cdn_or_path with invalid hash."""
         mock_validate_hash.return_value = False
 
-        with pytest.raises(Exception, match="Invalid input: not a valid file path or hash"):
+        with pytest.raises(
+            Exception, match="Invalid input: not a valid file path or hash"
+        ):
             _fetch_from_cdn_or_path("invalid_hash", mock_console, mock_config)
 
     @patch("cascette_tools.commands.validate.validate_hash_string")
     @patch("cascette_tools.commands.validate.CDNClient")
     @patch("cascette_tools.commands.validate.Progress")
     def test_fetch_from_cdn_or_path_cdn_error(
-        self, mock_progress_class, mock_cdn_class, mock_validate_hash, mock_config, mock_console
+        self,
+        mock_progress_class,
+        mock_cdn_class,
+        mock_validate_hash,
+        mock_config,
+        mock_console,
     ):
         """Test _fetch_from_cdn_or_path with CDN fetch error."""
         mock_validate_hash.return_value = True
@@ -782,58 +808,112 @@ class TestValidateHelperFunctions:
     def test_detect_format_type_encoding(self):
         """Test _detect_format_type with encoding data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=True):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=True
+            ):
                 result = _detect_format_type(b"encoding data")
                 assert result == "encoding"
 
     def test_detect_format_type_root(self):
         """Test _detect_format_type with root data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=True):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=True
+                ):
                     result = _detect_format_type(b"root data")
                     assert result == "root"
 
     def test_detect_format_type_install(self):
         """Test _detect_format_type with install data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=True):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install", return_value=True
+                    ):
                         result = _detect_format_type(b"install data")
                         assert result == "install"
 
     def test_detect_format_type_download(self):
         """Test _detect_format_type with download data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=True):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=True,
+                        ):
                             result = _detect_format_type(b"download data")
                             assert result == "download"
 
     def test_detect_format_type_patch_archive(self):
         """Test _detect_format_type with patch archive data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=True):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=True,
+                            ):
                                 result = _detect_format_type(b"patch archive data")
                                 assert result == "patch_archive"
 
     def test_detect_format_type_config(self):
         """Test _detect_format_type with config data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=False):
-                                with patch("cascette_tools.commands.validate.is_config_file", return_value=True):
-                                    with patch("cascette_tools.commands.validate.detect_config_type", return_value="build"):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=False,
+                            ):
+                                with patch(
+                                    "cascette_tools.commands.validate.is_config_file",
+                                    return_value=True,
+                                ):
+                                    with patch(
+                                        "cascette_tools.commands.validate.detect_config_type",
+                                        return_value="build",
+                                    ):
                                         result = _detect_format_type(b"config data")
                                         assert result == "build"
 
@@ -841,12 +921,28 @@ class TestValidateHelperFunctions:
         """Test _detect_format_type with TVFS data."""
         tvfs_data = b"TVFS" + b"\x00" * 20
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=False):
-                                with patch("cascette_tools.commands.validate.is_config_file", return_value=False):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=False,
+                            ):
+                                with patch(
+                                    "cascette_tools.commands.validate.is_config_file",
+                                    return_value=False,
+                                ):
                                     result = _detect_format_type(tvfs_data)
                                     assert result == "tvfs"
 
@@ -854,12 +950,28 @@ class TestValidateHelperFunctions:
         """Test _detect_format_type with ZBSDIFF data."""
         zbsdiff_data = b"ZBSDIFF1" + b"\x00" * 20
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=False):
-                                with patch("cascette_tools.commands.validate.is_config_file", return_value=False):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=False,
+                            ):
+                                with patch(
+                                    "cascette_tools.commands.validate.is_config_file",
+                                    return_value=False,
+                                ):
                                     result = _detect_format_type(zbsdiff_data)
                                     assert result == "zbsdiff"
 
@@ -867,24 +979,56 @@ class TestValidateHelperFunctions:
         """Test _detect_format_type with archive data."""
         archive_data = b"test data" + b"\x00\x00\x00\x01"
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=False):
-                                with patch("cascette_tools.commands.validate.is_config_file", return_value=False):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=False,
+                            ):
+                                with patch(
+                                    "cascette_tools.commands.validate.is_config_file",
+                                    return_value=False,
+                                ):
                                     result = _detect_format_type(archive_data)
                                     assert result == "archive"
 
     def test_detect_format_type_unknown(self):
         """Test _detect_format_type with unknown data."""
         with patch("cascette_tools.commands.validate.is_blte", return_value=False):
-            with patch("cascette_tools.commands.validate.is_encoding", return_value=False):
-                with patch("cascette_tools.commands.validate.is_root", return_value=False):
-                    with patch("cascette_tools.commands.validate.is_install", return_value=False):
-                        with patch("cascette_tools.commands.validate.is_download", return_value=False):
-                            with patch("cascette_tools.commands.validate.is_patch_archive", return_value=False):
-                                with patch("cascette_tools.commands.validate.is_config_file", return_value=False):
+            with patch(
+                "cascette_tools.commands.validate.is_encoding", return_value=False
+            ):
+                with patch(
+                    "cascette_tools.commands.validate.is_root", return_value=False
+                ):
+                    with patch(
+                        "cascette_tools.commands.validate.is_install",
+                        return_value=False,
+                    ):
+                        with patch(
+                            "cascette_tools.commands.validate.is_download",
+                            return_value=False,
+                        ):
+                            with patch(
+                                "cascette_tools.commands.validate.is_patch_archive",
+                                return_value=False,
+                            ):
+                                with patch(
+                                    "cascette_tools.commands.validate.is_config_file",
+                                    return_value=False,
+                                ):
                                     result = _detect_format_type(b"unknown")
                                     assert result is None
 
@@ -1007,7 +1151,9 @@ class TestValidateFormatStructure:
         mock_patch_archive.entries = [Mock(), Mock()]
         mock_parser.return_value.parse.return_value = mock_patch_archive
 
-        valid, msg, info = _validate_format_structure(b"patch archive data", "patch_archive")
+        valid, msg, info = _validate_format_structure(
+            b"patch archive data", "patch_archive"
+        )
 
         assert valid is True
         assert "Valid structure" in msg
@@ -1061,7 +1207,10 @@ class TestValidateFormatStructure:
     def test_validate_cdn_config_structure_valid(self, mock_parser):
         """Test CDN config structure validation success."""
         mock_config = Mock()
-        mock_config.model_dump.return_value = {"archives": ["arch1", "arch2"], "patch_archives": ["patch1"]}
+        mock_config.model_dump.return_value = {
+            "archives": ["arch1", "arch2"],
+            "patch_archives": ["patch1"],
+        }
         mock_parser.return_value.parse.return_value = mock_config
 
         valid, msg, info = _validate_format_structure(b"cdn config", "cdn")
@@ -1073,6 +1222,7 @@ class TestValidateFormatStructure:
     @patch("cascette_tools.commands.validate.PatchConfigParser")
     def test_validate_patch_config_structure_valid(self, mock_parser):
         """Test patch config structure validation success."""
+
         # Create a simple class with just the fields we want
         class MockPatchConfig:
             def __init__(self):
@@ -1091,6 +1241,7 @@ class TestValidateFormatStructure:
     @patch("cascette_tools.commands.validate.ProductConfigParser")
     def test_validate_product_config_structure_valid(self, mock_parser):
         """Test product config structure validation success."""
+
         # Create a simple class with just the fields we want
         class MockProductConfig:
             def __init__(self):
@@ -1239,7 +1390,7 @@ class TestComprehensiveCommandScenarios:
         mock_fetch,
         mock_get_context,
         runner,
-        mock_context_objects
+        mock_context_objects,
     ):
         """Test integrity command with MD5 mismatch."""
         mock_get_context.return_value = mock_context_objects
@@ -1252,7 +1403,9 @@ class TestComprehensiveCommandScenarios:
             mock_hash_obj.hex.return_value = "different_hash"
             mock_compute_md5.return_value = mock_hash_obj
 
-            result = runner.invoke(validate, ["integrity", "expected_hash", "--check-md5"])
+            result = runner.invoke(
+                validate, ["integrity", "expected_hash", "--check-md5"]
+            )
 
             assert result.exit_code == 1  # Should fail due to hash mismatch
 
@@ -1265,7 +1418,7 @@ class TestComprehensiveCommandScenarios:
         mock_fetch,
         mock_get_context,
         runner,
-        mock_context_objects
+        mock_context_objects,
     ):
         """Test roundtrip command with parser exception."""
         mock_get_context.return_value = mock_context_objects
@@ -1288,7 +1441,7 @@ class TestComprehensiveCommandScenarios:
         mock_fetch,
         mock_get_context,
         runner,
-        mock_context_objects
+        mock_context_objects,
     ):
         """Test relationships command with install file validation."""
         mock_get_context.return_value = mock_context_objects
@@ -1302,8 +1455,12 @@ class TestComprehensiveCommandScenarios:
         mock_progress_class.return_value = mock_progress
 
         with patch("cascette_tools.commands.validate.RootParser") as mock_root_parser:
-            with patch("cascette_tools.commands.validate.EncodingParser") as mock_encoding_parser:
-                with patch("cascette_tools.commands.validate.InstallParser") as mock_install_parser:
+            with patch(
+                "cascette_tools.commands.validate.EncodingParser"
+            ) as mock_encoding_parser:
+                with patch(
+                    "cascette_tools.commands.validate.InstallParser"
+                ) as mock_install_parser:
                     # Mock root object
                     mock_root = Mock()
                     mock_block = Mock()
@@ -1325,10 +1482,16 @@ class TestComprehensiveCommandScenarios:
                     mock_install.entries = [mock_install_entry]
                     mock_install_parser.return_value.parse.return_value = mock_install
 
-                    result = runner.invoke(validate, [
-                        "relationships", "root_hash", "encoding_hash",
-                        "--install-file", "install_hash"
-                    ])
+                    result = runner.invoke(
+                        validate,
+                        [
+                            "relationships",
+                            "root_hash",
+                            "encoding_hash",
+                            "--install-file",
+                            "install_hash",
+                        ],
+                    )
 
                     assert result.exit_code == 0
                     assert mock_fetch.call_count == 3
@@ -1336,12 +1499,7 @@ class TestComprehensiveCommandScenarios:
     @patch("cascette_tools.commands.validate._get_context_objects")
     @patch("cascette_tools.commands.validate.track")
     def test_batch_command_format_type_filter(
-        self,
-        mock_track,
-        mock_get_context,
-        runner,
-        mock_context_objects,
-        tmp_path
+        self, mock_track, mock_get_context, runner, mock_context_objects, tmp_path
     ):
         """Test batch command with format type filtering."""
         mock_get_context.return_value = mock_context_objects
@@ -1354,20 +1512,38 @@ class TestComprehensiveCommandScenarios:
         file2 = tmp_path / "test2.encoding"
         file2.write_bytes(b"EN" + b"\x00" * 20 + b"encoding data")
 
-        with patch("cascette_tools.commands.validate._detect_format_type") as mock_detect_format:
-            with patch("cascette_tools.commands.validate._validate_format_structure") as mock_validate_structure:
-                with patch("cascette_tools.commands.validate._validate_checksums") as mock_validate_checksums:
-                    with patch("cascette_tools.commands.validate.compute_md5") as mock_compute_md5:
+        with patch(
+            "cascette_tools.commands.validate._detect_format_type"
+        ) as mock_detect_format:
+            with patch(
+                "cascette_tools.commands.validate._validate_format_structure"
+            ) as mock_validate_structure:
+                with patch(
+                    "cascette_tools.commands.validate._validate_checksums"
+                ) as mock_validate_checksums:
+                    with patch(
+                        "cascette_tools.commands.validate.compute_md5"
+                    ) as mock_compute_md5:
                         # Only detect BLTE format to trigger filtering
                         mock_detect_format.side_effect = ["blte", "encoding"]
-                        mock_validate_structure.return_value = (True, "Valid structure", {})
-                        mock_validate_checksums.return_value = (True, "Valid checksums", {})
+                        mock_validate_structure.return_value = (
+                            True,
+                            "Valid structure",
+                            {},
+                        )
+                        mock_validate_checksums.return_value = (
+                            True,
+                            "Valid checksums",
+                            {},
+                        )
                         mock_hash = Mock()
                         mock_hash.hex.return_value = "abc123"
                         mock_compute_md5.return_value = mock_hash
 
                         # Filter for only BLTE files
-                        result = runner.invoke(validate, ["batch", str(tmp_path), "--format-type", "blte"])
+                        result = runner.invoke(
+                            validate, ["batch", str(tmp_path), "--format-type", "blte"]
+                        )
 
                         assert result.exit_code == 0
                         # Should process both files but only validate the BLTE one
@@ -1375,7 +1551,9 @@ class TestComprehensiveCommandScenarios:
 
     def test_format_command_no_parser_available(self, runner):
         """Test format command with no parser available."""
-        result = runner.invoke(validate, ["format", "test.unknown", "--format-type", "unsupported"])
+        result = runner.invoke(
+            validate, ["format", "test.unknown", "--format-type", "unsupported"]
+        )
 
         # Should handle gracefully or return appropriate error
         assert result.exit_code != 0
@@ -1383,8 +1561,13 @@ class TestComprehensiveCommandScenarios:
     # Error handling edge cases
     def test_exception_handling_during_fetch(self, runner):
         """Test exception handling during file fetch."""
-        with patch("cascette_tools.commands.validate._get_context_objects") as mock_get_context:
-            with patch("cascette_tools.commands.validate._fetch_from_cdn_or_path", side_effect=Exception("Network timeout")):
+        with patch(
+            "cascette_tools.commands.validate._get_context_objects"
+        ) as mock_get_context:
+            with patch(
+                "cascette_tools.commands.validate._fetch_from_cdn_or_path",
+                side_effect=Exception("Network timeout"),
+            ):
                 mock_get_context.return_value = Mock(), Mock(), False, False
                 result = runner.invoke(validate, ["format", "test_hash"])
 

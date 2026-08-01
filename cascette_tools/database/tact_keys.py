@@ -30,7 +30,9 @@ class TACTKey(BaseModel):
 class TACTKeyManager:
     """Manages TACT encryption keys from wowdev/TACTKeys."""
 
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
+    GITHUB_RAW_URL = (
+        "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
+    )
     CACHE_LIFETIME = timedelta(hours=24)
 
     def __init__(self, config: AppConfig | None = None) -> None:
@@ -63,7 +65,7 @@ class TACTKeyManager:
             self._client = httpx.Client(
                 timeout=30.0,
                 follow_redirects=True,
-                headers={"User-Agent": "cascette-tools/0.1.0"}
+                headers={"User-Agent": "cascette-tools/0.1.0"},
             )
         return self._client
 
@@ -104,17 +106,18 @@ class TACTKeyManager:
             key_name_str = key_name.upper()
 
         row = self.conn.execute(
-            "SELECT * FROM tact_keys WHERE key_name = ?",
-            (key_name_str,)
+            "SELECT * FROM tact_keys WHERE key_name = ?", (key_name_str,)
         ).fetchone()
 
         if row:
             return TACTKey(
                 key_name=str(row["key_name"]),
                 key_value=str(row["key_value"]),
-                description=str(row["description"]) if row["description"] is not None else None,
+                description=str(row["description"])
+                if row["description"] is not None
+                else None,
                 product_family=str(row["product_family"]),
-                verified=bool(row["verified"])
+                verified=bool(row["verified"]),
             )
 
         return None
@@ -130,17 +133,20 @@ class TACTKeyManager:
         """
         try:
             with self.conn:
-                self.conn.execute("""
+                self.conn.execute(
+                    """
                     INSERT OR REPLACE INTO tact_keys
                     (key_name, key_value, description, product_family, verified, updated_at)
                     VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (
-                    key.key_name.upper(),
-                    key.key_value.upper(),
-                    key.description,
-                    key.product_family,
-                    int(key.verified)
-                ))
+                """,
+                    (
+                        key.key_name.upper(),
+                        key.key_value.upper(),
+                        key.description,
+                        key.product_family,
+                        int(key.verified),
+                    ),
+                )
             return True
         except sqlite3.Error as e:
             logger.error("tact_key_add_failed", error=str(e))
@@ -156,13 +162,17 @@ class TACTKeyManager:
 
         keys: list[TACTKey] = []
         for row in rows:
-            keys.append(TACTKey(
-                key_name=str(row["key_name"]),
-                key_value=str(row["key_value"]),
-                description=str(row["description"]) if row["description"] is not None else None,
-                product_family=str(row["product_family"]),
-                verified=bool(row["verified"])
-            ))
+            keys.append(
+                TACTKey(
+                    key_name=str(row["key_name"]),
+                    key_value=str(row["key_value"]),
+                    description=str(row["description"])
+                    if row["description"] is not None
+                    else None,
+                    product_family=str(row["product_family"]),
+                    verified=bool(row["verified"]),
+                )
+            )
 
         return keys
 
@@ -176,19 +186,22 @@ class TACTKeyManager:
             List of TACT keys for the family
         """
         rows = self.conn.execute(
-            "SELECT * FROM tact_keys WHERE product_family = ?",
-            (family,)
+            "SELECT * FROM tact_keys WHERE product_family = ?", (family,)
         ).fetchall()
 
         keys: list[TACTKey] = []
         for row in rows:
-            keys.append(TACTKey(
-                key_name=str(row["key_name"]),
-                key_value=str(row["key_value"]),
-                description=str(row["description"]) if row["description"] is not None else None,
-                product_family=str(row["product_family"]),
-                verified=bool(row["verified"])
-            ))
+            keys.append(
+                TACTKey(
+                    key_name=str(row["key_name"]),
+                    key_value=str(row["key_value"]),
+                    description=str(row["description"])
+                    if row["description"] is not None
+                    else None,
+                    product_family=str(row["product_family"]),
+                    verified=bool(row["verified"]),
+                )
+            )
 
         return keys
 
@@ -231,9 +244,9 @@ class TACTKeyManager:
             response.raise_for_status()
 
             keys: list[TACTKey] = []
-            for line in response.text.strip().split('\n'):
+            for line in response.text.strip().split("\n"):
                 # Skip comments and empty lines
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
 
                 # Format: "keyname keyvalue" (space-separated hex strings)
@@ -249,20 +262,24 @@ class TACTKeyManager:
                     key_value=key_value,
                     description=None,
                     product_family="wow",
-                    verified=True  # wowdev keys are community verified
+                    verified=True,  # wowdev keys are community verified
                 )
                 keys.append(key)
 
             # Cache the results
-            with open(cache_file, 'w') as f:
+            with open(cache_file, "w") as f:
                 json.dump([k.model_dump() for k in keys], f, indent=2)
 
-            with open(metadata_file, 'w') as f:
-                json.dump({
-                    "fetch_time": datetime.now(UTC).isoformat(),
-                    "key_count": len(keys),
-                    "source": "wowdev/TACTKeys"
-                }, f, indent=2)
+            with open(metadata_file, "w") as f:
+                json.dump(
+                    {
+                        "fetch_time": datetime.now(UTC).isoformat(),
+                        "key_count": len(keys),
+                        "source": "wowdev/TACTKeys",
+                    },
+                    f,
+                    indent=2,
+                )
 
             logger.info("tact_keys_fetched", count=len(keys))
             return keys
@@ -338,7 +355,7 @@ class TACTKeyManager:
             "total_keys": 0,
             "verified": 0,
             "unverified": 0,
-            "by_family": {}
+            "by_family": {},
         }
 
         # Total keys
@@ -346,7 +363,9 @@ class TACTKeyManager:
         stats["total_keys"] = int(row["cnt"]) if row else 0
 
         # Verified/unverified
-        verified_row = self.conn.execute("SELECT COUNT(*) as cnt FROM tact_keys WHERE verified = 1").fetchone()
+        verified_row = self.conn.execute(
+            "SELECT COUNT(*) as cnt FROM tact_keys WHERE verified = 1"
+        ).fetchone()
         stats["verified"] = int(verified_row["cnt"]) if verified_row else 0
         stats["unverified"] = stats["total_keys"] - stats["verified"]
 
@@ -378,10 +397,10 @@ class TACTKeyManager:
             "exported_at": datetime.now(UTC).isoformat(),
             "total_keys": len(keys),
             "product_family_filter": product_family,
-            "keys": [key.model_dump() for key in keys]
+            "keys": [key.model_dump() for key in keys],
         }
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(export_data, f, indent=2)
 
         logger.info("tact_keys_exported", path=str(output_path), count=len(keys))
@@ -404,7 +423,9 @@ class TACTKeyManager:
         self.close()
 
 
-def create_blte_key_store(manager: TACTKeyManager, product_family: str = "wow") -> dict[bytes, bytes]:
+def create_blte_key_store(
+    manager: TACTKeyManager, product_family: str = "wow"
+) -> dict[bytes, bytes]:
     """Create a BLTE-compatible key store from database.
 
     Args:

@@ -90,6 +90,7 @@ class TestDownloadQueue:
 
     def test_priority_ordering(self):
         """Test that lower priority values are processed first."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=1, max_retries=1)
             results_order: list[int] = []
@@ -122,6 +123,7 @@ class TestDownloadQueue:
 
     def test_concurrency_limit(self):
         """Test that no more than max_concurrency tasks run at once."""
+
         async def _run() -> None:
             max_concurrent = 3
             queue = DownloadQueue(max_concurrency=max_concurrent, max_retries=1)
@@ -157,6 +159,7 @@ class TestDownloadQueue:
 
     def test_retry_on_failure(self):
         """Test retry with eventual success."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=1, max_retries=3, base_backoff=0.01)
             call_count = 0
@@ -186,6 +189,7 @@ class TestDownloadQueue:
 
     def test_retry_exhaustion(self):
         """Test that all retries exhausted returns failure."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=1, max_retries=2, base_backoff=0.01)
 
@@ -211,6 +215,7 @@ class TestDownloadQueue:
 
     def test_retry_exception_handling(self):
         """Test that exceptions during download are caught and retried."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=1, max_retries=3, base_backoff=0.01)
             call_count = 0
@@ -238,6 +243,7 @@ class TestDownloadQueue:
 
     def test_progress_callback(self):
         """Test that progress callback is invoked for each completion."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=4, max_retries=1)
             callback_calls: list[tuple[int, int, int]] = []
@@ -267,10 +273,9 @@ class TestDownloadQueue:
 
     def test_exponential_backoff_timing(self):
         """Test that retry backoff increases exponentially."""
+
         async def _run() -> None:
-            queue = DownloadQueue(
-                max_concurrency=1, max_retries=3, base_backoff=0.05
-            )
+            queue = DownloadQueue(max_concurrency=1, max_retries=3, base_backoff=0.05)
             timestamps: list[float] = []
 
             async def track_time() -> DownloadResult:
@@ -293,6 +298,7 @@ class TestDownloadQueue:
 
     def test_empty_queue(self):
         """Test running with no items submitted."""
+
         async def _run() -> None:
             queue = DownloadQueue(max_concurrency=4)
             results = []

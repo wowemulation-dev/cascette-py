@@ -21,8 +21,7 @@ class TestTACTKey:
     def test_tact_key_basic_fields(self):
         """Test TACTKey with basic required fields."""
         key = TACTKey(
-            key_name="ABCD1234EFGH5678",
-            key_value="1234567890ABCDEF1234567890ABCDEF"
+            key_name="ABCD1234EFGH5678", key_value="1234567890ABCDEF1234567890ABCDEF"
         )
         assert key.key_name == "ABCD1234EFGH5678"
         assert key.key_value == "1234567890ABCDEF1234567890ABCDEF"
@@ -37,7 +36,7 @@ class TestTACTKey:
             key_value="1234567890ABCDEF1234567890ABCDEF",
             description="Test encryption key",
             product_family="battlenet",
-            verified=True
+            verified=True,
         )
         assert key.description == "Test encryption key"
         assert key.product_family == "battlenet"
@@ -80,7 +79,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
 
     def test_init_default_config(self, tmp_path):
         """Test TACTKeyManager initialization with default config."""
-        with patch('cascette_tools.database.tact_keys.AppConfig') as mock_config:
+        with patch("cascette_tools.database.tact_keys.AppConfig") as mock_config:
             mock_config.return_value.data_dir = tmp_path
             with TACTKeyManager() as manager:
                 assert manager.config is not None
@@ -127,7 +126,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
             key_name="ABCD1234EFGH5678",
             key_value="1234567890ABCDEF1234567890ABCDEF",
             description="Test key",
-            verified=True
+            verified=True,
         )
 
         # Add key
@@ -146,7 +145,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         """Test adding and retrieving a key with bytes key name."""
         tact_key = TACTKey(
             key_name="ABCD1234EF125678",  # Valid hex
-            key_value="1234567890ABCDEF1234567890ABCDEF"
+            key_value="1234567890ABCDEF1234567890ABCDEF",
         )
 
         key_manager.add_key(tact_key)
@@ -161,7 +160,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         """Test that key retrieval is case insensitive."""
         tact_key = TACTKey(
             key_name="abcd1234ef125678",  # Valid hex
-            key_value="1234567890ABCDEF1234567890ABCDEF"
+            key_value="1234567890ABCDEF1234567890ABCDEF",
         )
 
         key_manager.add_key(tact_key)
@@ -182,7 +181,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         initial_key = TACTKey(
             key_name="ABCD1234EF125678",  # Valid hex
             key_value="1111111111111111111111111111111",
-            description="Initial description"
+            description="Initial description",
         )
         key_manager.add_key(initial_key)
 
@@ -191,7 +190,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
             key_name="ABCD1234EF125678",
             key_value="2222222222222222222222222222222",
             description="Updated description",
-            verified=True
+            verified=True,
         )
         result = key_manager.add_key(updated_key)
         assert result is True
@@ -213,7 +212,9 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         keys_to_add = [
             TACTKey(key_name="KEY1", key_value="VALUE1", product_family="wow"),
             TACTKey(key_name="KEY2", key_value="VALUE2", product_family="battlenet"),
-            TACTKey(key_name="KEY3", key_value="VALUE3", product_family="wow", verified=True)
+            TACTKey(
+                key_name="KEY3", key_value="VALUE3", product_family="wow", verified=True
+            ),
         ]
 
         for key in keys_to_add:
@@ -253,8 +254,10 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         empty_keys = key_manager.get_keys_by_family("nonexistent")
         assert empty_keys == []
 
-    @patch('cascette_tools.database.tact_keys.httpx.Client')
-    def test_fetch_wowdev_keys_success(self, mock_client_class, key_manager, sample_wowdev_response):
+    @patch("cascette_tools.database.tact_keys.httpx.Client")
+    def test_fetch_wowdev_keys_success(
+        self, mock_client_class, key_manager, sample_wowdev_response
+    ):
         """Test successful fetching of keys from wowdev repository."""
         # Setup mock client
         mock_client = Mock()
@@ -282,7 +285,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         assert cache_file.exists()
         assert metadata_file.exists()
 
-    @patch('cascette_tools.database.tact_keys.httpx.Client')
+    @patch("cascette_tools.database.tact_keys.httpx.Client")
     def test_fetch_wowdev_keys_uses_cache(self, mock_client_class, key_manager):
         """Test that fetch_wowdev_keys uses valid cache."""
         # Create valid cache
@@ -294,7 +297,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
                 "key_value": "CACHEDVALUE123",
                 "description": "Cached key",
                 "product_family": "wow",
-                "verified": True
+                "verified": True,
             }
         ]
 
@@ -308,7 +311,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         metadata = {
             "fetch_time": datetime.now(UTC).isoformat(),
             "key_count": 1,
-            "source": "wowdev/TACTKeys"
+            "source": "wowdev/TACTKeys",
         }
         with open(metadata_file, "w") as f:
             json.dump(metadata, f)
@@ -323,8 +326,10 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         assert len(keys) == 1
         assert keys[0].key_name == "CACHED1234"
 
-    @patch('cascette_tools.database.tact_keys.httpx.Client')
-    def test_fetch_wowdev_keys_expired_cache(self, mock_client_class, key_manager, sample_wowdev_response):
+    @patch("cascette_tools.database.tact_keys.httpx.Client")
+    def test_fetch_wowdev_keys_expired_cache(
+        self, mock_client_class, key_manager, sample_wowdev_response
+    ):
         """Test fetching when cache is expired."""
         # Create expired cache
         key_manager.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -333,7 +338,14 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         metadata_file = key_manager.cache_dir / "wowdev_metadata.json"
 
         # Old cached keys
-        cached_keys = [{"key_name": "OLD", "key_value": "OLD", "product_family": "wow", "verified": True}]
+        cached_keys = [
+            {
+                "key_name": "OLD",
+                "key_value": "OLD",
+                "product_family": "wow",
+                "verified": True,
+            }
+        ]
         with open(cache_file, "w") as f:
             json.dump(cached_keys, f)
 
@@ -342,7 +354,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         metadata = {
             "fetch_time": old_time.isoformat(),
             "key_count": 1,
-            "source": "wowdev/TACTKeys"
+            "source": "wowdev/TACTKeys",
         }
         with open(metadata_file, "w") as f:
             json.dump(metadata, f)
@@ -364,13 +376,22 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         assert len(keys) == 4  # From sample_wowdev_response
         assert not any(key.key_name == "OLD" for key in keys)
 
-    @patch('cascette_tools.database.tact_keys.httpx.Client')
-    def test_fetch_wowdev_keys_http_error_with_stale_cache(self, mock_client_class, key_manager):
+    @patch("cascette_tools.database.tact_keys.httpx.Client")
+    def test_fetch_wowdev_keys_http_error_with_stale_cache(
+        self, mock_client_class, key_manager
+    ):
         """Test falling back to stale cache on HTTP error."""
         # Create stale cache
         key_manager.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        cached_keys = [{"key_name": "STALE", "key_value": "STALE", "product_family": "wow", "verified": True}]
+        cached_keys = [
+            {
+                "key_name": "STALE",
+                "key_value": "STALE",
+                "product_family": "wow",
+                "verified": True,
+            }
+        ]
         cache_file = key_manager.cache_dir / "wowdev_keys.json"
         with open(cache_file, "w") as f:
             json.dump(cached_keys, f)
@@ -386,8 +407,10 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         assert len(keys) == 1
         assert keys[0].key_name == "STALE"
 
-    @patch('cascette_tools.database.tact_keys.httpx.Client')
-    def test_fetch_wowdev_keys_http_error_no_cache(self, mock_client_class, key_manager):
+    @patch("cascette_tools.database.tact_keys.httpx.Client")
+    def test_fetch_wowdev_keys_http_error_no_cache(
+        self, mock_client_class, key_manager
+    ):
         """Test HTTP error with no cache available."""
         # Setup mock to raise HTTP error
         mock_client = Mock()
@@ -404,7 +427,7 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         keys = [
             TACTKey(key_name="KEY1", key_value="VALUE1"),
             TACTKey(key_name="KEY2", key_value="VALUE2"),
-            TACTKey(key_name="KEY3", key_value="VALUE3")
+            TACTKey(key_name="KEY3", key_value="VALUE3"),
         ]
 
         imported_count = key_manager.import_keys(keys)
@@ -426,8 +449,8 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         imported_count = key_manager.import_keys(keys)
         assert imported_count == 0  # Entire batch fails on db error
 
-    @patch.object(TACTKeyManager, 'fetch_wowdev_keys')
-    @patch.object(TACTKeyManager, 'import_keys')
+    @patch.object(TACTKeyManager, "fetch_wowdev_keys")
+    @patch.object(TACTKeyManager, "import_keys")
     def test_sync_with_wowdev(self, mock_import, mock_fetch, key_manager):
         """Test syncing with wowdev repository."""
         # Setup mocks
@@ -455,10 +478,24 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
         """Test getting statistics from populated database."""
         # Add keys with different properties
         keys = [
-            TACTKey(key_name="WOW1", key_value="V1", product_family="wow", verified=True),
-            TACTKey(key_name="WOW2", key_value="V2", product_family="wow", verified=False),
-            TACTKey(key_name="BN1", key_value="V3", product_family="battlenet", verified=True),
-            TACTKey(key_name="BN2", key_value="V4", product_family="battlenet", verified=True)
+            TACTKey(
+                key_name="WOW1", key_value="V1", product_family="wow", verified=True
+            ),
+            TACTKey(
+                key_name="WOW2", key_value="V2", product_family="wow", verified=False
+            ),
+            TACTKey(
+                key_name="BN1",
+                key_value="V3",
+                product_family="battlenet",
+                verified=True,
+            ),
+            TACTKey(
+                key_name="BN2",
+                key_value="V4",
+                product_family="battlenet",
+                verified=True,
+            ),
         ]
 
         for key in keys:
@@ -498,7 +535,9 @@ FEDC9876BA54321 FEDCBA0987654321FEDCBA0987654321
 
     def test_github_raw_url_constant(self):
         """Test that GitHub raw URL is correct."""
-        expected_url = "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
+        expected_url = (
+            "https://raw.githubusercontent.com/wowdev/TACTKeys/refs/heads/master"
+        )
         assert TACTKeyManager.GITHUB_RAW_URL == expected_url
 
     def test_cache_lifetime_constant(self):
@@ -520,9 +559,17 @@ class TestCreateBlteKeyStore:
 
         # Add sample keys (8-byte hex strings)
         keys = [
-            TACTKey(key_name="ABCD1234", key_value="1111222233334444", product_family="wow"),
-            TACTKey(key_name="EF125678", key_value="5555666677778888", product_family="wow"),  # Valid hex
-            TACTKey(key_name="1234ABCD", key_value="9999AAAABBBBCCCC", product_family="battlenet")
+            TACTKey(
+                key_name="ABCD1234", key_value="1111222233334444", product_family="wow"
+            ),
+            TACTKey(
+                key_name="EF125678", key_value="5555666677778888", product_family="wow"
+            ),  # Valid hex
+            TACTKey(
+                key_name="1234ABCD",
+                key_value="9999AAAABBBBCCCC",
+                product_family="battlenet",
+            ),
         ]
 
         for key in keys:
@@ -541,7 +588,7 @@ class TestCreateBlteKeyStore:
         # Verify keys are converted to bytes
         expected_keys = {
             bytes.fromhex("ABCD1234"): bytes.fromhex("1111222233334444"),
-            bytes.fromhex("EF125678"): bytes.fromhex("5555666677778888")
+            bytes.fromhex("EF125678"): bytes.fromhex("5555666677778888"),
         }
 
         assert key_store == expected_keys
@@ -573,10 +620,13 @@ class TestCreateBlteKeyStore:
         with TACTKeyManager(config) as manager:
             # Manually insert invalid hex key into database
             with manager.conn:
-                manager.conn.execute("""
+                manager.conn.execute(
+                    """
                     INSERT INTO tact_keys (key_name, key_value, product_family, verified)
                     VALUES (?, ?, ?, ?)
-                """, ("INVALIDHEX", "ALSOINVALID", "wow", 1))
+                """,
+                    ("INVALIDHEX", "ALSOINVALID", "wow", 1),
+                )
 
             # Should handle invalid hex gracefully
             key_store = create_blte_key_store(manager, "wow")

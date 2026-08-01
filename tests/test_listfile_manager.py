@@ -22,6 +22,7 @@ from cascette_tools.database.listfile import (
 # Disable logging for tests
 structlog.configure(processors=[])
 
+
 @pytest.fixture
 def temp_config(tmp_path):
     """Create a temporary config for testing."""
@@ -45,10 +46,24 @@ def sample_listfile_csv():
 def sample_listfile_entries():
     """Sample file entries for testing."""
     return [
-        FileDataEntry(fdid=123456, path="Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua", verified=True),
-        FileDataEntry(fdid=789012, path="Sound\\Music\\GlueScreenMusic\\wow_main_theme.mp3", verified=True),
-        FileDataEntry(fdid=345678, path="World\\Textures\\environment\\grass_01.blp", verified=True),
-        FileDataEntry(fdid=901234, path="Creature\\Dragon\\Dragon_Red.m2", verified=True),
+        FileDataEntry(
+            fdid=123456,
+            path="Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua",
+            verified=True,
+        ),
+        FileDataEntry(
+            fdid=789012,
+            path="Sound\\Music\\GlueScreenMusic\\wow_main_theme.mp3",
+            verified=True,
+        ),
+        FileDataEntry(
+            fdid=345678,
+            path="World\\Textures\\environment\\grass_01.blp",
+            verified=True,
+        ),
+        FileDataEntry(
+            fdid=901234, path="Creature\\Dragon\\Dragon_Red.m2", verified=True
+        ),
     ]
 
 
@@ -57,10 +72,7 @@ class TestFileDataEntry:
 
     def test_create_file_entry(self):
         """Test creating a basic file entry."""
-        entry = FileDataEntry(
-            fdid=12345,
-            path="Interface/AddOns/test.lua"
-        )
+        entry = FileDataEntry(fdid=12345, path="Interface/AddOns/test.lua")
         assert entry.fdid == 12345
         assert entry.path == "Interface/AddOns/test.lua"
         assert entry.verified is False
@@ -77,7 +89,7 @@ class TestFileDataEntry:
             verified=True,
             lookup_hash=0x12345678,
             added_date=added_date,
-            product="wow"
+            product="wow",
         )
         assert entry.fdid == 67890
         assert entry.path == "Sound/Music/theme.mp3"
@@ -111,7 +123,7 @@ class TestListfileCacheMetadata:
             fetch_time=fetch_time,
             entry_count=1000,
             file_size=50000,
-            source="wowdev/wow-listfile"
+            source="wowdev/wow-listfile",
         )
         assert metadata.fetch_time == fetch_time
         assert metadata.entry_count == 1000
@@ -123,14 +135,11 @@ class TestListfileCacheMetadata:
         """Test cache metadata JSON serialization."""
         fetch_time = datetime(2023, 1, 15, 12, 30, 45, tzinfo=UTC)
         metadata = ListfileCacheMetadata(
-            fetch_time=fetch_time,
-            entry_count=500,
-            file_size=25000,
-            source="test"
+            fetch_time=fetch_time, entry_count=500, file_size=25000, source="test"
         )
 
         # Serialize to dict
-        data = metadata.model_dump(mode='json')
+        data = metadata.model_dump(mode="json")
         assert isinstance(data["fetch_time"], str)
 
         # Deserialize back
@@ -152,7 +161,7 @@ class TestListfileManager:
 
     def test_init_default_config(self):
         """Test initialization with default config."""
-        with patch('cascette_tools.database.listfile.AppConfig') as mock_config:
+        with patch("cascette_tools.database.listfile.AppConfig") as mock_config:
             mock_instance = Mock()
             mock_instance.data_dir = Path("/tmp/test")
             mock_config.return_value = mock_instance
@@ -171,7 +180,12 @@ class TestListfileManager:
             """).fetchall()
 
             table_names = [table[0] for table in tables]
-            expected_tables = ['file_entries', 'listfile_sources', 'listfile_updates', 'file_search']
+            expected_tables = [
+                "file_entries",
+                "listfile_sources",
+                "listfile_updates",
+                "file_search",
+            ]
 
             for table in expected_tables:
                 assert table in table_names
@@ -186,13 +200,18 @@ class TestListfileManager:
             """).fetchall()
 
             index_names = [index[0] for index in indexes]
-            expected_indexes = ['idx_fdid', 'idx_path_lower', 'idx_lookup_hash',
-                               'idx_product_family', 'idx_product']
+            expected_indexes = [
+                "idx_fdid",
+                "idx_path_lower",
+                "idx_lookup_hash",
+                "idx_product_family",
+                "idx_product",
+            ]
 
             for index in expected_indexes:
                 assert index in index_names
 
-    @patch('httpx.Client.get')
+    @patch("httpx.Client.get")
     def test_fetch_listfile_success(self, mock_get, temp_config, sample_listfile_csv):
         """Test successful listfile fetch from GitHub."""
         # Mock successful HTTP response
@@ -209,16 +228,21 @@ class TestListfileManager:
             assert len(entries) == 4
             assert all(isinstance(entry, FileDataEntry) for entry in entries)
             assert entries[0].fdid == 123456
-            assert entries[0].path == "Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua"
+            assert (
+                entries[0].path
+                == "Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua"
+            )
             assert entries[0].verified is True
 
             # Check that cache files were created
             cache_file = temp_config.data_dir / "listfile_cache" / "listfile.csv.gz"
-            metadata_file = temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+            metadata_file = (
+                temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+            )
             assert cache_file.exists()
             assert metadata_file.exists()
 
-    @patch('httpx.Client.get')
+    @patch("httpx.Client.get")
     def test_fetch_listfile_http_error(self, mock_get, temp_config):
         """Test listfile fetch with HTTP error."""
         # Mock HTTP error
@@ -232,7 +256,9 @@ class TestListfileManager:
         """Test using cached listfile when available and fresh."""
         # Create valid cache first
         cache_file = temp_config.data_dir / "listfile_cache" / "listfile.csv.gz"
-        metadata_file = temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+        metadata_file = (
+            temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+        )
         cache_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Write cache file
@@ -247,14 +273,14 @@ class TestListfileManager:
             fetch_time=datetime.now(UTC),
             entry_count=len(sample_listfile_entries),
             file_size=cache_file.stat().st_size,
-            source="test"
+            source="test",
         )
         with open(metadata_file, "w") as f:
-            json.dump(metadata.model_dump(mode='json'), f, default=str)
+            json.dump(metadata.model_dump(mode="json"), f, default=str)
 
         with ListfileManager(temp_config) as manager:
             # Should use cache without network call
-            with patch('httpx.Client.get') as mock_get:
+            with patch("httpx.Client.get") as mock_get:
                 entries = manager.fetch_listfile()
                 mock_get.assert_not_called()
 
@@ -265,7 +291,9 @@ class TestListfileManager:
         """Test fetching when cache is expired."""
         # Create expired cache first
         cache_file = temp_config.data_dir / "listfile_cache" / "listfile.csv.gz"
-        metadata_file = temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+        metadata_file = (
+            temp_config.data_dir / "listfile_cache" / "listfile_metadata.json"
+        )
         cache_file.parent.mkdir(parents=True, exist_ok=True)
 
         with gzip.open(cache_file, "wt", encoding="utf-8") as f:
@@ -276,17 +304,14 @@ class TestListfileManager:
         # Create expired metadata
         expired_time = datetime.now(UTC) - timedelta(hours=25)
         metadata = ListfileCacheMetadata(
-            fetch_time=expired_time,
-            entry_count=1,
-            file_size=100,
-            source="test"
+            fetch_time=expired_time, entry_count=1, file_size=100, source="test"
         )
         with open(metadata_file, "w") as f:
-            json.dump(metadata.model_dump(mode='json'), f, default=str)
+            json.dump(metadata.model_dump(mode="json"), f, default=str)
 
         with ListfileManager(temp_config) as manager:
             # Mock new fetch
-            with patch('httpx.Client.get') as mock_get:
+            with patch("httpx.Client.get") as mock_get:
                 mock_response = Mock()
                 mock_response.status_code = 200
                 mock_response.text = "fdid;filename\n67890;new_file.txt"
@@ -307,7 +332,9 @@ class TestListfileManager:
 
             # Verify entries in database
             cursor = manager.conn.cursor()
-            rows = cursor.execute("SELECT fdid, path FROM file_entries ORDER BY fdid").fetchall()
+            rows = cursor.execute(
+                "SELECT fdid, path FROM file_entries ORDER BY fdid"
+            ).fetchall()
             assert len(rows) == 4
             assert rows[0]["fdid"] == 123456
 
@@ -319,9 +346,7 @@ class TestListfileManager:
 
             # Create updated entry
             updated_entry = FileDataEntry(
-                fdid=123456,
-                path="Interface\\AddOns\\UpdatedPath.lua",
-                verified=True
+                fdid=123456, path="Interface\\AddOns\\UpdatedPath.lua", verified=True
             )
 
             count = manager.import_entries([updated_entry], "test_update")
@@ -337,7 +362,10 @@ class TestListfileManager:
             manager.import_entries(sample_listfile_entries, "test")
 
             path = manager.get_path(123456)
-            assert path == "Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua"
+            assert (
+                path
+                == "Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua"
+            )
 
             # Test non-existent FDID
             path = manager.get_path(999999)
@@ -349,11 +377,15 @@ class TestListfileManager:
             manager.import_entries(sample_listfile_entries, "test")
 
             # Test exact match
-            fdid = manager.get_fdid("Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua")
+            fdid = manager.get_fdid(
+                "Interface\\AddOns\\Blizzard_AuctionHouseUI\\Blizzard_AuctionHouseUI.lua"
+            )
             assert fdid == 123456
 
             # Test case-insensitive match
-            fdid = manager.get_fdid("interface\\addons\\blizzard_auctionhouseui\\blizzard_auctionhouseui.lua")
+            fdid = manager.get_fdid(
+                "interface\\addons\\blizzard_auctionhouseui\\blizzard_auctionhouseui.lua"
+            )
             assert fdid == 123456
 
             # Test non-existent path
@@ -396,9 +428,10 @@ class TestListfileManager:
 
     def test_sync_with_wowdev(self, temp_config):
         """Test syncing with wowdev repository."""
-        with patch.object(ListfileManager, 'fetch_listfile') as mock_fetch, \
-             patch.object(ListfileManager, 'import_entries') as mock_import:
-
+        with (
+            patch.object(ListfileManager, "fetch_listfile") as mock_fetch,
+            patch.object(ListfileManager, "import_entries") as mock_import,
+        ):
             mock_entries = [FileDataEntry(fdid=123, path="test.txt")]
             mock_fetch.return_value = mock_entries
             mock_import.return_value = 1

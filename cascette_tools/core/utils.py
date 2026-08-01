@@ -86,7 +86,7 @@ def compute_jenkins96(path: str) -> int:
         hash1 = ((hash1 + ord(char)) * 0x193) & 0xFFFFFFFF
         hash2 = ((hash2 + (hash1 ^ ord(char))) * 0x1B3) & 0xFFFFFFFF
 
-    return ((hash1 * hash2) & 0xFFFFFFFFFFFFFFFF)
+    return (hash1 * hash2) & 0xFFFFFFFFFFFFFFFF
 
 
 def read_cstring(stream: BinaryIO, encoding: str = "utf-8") -> str:
@@ -111,16 +111,13 @@ def read_cstring(stream: BinaryIO, encoding: str = "utf-8") -> str:
     chars: list[bytes] = []
     while True:
         char = stream.read(1)
-        if not char or char == b'\x00':
+        if not char or char == b"\x00":
             break
         chars.append(char)
-    return b''.join(chars).decode(encoding)
+    return b"".join(chars).decode(encoding)
 
 
-def chunked_read(
-    stream: BinaryIO,
-    chunk_size: int = 8192
-) -> Iterator[bytes]:
+def chunked_read(stream: BinaryIO, chunk_size: int = 8192) -> Iterator[bytes]:
     """Read stream in chunks.
 
     Args:
@@ -197,7 +194,12 @@ def validate_hash_string(hash_str: str) -> bool:
         >>> validate_hash_string("")
         False
     """
-    if not hash_str or hash_str != hash_str.strip() or ' ' in hash_str or '\t' in hash_str:
+    if (
+        not hash_str
+        or hash_str != hash_str.strip()
+        or " " in hash_str
+        or "\t" in hash_str
+    ):
         return False
     try:
         bytes.fromhex(hash_str)

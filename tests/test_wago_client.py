@@ -65,7 +65,7 @@ def sample_wago_response():
                 "build_config": "abc123def456",
                 "cdn_config": "def456abc123",
                 "product_config": "789abc123def",
-                "is_bgdl": False
+                "is_bgdl": False,
             },
             {
                 "product": "wow",
@@ -74,8 +74,8 @@ def sample_wago_response():
                 "build_config": "abc123def455",
                 "cdn_config": "def456abc122",
                 "product_config": "789abc123dee",
-                "is_bgdl": False
-            }
+                "is_bgdl": False,
+            },
         ],
         "wow_classic": [
             {
@@ -85,7 +85,7 @@ def sample_wago_response():
                 "build_config": "classic123def456",
                 "cdn_config": "classic456abc123",
                 "product_config": "classic789abc123def",
-                "is_bgdl": False
+                "is_bgdl": False,
             }
         ],
         "wow_classic_era": [
@@ -96,7 +96,7 @@ def sample_wago_response():
                 "build_config": "era123def456",
                 "cdn_config": "era456abc123",
                 "product_config": "era789abc123def",
-                "is_bgdl": False
+                "is_bgdl": False,
             }
         ],
         "unsupported_product": [
@@ -107,9 +107,9 @@ def sample_wago_response():
                 "build_config": "unsupported123",
                 "cdn_config": "unsupported456",
                 "product_config": "unsupported789",
-                "is_bgdl": False
+                "is_bgdl": False,
             }
-        ]
+        ],
     }
 
 
@@ -129,7 +129,7 @@ def sample_builds():
             encoding_ekey="encoding123",
             root_ekey="root456",
             install_ekey="install789",
-            download_ekey="download012"
+            download_ekey="download012",
         ),
         WagoBuild(
             id=12344,
@@ -143,8 +143,8 @@ def sample_builds():
             encoding_ekey="encoding122",
             root_ekey="root455",
             install_ekey="install788",
-            download_ekey="download011"
-        )
+            download_ekey="download011",
+        ),
     ]
 
 
@@ -154,10 +154,7 @@ class TestWagoBuild:
     def test_create_basic_build(self):
         """Test creating basic build instance."""
         build = WagoBuild(
-            id=12345,
-            build="56647",
-            version="11.0.5.56647",
-            product="wow"
+            id=12345, build="56647", version="11.0.5.56647", product="wow"
         )
 
         assert build.id == 12345
@@ -182,7 +179,7 @@ class TestWagoBuild:
             encoding_ekey="encoding123",
             root_ekey="root456",
             install_ekey="install789",
-            download_ekey="download012"
+            download_ekey="download012",
         )
 
         assert build.build_time == build_time
@@ -215,9 +212,7 @@ class TestWagoCacheMetadata:
         expires = now + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
-            fetch_time=now,
-            expires_at=expires,
-            build_count=100
+            fetch_time=now, expires_at=expires, build_count=100
         )
 
         assert metadata.fetch_time == now
@@ -231,10 +226,7 @@ class TestWagoCacheMetadata:
         expires = now + timedelta(hours=24)
 
         metadata = WagoCacheMetadata(
-            fetch_time=now,
-            expires_at=expires,
-            build_count=50,
-            api_version="v2"
+            fetch_time=now, expires_at=expires, build_count=50, api_version="v2"
         )
 
         data = metadata.model_dump(mode="json")
@@ -259,7 +251,7 @@ class TestWagoClient:
     def test_client_initialization_no_config(self, temp_data_dir):
         """Test client initialization without config."""
         # Mock AppConfig to use temp directory
-        with patch('cascette_tools.database.wago.AppConfig') as mock_app_config:
+        with patch("cascette_tools.database.wago.AppConfig") as mock_app_config:
             mock_config = AppConfig()
             mock_config.data_dir = temp_data_dir
             mock_app_config.return_value = mock_config
@@ -296,7 +288,7 @@ class TestWagoClient:
         metadata = WagoCacheMetadata(
             fetch_time=past_time,
             expires_at=past_time + timedelta(hours=24),
-            build_count=0
+            build_count=0,
         )
 
         wago_client.cache_file.write_text("[]")
@@ -311,9 +303,7 @@ class TestWagoClient:
         # Create valid metadata
         now = datetime.now(UTC)
         metadata = WagoCacheMetadata(
-            fetch_time=now,
-            expires_at=now + timedelta(hours=24),
-            build_count=10
+            fetch_time=now, expires_at=now + timedelta(hours=24), build_count=10
         )
 
         wago_client.cache_file.write_text("[]")
@@ -407,7 +397,9 @@ class TestWagoClient:
             wago_client.fetch_builds(force_refresh=True)
 
     @patch("httpx.Client.get")
-    def test_fetch_builds_api_error_with_cache_fallback(self, mock_get, wago_client, sample_builds):
+    def test_fetch_builds_api_error_with_cache_fallback(
+        self, mock_get, wago_client, sample_builds
+    ):
         """Test API error with cache fallback."""
         # Create expired cache
         wago_client._save_cache(sample_builds)
@@ -557,25 +549,25 @@ class TestWagoClient:
                     "product": "wow",
                     "build": "12345",
                     "version": "1.0.0.12345",
-                    "created_at": "2024-09-15T10:30:00Z"  # With Z suffix
+                    "created_at": "2024-09-15T10:30:00Z",  # With Z suffix
                 },
                 {
                     "id": 2,
                     "product": "wow",
                     "build": "12346",
                     "version": "1.0.0.12346",
-                    "created_at": "2024-09-15T10:30:00+00:00"  # With timezone
+                    "created_at": "2024-09-15T10:30:00+00:00",  # With timezone
                 },
                 {
                     "id": 3,
                     "product": "wow",
                     "build": "12347",
-                    "version": "1.0.0.12347"
+                    "version": "1.0.0.12347",
                     # No created_at field
-                }
+                },
             ],
             "wow_classic": [],
-            "wow_classic_era": []
+            "wow_classic_era": [],
         }
 
         mock_response = Mock()
@@ -609,23 +601,23 @@ class TestWagoClient:
                     "id": 1,
                     "product": "wow",
                     "build": "12345",
-                    "version": "1.0.0.12345"
+                    "version": "1.0.0.12345",
                     # Valid build
                 },
                 {
                     # Missing required fields
                     "product": "wow",
-                    "build": "12346"
+                    "build": "12346",
                 },
                 {
                     "id": "invalid_id",  # Invalid ID type
                     "product": "wow",
                     "build": "12347",
-                    "version": "1.0.0.12347"
-                }
+                    "version": "1.0.0.12347",
+                },
             ],
             "wow_classic": [],
-            "wow_classic_era": []
+            "wow_classic_era": [],
         }
 
         mock_response = Mock()
@@ -686,7 +678,9 @@ class TestWagoClientDatabase:
         assert count == 2
 
         # Verify import log
-        cursor = wago_client.conn.execute("SELECT * FROM wago_import_log WHERE success = 1")
+        cursor = wago_client.conn.execute(
+            "SELECT * FROM wago_import_log WHERE success = 1"
+        )
         log_entry = cursor.fetchone()
         assert log_entry is not None
         assert log_entry["builds_fetched"] == 2
@@ -714,7 +708,7 @@ class TestWagoClientDatabase:
         # Verify update in database
         cursor = wago_client.conn.execute(
             "SELECT version, build_config FROM builds WHERE product = ? AND build = ?",
-            (updated_build.product, updated_build.build)
+            (updated_build.product, updated_build.build),
         )
         row = cursor.fetchone()
         assert row["version"] == "11.0.5.56647-updated"
@@ -834,12 +828,20 @@ class TestWagoClientDatabase:
 
         # Manually insert duplicate with same unique key to trigger violation
         try:
-            wago_client.conn.execute("""
+            wago_client.conn.execute(
+                """
                 INSERT INTO builds (
                     id, build, version, product, build_config
                 ) VALUES (?, ?, ?, ?, ?)
-            """, (build.id, build.build, build.version, build.product,
-                  build.build_config))
+            """,
+                (
+                    build.id,
+                    build.build,
+                    build.version,
+                    build.product,
+                    build.build_config,
+                ),
+            )
             wago_client.conn.commit()
         except sqlite3.IntegrityError:
             # Expected - this tests the error logging pathway
@@ -848,7 +850,7 @@ class TestWagoClientDatabase:
         # Verify the database has proper constraints
         cursor = wago_client.conn.execute(
             "SELECT COUNT(*) FROM builds WHERE product = ? AND build = ?",
-            (build.product, build.build)
+            (build.product, build.build),
         )
         count = cursor.fetchone()[0]
         assert count == 1  # Should only have one record despite attempts to duplicate
@@ -887,7 +889,7 @@ class TestWagoClientDatabase:
         # Third import with all builds (should not duplicate)
         stats = wago_client.import_builds_to_database(sample_builds)
         assert stats["imported"] == 0  # No new imports
-        assert stats["updated"] == 2   # All existing updated
+        assert stats["updated"] == 2  # All existing updated
         assert len(wago_client.get_database_builds()) == 2
 
     def test_product_family_support(self, wago_client):

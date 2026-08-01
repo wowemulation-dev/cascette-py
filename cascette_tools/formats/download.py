@@ -48,9 +48,15 @@ class DownloadEntry(BaseModel):
 
     ekey: bytes = Field(description="Encoding key")
     size: int = Field(description="File size in bytes")
-    priority: int = Field(description="Download priority (signed, lower = higher priority)")
-    checksum: bytes | None = Field(default=None, description="MD5 checksum (if available)")
-    flags: bytes | None = Field(default=None, description="Entry flags (V2+, if flag_size > 0)")
+    priority: int = Field(
+        description="Download priority (signed, lower = higher priority)"
+    )
+    checksum: bytes | None = Field(
+        default=None, description="MD5 checksum (if available)"
+    )
+    flags: bytes | None = Field(
+        default=None, description="Entry flags (V2+, if flag_size > 0)"
+    )
     tags: list[str] = Field(default_factory=list, description="List of tag names")
 
 
@@ -128,14 +134,14 @@ class DownloadParser(FormatParser[DownloadFile]):
             raise ValueError("Insufficient data for header")
 
         magic = header_data[0:2]
-        if magic != b'DL':
+        if magic != b"DL":
             raise ValueError(f"Invalid magic: {magic.hex()}, expected 444C (DL)")
 
         version = header_data[2]
         ekey_size = header_data[3]
         has_checksum = header_data[4] != 0
-        entry_count = struct.unpack('>I', header_data[5:9])[0]  # big-endian
-        tag_count = struct.unpack('>H', header_data[9:11])[0]  # big-endian
+        entry_count = struct.unpack(">I", header_data[5:9])[0]  # big-endian
+        tag_count = struct.unpack(">H", header_data[9:11])[0]  # big-endian
 
         # Version-specific header fields
         flag_size = 0
@@ -154,13 +160,19 @@ class DownloadParser(FormatParser[DownloadFile]):
             if len(v3_extra) < 4:
                 raise ValueError("Insufficient data for V3 header fields")
             # base_priority is signed
-            base_priority = struct.unpack('b', v3_extra[0:1])[0]
+            base_priority = struct.unpack("b", v3_extra[0:1])[0]
             # reserved bytes are v3_extra[1:4], ignored
 
-        logger.debug("Parsed download header",
-                    version=version, ekey_size=ekey_size, has_checksum=has_checksum,
-                    entry_count=entry_count, tag_count=tag_count,
-                    flag_size=flag_size, base_priority=base_priority)
+        logger.debug(
+            "Parsed download header",
+            version=version,
+            ekey_size=ekey_size,
+            has_checksum=has_checksum,
+            entry_count=entry_count,
+            tag_count=tag_count,
+            flag_size=flag_size,
+            base_priority=base_priority,
+        )
 
         header = DownloadHeader(
             version=version,
@@ -169,7 +181,7 @@ class DownloadParser(FormatParser[DownloadFile]):
             entry_count=entry_count,
             tag_count=tag_count,
             flag_size=flag_size,
-            base_priority=base_priority
+            base_priority=base_priority,
         )
 
         # Calculate bit mask size for tags
@@ -188,13 +200,15 @@ class DownloadParser(FormatParser[DownloadFile]):
             size_data = stream.read(5)
             if len(size_data) < 5:
                 raise ValueError(f"Insufficient data for file size at entry {i}")
-            file_size = struct.unpack('>Q', b'\x00\x00\x00' + size_data)[0]  # Pad to 8 bytes
+            file_size = struct.unpack(">Q", b"\x00\x00\x00" + size_data)[
+                0
+            ]  # Pad to 8 bytes
 
             # Read download priority (1 byte, signed for effective priority calculation)
             priority_data = stream.read(1)
             if len(priority_data) < 1:
                 raise ValueError(f"Insufficient data for priority at entry {i}")
-            priority = struct.unpack('b', priority_data)[0]  # signed byte
+            priority = struct.unpack("b", priority_data)[0]  # signed byte
 
             # Read checksum if present (4 bytes)
             checksum = None
@@ -212,14 +226,16 @@ class DownloadParser(FormatParser[DownloadFile]):
                     raise ValueError(f"Insufficient data for flags at entry {i}")
                 flags = flags_data
 
-            entries.append(DownloadEntry(
-                ekey=ekey_data,
-                size=file_size,
-                priority=priority,
-                checksum=checksum,
-                flags=flags,
-                tags=[]  # Will be populated after parsing tags
-            ))
+            entries.append(
+                DownloadEntry(
+                    ekey=ekey_data,
+                    size=file_size,
+                    priority=priority,
+                    checksum=checksum,
+                    flags=flags,
+                    tags=[],  # Will be populated after parsing tags
+                )
+            )
 
         # Parse tags AFTER entries (all versions)
         tags: list[DownloadTag] = []
@@ -228,28 +244,26 @@ class DownloadParser(FormatParser[DownloadFile]):
             name_bytes = bytearray()
             while True:
                 byte = stream.read(1)
-                if not byte or byte == b'\x00':
+                if not byte or byte == b"\x00":
                     break
                 name_bytes.extend(byte)
 
-            tag_name = name_bytes.decode('utf-8', errors='replace')
+            tag_name = name_bytes.decode("utf-8", errors="replace")
 
             # Read tag type (2 bytes big-endian)
             tag_type_data = stream.read(2)
             if len(tag_type_data) < 2:
                 raise ValueError(f"Insufficient data for tag type: {tag_name}")
-            tag_type = struct.unpack('>H', tag_type_data)[0]
+            tag_type = struct.unpack(">H", tag_type_data)[0]
 
             # Read bit mask
             bit_mask_data = stream.read(bit_mask_size)
             if len(bit_mask_data) < bit_mask_size:
                 raise ValueError(f"Insufficient data for bit mask: {tag_name}")
 
-            tags.append(DownloadTag(
-                name=tag_name,
-                tag_type=tag_type,
-                file_mask=bit_mask_data
-            ))
+            tags.append(
+                DownloadTag(name=tag_name, tag_type=tag_type, file_mask=bit_mask_data)
+            )
 
         # Now populate entry tags based on tag bit masks
         for i, entry in enumerate(entries):
@@ -259,11 +273,7 @@ class DownloadParser(FormatParser[DownloadFile]):
                     file_tags.append(tag.name)
             entry.tags = file_tags
 
-        return DownloadFile(
-            header=header,
-            tags=tags,
-            entries=entries
-        )
+        return DownloadFile(header=header, tags=tags, entries=entries)
 
     def build(self, obj: DownloadFile) -> bytes:
         """Build download manifest binary data.
@@ -277,20 +287,24 @@ class DownloadParser(FormatParser[DownloadFile]):
         result = BytesIO()
 
         # Write base header (common to all versions)
-        result.write(b'DL')  # Magic
-        result.write(struct.pack('B', obj.header.version))  # Version
-        result.write(struct.pack('B', obj.header.ekey_size))  # EKey size
-        result.write(struct.pack('B', 1 if obj.header.has_checksum else 0))  # Has checksum
-        result.write(struct.pack('>I', len(obj.entries)))  # Entry count (big-endian)
-        result.write(struct.pack('>H', len(obj.tags)))  # Tag count (big-endian)
+        result.write(b"DL")  # Magic
+        result.write(struct.pack("B", obj.header.version))  # Version
+        result.write(struct.pack("B", obj.header.ekey_size))  # EKey size
+        result.write(
+            struct.pack("B", 1 if obj.header.has_checksum else 0)
+        )  # Has checksum
+        result.write(struct.pack(">I", len(obj.entries)))  # Entry count (big-endian)
+        result.write(struct.pack(">H", len(obj.tags)))  # Tag count (big-endian)
 
         # Version-specific header fields
         if obj.header.version >= 2:
-            result.write(struct.pack('B', obj.header.flag_size))  # Flag size
+            result.write(struct.pack("B", obj.header.flag_size))  # Flag size
 
         if obj.header.version >= 3:
-            result.write(struct.pack('b', obj.header.base_priority))  # Base priority (signed)
-            result.write(b'\x00\x00\x00')  # Reserved bytes
+            result.write(
+                struct.pack("b", obj.header.base_priority)
+            )  # Base priority (signed)
+            result.write(b"\x00\x00\x00")  # Reserved bytes
 
         # Calculate bit mask size
         bit_mask_size = (len(obj.entries) + 7) // 8
@@ -309,26 +323,30 @@ class DownloadParser(FormatParser[DownloadFile]):
         for entry in obj.entries:
             # Write encoding key
             if len(entry.ekey) != obj.header.ekey_size:
-                raise ValueError(f"Encoding key size mismatch: expected {obj.header.ekey_size}, got {len(entry.ekey)}")
+                raise ValueError(
+                    f"Encoding key size mismatch: expected {obj.header.ekey_size}, got {len(entry.ekey)}"
+                )
             result.write(entry.ekey)
 
             # Write file size (5 bytes, 40-bit big-endian)
             if entry.size >= (1 << 40):
                 raise ValueError(f"File size too large: {entry.size}")
-            size_bytes = struct.pack('>Q', entry.size)[3:]  # Take last 5 bytes
+            size_bytes = struct.pack(">Q", entry.size)[3:]  # Take last 5 bytes
             result.write(size_bytes)
 
             # Write download priority (1 byte, signed)
             if entry.priority < -128 or entry.priority > 127:
                 raise ValueError(f"Priority out of range: {entry.priority}")
-            result.write(struct.pack('b', entry.priority))
+            result.write(struct.pack("b", entry.priority))
 
             # Write checksum if enabled
             if obj.header.has_checksum:
                 if entry.checksum is None:
                     raise ValueError("Checksum required but not provided for entry")
                 if len(entry.checksum) != 4:
-                    raise ValueError(f"Checksum must be 4 bytes, got {len(entry.checksum)}")
+                    raise ValueError(
+                        f"Checksum must be 4 bytes, got {len(entry.checksum)}"
+                    )
                 result.write(entry.checksum)
             elif entry.checksum is not None:
                 raise ValueError("Checksum provided but not expected")
@@ -338,7 +356,9 @@ class DownloadParser(FormatParser[DownloadFile]):
                 if entry.flags is None:
                     raise ValueError("Flags required but not provided for entry")
                 if len(entry.flags) != obj.header.flag_size:
-                    raise ValueError(f"Flags size mismatch: expected {obj.header.flag_size}, got {len(entry.flags)}")
+                    raise ValueError(
+                        f"Flags size mismatch: expected {obj.header.flag_size}, got {len(entry.flags)}"
+                    )
                 result.write(entry.flags)
             elif entry.flags is not None:
                 raise ValueError("Flags provided but not expected")
@@ -346,11 +366,11 @@ class DownloadParser(FormatParser[DownloadFile]):
         # Write tags AFTER entries (all versions)
         for tag in obj.tags:
             # Write tag name (null-terminated)
-            result.write(tag.name.encode('utf-8'))
-            result.write(b'\x00')
+            result.write(tag.name.encode("utf-8"))
+            result.write(b"\x00")
 
             # Write tag type (2 bytes big-endian)
-            result.write(struct.pack('>H', tag.tag_type))
+            result.write(struct.pack(">H", tag.tag_type))
 
             # Write bit mask (use rebuilt mask to ensure consistency)
             result.write(tag_masks[tag.name])
@@ -391,17 +411,15 @@ class DownloadBuilder:
             tag_count=0,
             entry_count=0,
             flag_size=0,
-            base_priority=0
+            base_priority=0,
         )
 
-        return DownloadFile(
-            header=header,
-            tags=[],
-            entries=[]
-        )
+        return DownloadFile(header=header, tags=[], entries=[])
 
     @classmethod
-    def create_with_entries(cls, entries: list[DownloadEntry], tags: list[DownloadTag] | None = None) -> DownloadFile:
+    def create_with_entries(
+        cls, entries: list[DownloadEntry], tags: list[DownloadTag] | None = None
+    ) -> DownloadFile:
         """Create download file with given entries.
 
         Args:
@@ -425,14 +443,10 @@ class DownloadBuilder:
             tag_count=len(tags),
             entry_count=len(entries),
             flag_size=flag_size,
-            base_priority=0
+            base_priority=0,
         )
 
-        return DownloadFile(
-            header=header,
-            tags=tags,
-            entries=entries
-        )
+        return DownloadFile(header=header, tags=tags, entries=entries)
 
 
 def is_download(data: bytes) -> bool:
@@ -448,4 +462,4 @@ def is_download(data: bytes) -> bool:
         return False
 
     # Check for DL magic
-    return data[:2] == b'DL'
+    return data[:2] == b"DL"

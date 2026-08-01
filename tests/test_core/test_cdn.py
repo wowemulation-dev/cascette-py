@@ -75,7 +75,9 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        url = client._build_url("abc123def456", "patch_index", "https://cdn.example.com")
+        url = client._build_url(
+            "abc123def456", "patch_index", "https://cdn.example.com"
+        )
         assert url == "https://cdn.example.com/tpr/wow/patch/ab/c1/abc123def456.index"
 
     def test_build_url_uppercase_hash(self):
@@ -95,7 +97,7 @@ class TestCDNClient:
             {
                 "Name": "us",
                 "Path": "tpr/wow",
-                "Hosts": "cdn1.example.com cdn2.example.com"
+                "Hosts": "cdn1.example.com cdn2.example.com",
             }
         ]
 
@@ -104,7 +106,10 @@ class TestCDNClient:
 
         assert client._initialized is True
         assert client.cdn_path == "tpr/wow"
-        assert client.cdn_servers == ["http://cdn1.example.com", "http://cdn2.example.com"]
+        assert client.cdn_servers == [
+            "http://cdn1.example.com",
+            "http://cdn2.example.com",
+        ]
 
     @patch.object(TACTClient, "fetch_cdns")
     @patch.object(TACTClient, "parse_cdns")
@@ -112,11 +117,7 @@ class TestCDNClient:
         """Test initialization when region not found."""
         mock_fetch.return_value = "manifest"
         mock_parse.return_value = [
-            {
-                "Name": "eu",
-                "Path": "tpr/wow",
-                "Hosts": "cdn1.example.com"
-            }
+            {"Name": "eu", "Path": "tpr/wow", "Hosts": "cdn1.example.com"}
         ]
 
         client = CDNClient(Product.WOW, region="us")
@@ -144,11 +145,13 @@ class TestCDNClient:
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
-        config = CDNConfig(fallback_mirrors=[
-            "https://cdn.arctium.tools",
-            "https://casc.wago.tools",
-            "https://archive.wow.tools",
-        ])
+        config = CDNConfig(
+            fallback_mirrors=[
+                "https://cdn.arctium.tools",
+                "https://casc.wago.tools",
+                "https://archive.wow.tools",
+            ]
+        )
         client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
@@ -163,9 +166,7 @@ class TestCDNClient:
         # First call fails, second succeeds
         failed_response = MagicMock()
         failed_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock()
+            "404 Not Found", request=MagicMock(), response=MagicMock()
         )
 
         success_response = MagicMock()
@@ -174,11 +175,13 @@ class TestCDNClient:
 
         mock_get.side_effect = [failed_response, success_response]
 
-        config = CDNConfig(fallback_mirrors=[
-            "https://cdn.arctium.tools",
-            "https://casc.wago.tools",
-            "https://archive.wow.tools",
-        ])
+        config = CDNConfig(
+            fallback_mirrors=[
+                "https://cdn.arctium.tools",
+                "https://casc.wago.tools",
+                "https://archive.wow.tools",
+            ]
+        )
         client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
@@ -192,17 +195,17 @@ class TestCDNClient:
         """Test when all mirrors fail."""
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "404 Not Found",
-            request=MagicMock(),
-            response=MagicMock()
+            "404 Not Found", request=MagicMock(), response=MagicMock()
         )
         mock_get.return_value = mock_response
 
-        config = CDNConfig(fallback_mirrors=[
-            "https://cdn.arctium.tools",
-            "https://casc.wago.tools",
-            "https://archive.wow.tools",
-        ])
+        config = CDNConfig(
+            fallback_mirrors=[
+                "https://cdn.arctium.tools",
+                "https://casc.wago.tools",
+                "https://archive.wow.tools",
+            ]
+        )
         client = CDNClient(Product.WOW, config=config)
         client.cdn_path = "tpr/wow"
 
@@ -232,14 +235,17 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        with patch.object(client.cache, "get_cdn", return_value=None), \
-             patch.object(client.cache, "put_cdn") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_cdn", return_value=None),
+            patch.object(client.cache, "put_cdn") as mock_put,
+        ):
             result = client.fetch_config("abc123def456")
 
             assert result == b"fresh data"
             mock_fetch.assert_called_once_with("abc123def456", "config")
-            mock_put.assert_called_once_with("abc123def456", b"fresh data", "config", "tpr/wow")
+            mock_put.assert_called_once_with(
+                "abc123def456", b"fresh data", "config", "tpr/wow"
+            )
 
     @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
@@ -250,14 +256,17 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        with patch.object(client.cache, "get_cdn", return_value=None), \
-             patch.object(client.cache, "put_cdn") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_cdn", return_value=None),
+            patch.object(client.cache, "put_cdn") as mock_put,
+        ):
             result = client.fetch_data("def456abc123")
 
             assert result == b"data content"
             mock_fetch.assert_called_once_with("def456abc123", "data", quiet=False)
-            mock_put.assert_called_once_with("def456abc123", b"data content", "data", "tpr/wow")
+            mock_put.assert_called_once_with(
+                "def456abc123", b"data content", "data", "tpr/wow"
+            )
 
     @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
@@ -268,14 +277,17 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        with patch.object(client.cache, "get_cdn", return_value=None), \
-             patch.object(client.cache, "put_cdn") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_cdn", return_value=None),
+            patch.object(client.cache, "put_cdn") as mock_put,
+        ):
             result = client.fetch_data("def456abc123", is_index=True)
 
             assert result == b"index content"
             mock_fetch.assert_called_once_with("def456abc123", "index", quiet=False)
-            mock_put.assert_called_once_with("def456abc123", b"index content", "index", "tpr/wow")
+            mock_put.assert_called_once_with(
+                "def456abc123", b"index content", "index", "tpr/wow"
+            )
 
     @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
@@ -286,14 +298,17 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        with patch.object(client.cache, "get_cdn", return_value=None), \
-             patch.object(client.cache, "put_cdn") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_cdn", return_value=None),
+            patch.object(client.cache, "put_cdn") as mock_put,
+        ):
             result = client.fetch_patch("789abc123def")
 
             assert result == b"patch content"
             mock_fetch.assert_called_once_with("789abc123def", "patch")
-            mock_put.assert_called_once_with("789abc123def", b"patch content", "patch", "tpr/wow")
+            mock_put.assert_called_once_with(
+                "789abc123def", b"patch content", "patch", "tpr/wow"
+            )
 
     @patch.object(CDNClient, "ensure_initialized")
     @patch.object(CDNClient, "_fetch_from_cdn")
@@ -304,14 +319,17 @@ class TestCDNClient:
         client = CDNClient(Product.WOW)
         client.cdn_path = "tpr/wow"
 
-        with patch.object(client.cache, "get_cdn", return_value=None), \
-             patch.object(client.cache, "put_cdn") as mock_put:
-
+        with (
+            patch.object(client.cache, "get_cdn", return_value=None),
+            patch.object(client.cache, "put_cdn") as mock_put,
+        ):
             result = client.fetch_patch("789abc123def", is_index=True)
 
             assert result == b"patch index content"
             mock_fetch.assert_called_once_with("789abc123def", "patch_index")
-            mock_put.assert_called_once_with("789abc123def", b"patch index content", "patch_index", "tpr/wow")
+            mock_put.assert_called_once_with(
+                "789abc123def", b"patch index content", "patch_index", "tpr/wow"
+            )
 
     def test_context_manager(self):
         """Test context manager functionality."""

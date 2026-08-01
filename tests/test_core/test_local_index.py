@@ -284,7 +284,9 @@ class TestFileLayout:
         # First entry key should be at 0x28
         assert data[0x28] == 0x00  # First byte of first entry key
 
-    def test_padding_between_header_and_entries(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_padding_between_header_and_entries(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """8 bytes of zero padding at 0x18-0x1F."""
         storage = LocalStorage(tmp_path)  # type: ignore[arg-type]
         storage.initialize()
@@ -311,7 +313,7 @@ class TestFileLayout:
         assert len(data) >= 0x10000 + 0x7800
 
         # Update section should be all zeros (empty)
-        assert data[0x10000:0x10000 + 24] == b"\x00" * 24
+        assert data[0x10000 : 0x10000 + 24] == b"\x00" * 24
 
     def test_file_size_with_entries(self, tmp_path: pytest.TempPathFactory) -> None:
         """Total file size is 0x10000 + 0x7800 for small entry counts."""
@@ -344,7 +346,9 @@ class TestSortedSectionHash:
     def test_multi_entry_hash_is_iterative(self) -> None:
         """Multiple entries produce accumulated hash state."""
         entries = [
-            LocalIndexEntry(key=bytes([i]) + b"\x00" * 8, archive_id=0, archive_offset=0, size=100)
+            LocalIndexEntry(
+                key=bytes([i]) + b"\x00" * 8, archive_id=0, archive_offset=0, size=100
+            )
             for i in range(5)
         ]
 
@@ -362,7 +366,12 @@ class TestSortedSectionHash:
         storage.initialize()
 
         entries = [
-            LocalIndexEntry(key=bytes([i]) + b"\x00" * 8, archive_id=0, archive_offset=i * 50, size=50)
+            LocalIndexEntry(
+                key=bytes([i]) + b"\x00" * 8,
+                archive_id=0,
+                archive_offset=i * 50,
+                size=50,
+            )
             for i in range(3)
         ]
         idx_path = storage.data_path / "test.idx"
@@ -467,7 +476,9 @@ class TestParseRoundtrip:
 class TestInsertEntry:
     """Tests for incremental update section writes."""
 
-    def test_insert_entry_to_update_section(self, tmp_path: pytest.TempPathFactory) -> None:
+    def test_insert_entry_to_update_section(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """insert_entry writes to the update section of an existing file."""
         storage = LocalStorage(tmp_path)  # type: ignore[arg-type]
         storage.initialize()
@@ -549,19 +560,19 @@ class TestKmtV8Format:
         # [0x04..0x13]: full 16-byte EKey
         entry[4:20] = ekey[:16]
         # [0x14..0x17]: StorageOffset low (LE)
-        struct.pack_into('<I', entry, 0x14, offset_lo)
+        struct.pack_into("<I", entry, 0x14, offset_lo)
         # [0x18..0x1B]: StorageOffset high (LE)
-        struct.pack_into('<I', entry, 0x18, offset_hi)
+        struct.pack_into("<I", entry, 0x18, offset_hi)
         # [0x1C..0x1F]: EncodedSize (LE)
-        struct.pack_into('<I', entry, 0x1C, encoded_size)
+        struct.pack_into("<I", entry, 0x1C, encoded_size)
         # [0x20..0x23]: DecodedSize (LE)
-        struct.pack_into('<I', entry, 0x20, decoded_size)
+        struct.pack_into("<I", entry, 0x20, decoded_size)
         # [0x24]: Status
         entry[0x24] = status
         # [0x00..0x03]: HashGuard = hashlittle(entry[4:37], 0) | 0x80000000
         payload = bytes(entry[4:37])  # 33 bytes = 0x21
         guard = hashlittle(payload, 0) | 0x80000000
-        struct.pack_into('<I', entry, 0, guard)
+        struct.pack_into("<I", entry, 0, guard)
         return bytes(entry)
 
     def test_v8_update_entry_hash_guard_covers_33_bytes(self) -> None:
@@ -572,13 +583,13 @@ class TestKmtV8Format:
         where entry[4..37] (33 bytes) = EKey (16) + offset_lo (4) + offset_hi (4)
         + encoded_size (4) + decoded_size (4) + status (1).
         """
-        ekey = b'\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10'
+        ekey = b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10"
         raw = self._build_v8_update_entry(ekey, 0x1000, 0, 512, 1024, status=1)
 
         assert len(raw) == 40
         payload = raw[4:37]  # 33 bytes
         expected_guard = hashlittle(payload, 0) | 0x80000000
-        actual_guard = struct.unpack('<I', raw[0:4])[0]
+        actual_guard = struct.unpack("<I", raw[0:4])[0]
         assert actual_guard == expected_guard
         assert actual_guard & 0x80000000 != 0, "High bit must be set"
 
@@ -587,9 +598,9 @@ class TestKmtV8Format:
 
         Empty slots have first 4 bytes == 0, valid entries have bit 31 set.
         """
-        ekey = b'\xde\xad\xbe\xef' * 4
+        ekey = b"\xde\xad\xbe\xef" * 4
         raw = self._build_v8_update_entry(ekey, 0, 0, 0, 0, status=1)
-        guard = struct.unpack('<I', raw[0:4])[0]
+        guard = struct.unpack("<I", raw[0:4])[0]
         assert guard != 0, "Non-empty entry must not have zero hash guard"
         assert guard & 0x80000000 != 0, "High bit must be set"
 
@@ -601,21 +612,21 @@ class TestKmtV8Format:
         """
         # Build minimal 32-byte sorted entry
         entry = bytearray(32)
-        ekey = b'\xaa\xbb\xcc\xdd' * 4
+        ekey = b"\xaa\xbb\xcc\xdd" * 4
         entry[0:16] = ekey
-        struct.pack_into('<I', entry, 16, 0x2000)   # offset_lo
-        struct.pack_into('<I', entry, 20, 0)         # offset_hi
-        struct.pack_into('<I', entry, 24, 256)       # encoded_size
-        struct.pack_into('<I', entry, 28, 512)       # decoded_size
+        struct.pack_into("<I", entry, 16, 0x2000)  # offset_lo
+        struct.pack_into("<I", entry, 20, 0)  # offset_hi
+        struct.pack_into("<I", entry, 24, 256)  # encoded_size
+        struct.pack_into("<I", entry, 28, 512)  # decoded_size
 
         assert len(entry) == 32
 
         # Verify field extraction is correct
         extracted_ekey = bytes(entry[0:16])
-        extracted_offset_lo = struct.unpack('<I', entry[16:20])[0]
-        extracted_offset_hi = struct.unpack('<I', entry[20:24])[0]
-        extracted_encoded = struct.unpack('<I', entry[24:28])[0]
-        extracted_decoded = struct.unpack('<I', entry[28:32])[0]
+        extracted_offset_lo = struct.unpack("<I", entry[16:20])[0]
+        extracted_offset_hi = struct.unpack("<I", entry[20:24])[0]
+        extracted_encoded = struct.unpack("<I", entry[24:28])[0]
+        extracted_decoded = struct.unpack("<I", entry[28:32])[0]
 
         assert extracted_ekey == ekey
         assert extracted_offset_lo == 0x2000
@@ -632,7 +643,7 @@ class TestKmtV8Format:
         V7: hashlittle(entry[4:23], 0) | 0x80000000  (19 bytes)
         V8: hashlittle(entry[4:37], 0) | 0x80000000  (33 bytes)
         """
-        payload = b'\x11' * 40  # 40 arbitrary bytes
+        payload = b"\x11" * 40  # 40 arbitrary bytes
 
         v7_guard = hashlittle(payload[4:23], 0) | 0x80000000  # 19 bytes
         v8_guard = hashlittle(payload[4:37], 0) | 0x80000000  # 33 bytes
@@ -651,26 +662,26 @@ class TestKmtV8Format:
         """
         # Build a minimal V8-style guarded block
         inner = bytearray(16)
-        struct.pack_into('<H', inner, 0, 8)   # version = 8
-        inner[2] = 0                           # bucket
-        inner[4] = 4                           # encoded_size_length
-        inner[5] = 8                           # storage_offset_length (64-bit)
-        inner[6] = 16                          # ekey_length (full 16 bytes)
-        inner[7] = 0                           # file_offset_bits
-        struct.pack_into('<Q', inner, 8, 0x40000000)  # segment_size
+        struct.pack_into("<H", inner, 0, 8)  # version = 8
+        inner[2] = 0  # bucket
+        inner[4] = 4  # encoded_size_length
+        inner[5] = 8  # storage_offset_length (64-bit)
+        inner[6] = 16  # ekey_length (full 16 bytes)
+        inner[7] = 0  # file_offset_bits
+        struct.pack_into("<Q", inner, 8, 0x40000000)  # segment_size
 
         header_hash = hashlittle(bytes(inner), 0)
 
         file_data = bytearray(0x10000 + 0x7800)
         # Outer header: block_size=16, hash
-        struct.pack_into('<I', file_data, 0, 16)
-        struct.pack_into('<I', file_data, 4, header_hash)
+        struct.pack_into("<I", file_data, 0, 16)
+        struct.pack_into("<I", file_data, 4, header_hash)
         # Inner header at offset 8
         file_data[8:24] = inner
         # Zero padding at 0x18..0x20 already zero
         # Entry block: block_size=0, hash=0
-        struct.pack_into('<I', file_data, 0x20, 0)
-        struct.pack_into('<I', file_data, 0x24, 0)
+        struct.pack_into("<I", file_data, 0x20, 0)
+        struct.pack_into("<I", file_data, 0x24, 0)
 
         info = parse_local_idx_file(bytes(file_data))
         assert info.version == 8

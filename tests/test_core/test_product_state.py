@@ -104,7 +104,9 @@ class TestGenerateProductDb:
         path = generate_product_db(product_info, tmp_path)
         assert path.stat().st_size > 0
 
-    def test_contains_product_code(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_product_code(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         path = generate_product_db(product_info, tmp_path)
         data = path.read_bytes()
         assert b"wow_classic_era" in data
@@ -114,7 +116,9 @@ class TestGenerateProductDb:
         data = path.read_bytes()
         assert b"1.15.8.65300" in data
 
-    def test_contains_build_config(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_build_config(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         path = generate_product_db(product_info, tmp_path)
         data = path.read_bytes()
         assert b"e2dc540a98cccb45d764025ab28b703a" in data
@@ -129,7 +133,9 @@ class TestGenerateProductDb:
         data = path.read_bytes()
         assert b"us" in data
 
-    def test_starts_with_protobuf_tag(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_starts_with_protobuf_tag(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         path = generate_product_db(product_info, tmp_path)
         data = path.read_bytes()
         # Field 1 string tag
@@ -207,22 +213,30 @@ class TestGenerateAllStateFiles:
         files = generate_all_state_files(product_info, tmp_path)
         assert isinstance(files, dict)
 
-    def test_contains_product_db(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_product_db(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         files = generate_all_state_files(product_info, tmp_path)
         assert ".product.db" in files
         assert files[".product.db"].exists()
 
-    def test_contains_launcher_db(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_launcher_db(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         files = generate_all_state_files(product_info, tmp_path)
         assert "Launcher.db" in files
         assert files["Launcher.db"].exists()
 
-    def test_contains_patch_result(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_patch_result(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         files = generate_all_state_files(product_info, tmp_path)
         assert ".patch.result" in files
         assert files[".patch.result"].exists()
 
-    def test_contains_flavor_info_for_wow(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_contains_flavor_info_for_wow(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         files = generate_all_state_files(product_info, tmp_path)
         assert ".flavor.info" in files
         assert files[".flavor.info"].exists()
@@ -263,7 +277,9 @@ class TestParseProductDb:
         result = parse_product_db(b"\x0a")
         assert result == {}
 
-    def test_install_info_parsed(self, product_info: ProductInfo, tmp_path: Path) -> None:
+    def test_install_info_parsed(
+        self, product_info: ProductInfo, tmp_path: Path
+    ) -> None:
         path = generate_product_db(product_info, tmp_path)
         data = path.read_bytes()
         parsed = parse_product_db(data)

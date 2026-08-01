@@ -303,7 +303,9 @@ class BlizzTrackClient:
                 # Phase 2: resolve all snapshots concurrently.
                 with ThreadPoolExecutor(max_workers=max_workers) as pool:
                     futures = {
-                        pool.submit(self._resolve_snapshot, product, seqn, recorded_at): seqn
+                        pool.submit(
+                            self._resolve_snapshot, product, seqn, recorded_at
+                        ): seqn
                         for seqn, recorded_at in snapshot_refs
                     }
                     for future in as_completed(futures):

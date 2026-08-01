@@ -7,8 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-01
+
 ### Added
 
+- TPR product catalog support for the `catalogs` Ribbit product (`tpr/catalogs`):
+  - `cascette catalog` command group (`sync`, `list`, `programs`, `show`,
+    `licenses`, `installs`, `stats`) for inspecting products, entitlement
+    rules, license requirements, and install configurations
+  - Catalog JSON fragment parser (`formats/catalog.py`) covering both the
+    v23 (flat dict) and v30 (`definitions` list) schemas; preserves raw JSON
+    for byte-exact round-trips
+  - SQLite catalog database with per-fragment tables for products, programs,
+    rules, license IDs, installs, categories, and types
+  - 24-hour local fragment cache (same pattern as wago.tools)
+  - Encrypted fragment metadata recorded (decryption key id, encrypted hash)
+    without downloading content the CDN does not serve
+  - `catalogs` product code added to the `Product` enum
+- `bts` (Battle.net Setup) product code in the `Product` enum
+- `cascette inspect download` command for download manifest examination
+- Ribbit live-version sync source for the builds database (deduplicated on
+  import by product, build, and build config)
+- Hatchling build backend and GitHub Actions CI workflow
+- Tests for CLI commands, CDN archive fetcher, and BlizzTrack client
 - `cascette config mirror` CLI command group for managing CDN mirror configuration
   (add, remove, list, reset subcommands)
 - `ProductFamily` enum and `PRODUCT_FAMILY_MAP` in `core/types.py` mapping each
@@ -44,7 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local .idx file parser (V7/V8 format) for scanning existing installations
 - Multi-locale tag parsing from `.build.info` with speech/text content flags
 - Test suite for `BuildInfoParser` with 24 tests
-
 ### Changed
 
 - CDN mirror selection moved from hardcoded `_get_cdn_mirrors_for_product()` in
@@ -85,7 +105,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed `.markdownlint-cli2.jsonc` (config now lives solely in `.markdownlint.jsonc`)
 - Scripts now use `httpx` instead of `requests`
 - `import_missing_builds.py` uses generic product matching instead of hardcoded product list
-
+- Whole-project `ruff format` applied (124 files)
+- Pyright now runs over `tests/` in addition to `cascette_tools`
+- Console output is TTY-aware: piped output renders plain text without ANSI
+  escape sequences
 ### Fixed
 
 - Patch archive parser incorrectly rejecting extended header flag (now properly parses encoding info)
@@ -95,6 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tag parsing now correctly extracts all locales from colon-separated groups
 - Pyright type errors in `install_analyzer.py` resolved
 - Bare `except` in `import_missing_builds.py` replaced with `except ValueError`
+- Builds deduplicated by natural key `(product, build, build_config)` instead
+  of `(id, product)`
+- Catalog build selection orders by build number (`VersionsName`); Ribbit's
+  `BuildId` is not monotonic across catalog versions
+- Pre-existing pyright errors in `tests/test_commands/test_config_cmd.py`
+  resolved (typed `_invoke` return as `click.testing.Result`)
 
 ## [0.2.0] - 2025-09-24
 

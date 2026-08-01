@@ -63,10 +63,7 @@ class TestFileDataEntry:
 
     def test_file_data_entry_basic_fields(self):
         """Test FileDataEntry with basic required fields."""
-        entry = FileDataEntry(
-            fdid=123456,
-            path="world/maps/azeroth/elwynn.adt"
-        )
+        entry = FileDataEntry(fdid=123456, path="world/maps/azeroth/elwynn.adt")
         assert entry.fdid == 123456
         assert entry.path == "world/maps/azeroth/elwynn.adt"
         assert entry.verified is False  # Default
@@ -83,7 +80,7 @@ class TestFileDataEntry:
             verified=True,
             lookup_hash=0x12345678,
             added_date=added_date,
-            product="wow"
+            product="wow",
         )
         assert entry.verified is True
         assert entry.lookup_hash == 0x12345678
@@ -101,7 +98,7 @@ class TestListfileCacheMetadata:
             fetch_time=fetch_time,
             entry_count=1000,
             file_size=524288,
-            source="wowdev/wow-listfile"
+            source="wowdev/wow-listfile",
         )
         assert metadata.fetch_time == fetch_time
         assert metadata.entry_count == 1000
@@ -116,7 +113,7 @@ class TestListfileCacheMetadata:
             entry_count=500,
             file_size=262144,
             source="custom",
-            cache_version="2.0"
+            cache_version="2.0",
         )
         assert metadata.cache_version == "2.0"
 
@@ -162,7 +159,7 @@ class TestListfileManager:
 
     def test_init_default_config(self, tmp_path):
         """Test ListfileManager initialization with default config."""
-        with patch('cascette_tools.database.listfile.AppConfig') as mock_config:
+        with patch("cascette_tools.database.listfile.AppConfig") as mock_config:
             mock_config.return_value.data_dir = tmp_path
             manager = ListfileManager()
             try:
@@ -223,7 +220,9 @@ class TestListfileManager:
         assert "file_entries_ad" in trigger_names  # After delete
         assert "file_entries_au" in trigger_names  # After update
 
-    def test_parse_csv_listfile_comma_separated(self, listfile_manager, sample_csv_listfile):
+    def test_parse_csv_listfile_comma_separated(
+        self, listfile_manager, sample_csv_listfile
+    ):
         """Test parsing comma-separated CSV listfile."""
         entries = listfile_manager._parse_csv_listfile(sample_csv_listfile)
 
@@ -235,7 +234,9 @@ class TestListfileManager:
         assert entries[4].fdid == 345678
         assert entries[4].path == "sound/music/gm_musicbox01.mp3"
 
-    def test_parse_csv_listfile_semicolon_separated(self, listfile_manager, sample_semicolon_listfile):
+    def test_parse_csv_listfile_semicolon_separated(
+        self, listfile_manager, sample_semicolon_listfile
+    ):
         """Test parsing semicolon-separated listfile."""
         entries = listfile_manager._parse_csv_listfile(sample_semicolon_listfile)
 
@@ -263,8 +264,10 @@ invalid_fdid,"should/be/skipped.adt"
         assert entries[0].fdid == 123456
         assert entries[1].fdid == 789012
 
-    @patch('cascette_tools.database.listfile.httpx.Client')
-    def test_fetch_listfile_success(self, mock_client_class, listfile_manager, sample_csv_listfile):
+    @patch("cascette_tools.database.listfile.httpx.Client")
+    def test_fetch_listfile_success(
+        self, mock_client_class, listfile_manager, sample_csv_listfile
+    ):
         """Test successful fetching of listfile from GitHub."""
         # Setup mock client
         mock_client = Mock()
@@ -277,9 +280,7 @@ invalid_fdid,"should/be/skipped.adt"
         entries = listfile_manager.fetch_listfile(force_refresh=True)
 
         # Verify API was called
-        mock_client.get.assert_called_once_with(
-            listfile_manager.LISTFILE_URL
-        )
+        mock_client.get.assert_called_once_with(listfile_manager.LISTFILE_URL)
 
         # Verify entries were parsed
         assert len(entries) == 5
@@ -291,7 +292,9 @@ invalid_fdid,"should/be/skipped.adt"
         assert cache_file.exists()
         assert metadata_file.exists()
 
-    def test_fetch_listfile_uses_valid_cache(self, listfile_manager, sample_csv_listfile):
+    def test_fetch_listfile_uses_valid_cache(
+        self, listfile_manager, sample_csv_listfile
+    ):
         """Test that fetch_listfile uses valid cache."""
         # Create valid cache
         listfile_manager.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -309,14 +312,16 @@ invalid_fdid,"should/be/skipped.adt"
             fetch_time=now - timedelta(hours=1),
             entry_count=1,
             file_size=cache_file.stat().st_size,
-            source="wowdev/wow-listfile"
+            source="wowdev/wow-listfile",
         )
         metadata_file = listfile_manager.cache_dir / "listfile_metadata.json"
         with open(metadata_file, "w") as f:
-            json.dump(metadata.model_dump(mode='json'), f, default=str)
+            json.dump(metadata.model_dump(mode="json"), f, default=str)
 
         # Should use cache without making HTTP request
-        with patch('cascette_tools.database.listfile.httpx.Client') as mock_client_class:
+        with patch(
+            "cascette_tools.database.listfile.httpx.Client"
+        ) as mock_client_class:
             entries = listfile_manager.fetch_listfile()
             # Client should not be instantiated since cache is used
             mock_client_class.assert_not_called()
@@ -325,7 +330,9 @@ invalid_fdid,"should/be/skipped.adt"
             assert entries[0].fdid == 999999
             assert entries[0].path == "cached/file.adt"
 
-    def test_fetch_listfile_expired_cache_refetch(self, listfile_manager, sample_csv_listfile):
+    def test_fetch_listfile_expired_cache_refetch(
+        self, listfile_manager, sample_csv_listfile
+    ):
         """Test fetching when cache is expired."""
         # Create expired cache
         listfile_manager.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -342,14 +349,16 @@ invalid_fdid,"should/be/skipped.adt"
             fetch_time=old_time,
             entry_count=1,
             file_size=cache_file.stat().st_size,
-            source="wowdev/wow-listfile"
+            source="wowdev/wow-listfile",
         )
         metadata_file = listfile_manager.cache_dir / "listfile_metadata.json"
         with open(metadata_file, "w") as f:
-            json.dump(metadata.model_dump(mode='json'), f, default=str)
+            json.dump(metadata.model_dump(mode="json"), f, default=str)
 
         # Setup mock for fresh fetch
-        with patch('cascette_tools.database.listfile.httpx.Client') as mock_client_class:
+        with patch(
+            "cascette_tools.database.listfile.httpx.Client"
+        ) as mock_client_class:
             mock_client = Mock()
             mock_response = Mock()
             mock_response.text = sample_csv_listfile
@@ -366,8 +375,10 @@ invalid_fdid,"should/be/skipped.adt"
             assert len(entries) == 5  # From sample_csv_listfile
             assert not any(entry.fdid == 888888 for entry in entries)
 
-    @patch('cascette_tools.database.listfile.httpx.Client')
-    def test_fetch_listfile_http_error_fallback_to_cache(self, mock_client_class, listfile_manager):
+    @patch("cascette_tools.database.listfile.httpx.Client")
+    def test_fetch_listfile_http_error_fallback_to_cache(
+        self, mock_client_class, listfile_manager
+    ):
         """Test falling back to expired cache on HTTP error."""
         # Create cache file (even expired)
         listfile_manager.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -389,8 +400,10 @@ invalid_fdid,"should/be/skipped.adt"
         assert len(entries) == 1
         assert entries[0].fdid == 777777
 
-    @patch('cascette_tools.database.listfile.httpx.Client')
-    def test_fetch_listfile_http_error_no_cache(self, mock_client_class, listfile_manager):
+    @patch("cascette_tools.database.listfile.httpx.Client")
+    def test_fetch_listfile_http_error_no_cache(
+        self, mock_client_class, listfile_manager
+    ):
         """Test HTTP error with no cache available."""
         # Setup mock to raise HTTP error
         mock_client = Mock()
@@ -444,7 +457,7 @@ invalid_fdid,"should/be/skipped.adt"
         """Test importing new file entries."""
         entries = [
             FileDataEntry(fdid=100001, path="new/file1.adt", verified=True),
-            FileDataEntry(fdid=100002, path="new/file2.adt", verified=False)
+            FileDataEntry(fdid=100002, path="new/file2.adt", verified=False),
         ]
 
         imported_count = listfile_manager.import_entries(entries, "test_source")
@@ -456,7 +469,9 @@ invalid_fdid,"should/be/skipped.adt"
         assert len(rows) == 2
 
         # Verify source was recorded
-        source_rows = listfile_manager.conn.execute("SELECT * FROM listfile_sources").fetchall()
+        source_rows = listfile_manager.conn.execute(
+            "SELECT * FROM listfile_sources"
+        ).fetchall()
         assert len(source_rows) == 1
         assert source_rows[0]["source"] == "test_source"
         assert source_rows[0]["entry_count"] == 2
@@ -537,10 +552,12 @@ invalid_fdid,"should/be/skipped.adt"
         """Test full-text search for file paths."""
         # Import test entries
         entries = [
-            FileDataEntry(fdid=100001, path="world/maps/azeroth/elwynn.adt", verified=True),
+            FileDataEntry(
+                fdid=100001, path="world/maps/azeroth/elwynn.adt", verified=True
+            ),
             FileDataEntry(fdid=100002, path="world/maps/azeroth/westfall.adt"),
             FileDataEntry(fdid=100003, path="world/maps/kalimdor/durotar.adt"),
-            FileDataEntry(fdid=100004, path="sound/music/elwynn_forest.mp3")
+            FileDataEntry(fdid=100004, path="sound/music/elwynn_forest.mp3"),
         ]
         listfile_manager.import_entries(entries)
 
@@ -575,8 +592,10 @@ invalid_fdid,"should/be/skipped.adt"
         entries = [
             FileDataEntry(fdid=1, path="file1.adt", verified=True, product="wow"),
             FileDataEntry(fdid=2, path="file2.blp", verified=False, product="wow"),
-            FileDataEntry(fdid=3, path="file3.mp3", verified=True, product="wow_classic"),
-            FileDataEntry(fdid=4, path="file4.dbc", verified=True)
+            FileDataEntry(
+                fdid=3, path="file3.mp3", verified=True, product="wow_classic"
+            ),
+            FileDataEntry(fdid=4, path="file4.dbc", verified=True),
         ]
         listfile_manager.import_entries(entries)
 
@@ -602,11 +621,15 @@ invalid_fdid,"should/be/skipped.adt"
         """Test syncing with wowdev repository."""
         sample_entries = [
             FileDataEntry(fdid=1, path="test/sync1.adt"),
-            FileDataEntry(fdid=2, path="test/sync2.adt")
+            FileDataEntry(fdid=2, path="test/sync2.adt"),
         ]
 
-        with patch.object(listfile_manager, 'fetch_listfile', return_value=sample_entries) as mock_fetch:
-            with patch.object(listfile_manager, 'import_entries', return_value=2) as mock_import:
+        with patch.object(
+            listfile_manager, "fetch_listfile", return_value=sample_entries
+        ) as mock_fetch:
+            with patch.object(
+                listfile_manager, "import_entries", return_value=2
+            ) as mock_import:
                 result = listfile_manager.sync_with_wowdev()
 
                 mock_fetch.assert_called_once_with(force_refresh=True)
@@ -618,7 +641,7 @@ invalid_fdid,"should/be/skipped.adt"
         # Import test entries
         entries = [
             FileDataEntry(fdid=1, path="file1.adt", verified=True, product="wow"),
-            FileDataEntry(fdid=2, path="file2.blp", verified=False)
+            FileDataEntry(fdid=2, path="file2.blp", verified=False),
         ]
         listfile_manager.import_entries(entries)
 
@@ -644,7 +667,7 @@ invalid_fdid,"should/be/skipped.adt"
         # Import test entries
         entries = [
             FileDataEntry(fdid=1, path="file1.adt", verified=True, product="wow"),
-            FileDataEntry(fdid=2, path="file2.blp", verified=False)
+            FileDataEntry(fdid=2, path="file2.blp", verified=False),
         ]
         listfile_manager.import_entries(entries)
 

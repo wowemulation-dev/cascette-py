@@ -50,8 +50,12 @@ class TestBuildInfo:
 
     def test_build_info_creation(self, sample_build_info: BuildInfo) -> None:
         """Test BuildInfo creation with valid data."""
-        assert sample_build_info.build_config == "1234567890abcdef1234567890abcdef12345678"
-        assert sample_build_info.cdn_config == "abcdef1234567890abcdef1234567890abcdef12"
+        assert (
+            sample_build_info.build_config == "1234567890abcdef1234567890abcdef12345678"
+        )
+        assert (
+            sample_build_info.cdn_config == "abcdef1234567890abcdef1234567890abcdef12"
+        )
         assert sample_build_info.build_id == 12345
         assert sample_build_info.version_name == "1.15.0.54630"
 
@@ -67,7 +71,7 @@ class TestBuildInfo:
         """Test BuildInfo with only required fields."""
         build_info = BuildInfo(
             build_config="1234567890abcdef1234567890abcdef12345678",
-            cdn_config="abcdef1234567890abcdef1234567890abcdef12"
+            cdn_config="abcdef1234567890abcdef1234567890abcdef12",
         )  # type: ignore[call-arg]
         assert build_info.keyring is None
         assert build_info.build_id is None
@@ -79,7 +83,9 @@ class TestFileDataId:
 
     def test_file_data_id_creation(self) -> None:
         """Test FileDataId creation."""
-        fdid = FileDataId(id=123456, filename="Interface\\AddOns\\Blizzard_UIParent\\UIParent.lua")  # type: ignore[call-arg]
+        fdid = FileDataId(
+            id=123456, filename="Interface\\AddOns\\Blizzard_UIParent\\UIParent.lua"
+        )  # type: ignore[call-arg]
         assert fdid.id == 123456
         assert fdid.filename == "Interface\\AddOns\\Blizzard_UIParent\\UIParent.lua"
         assert fdid.content_key is None
@@ -98,7 +104,7 @@ class TestCDNConfig:
         config = CDNConfig(
             archives=["abc123", "def456"],
             archive_group="group1",
-            builds=["build1", "build2"]
+            builds=["build1", "build2"],
         )  # type: ignore[call-arg]
         assert config.archives == ["abc123", "def456"]
         assert config.archive_group == "group1"
@@ -120,7 +126,7 @@ class TestTACTKey:
         key = TACTKey(
             key_name="0x123456",
             key_value="abcdef1234567890abcdef1234567890abcdef12",
-            lookup="lookup_value"
+            lookup="lookup_value",
         )  # type: ignore[call-arg]
         assert key.key_name == "0x123456"
         assert key.key_value == "abcdef1234567890abcdef1234567890abcdef12"

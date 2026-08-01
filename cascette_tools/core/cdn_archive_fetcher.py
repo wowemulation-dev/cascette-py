@@ -50,6 +50,7 @@ def get_cached_index_path(indices_dir: Path, archive_hash: str) -> Path:
 @dataclass
 class ArchiveLocation:
     """Location of a file within a CDN archive."""
+
     archive_hash: str
     offset: int
     size: int
@@ -63,6 +64,7 @@ def _make_entries_dict() -> dict[bytes, ArchiveLocation]:
 @dataclass
 class IndexMap:
     """In-memory index map for fast encoding key lookups."""
+
     entries: dict[bytes, ArchiveLocation] = field(default_factory=_make_entries_dict)
     archive_count: int = 0
     total_entries: int = 0
@@ -79,9 +81,7 @@ class IndexMap:
             # This matches how most lookups work
             key = entry.encoding_key[:16]  # Full 16-byte key for accuracy
             self.entries[key] = ArchiveLocation(
-                archive_hash=archive_hash,
-                offset=entry.offset,
-                size=entry.size
+                archive_hash=archive_hash, offset=entry.offset, size=entry.size
             )
             self.total_entries += 1
         self.archive_count += 1
@@ -143,7 +143,9 @@ class CdnArchiveFetcher:
             self.cdn_path = cdn_path or "tpr/wow"
 
         if content_type not in ("data", "patch"):
-            raise ValueError(f"content_type must be 'data' or 'patch', got {content_type!r}")
+            raise ValueError(
+                f"content_type must be 'data' or 'patch', got {content_type!r}"
+            )
         self.content_type = content_type
         self.timeout = timeout
         self.max_concurrent = max_concurrent
@@ -158,7 +160,9 @@ class CdnArchiveFetcher:
     def _make_data_url(self, archive_hash: str) -> str:
         """Make URL for archive data file."""
         h = archive_hash.lower()
-        return f"{self.cdn_base}/{self.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}"
+        return (
+            f"{self.cdn_base}/{self.cdn_path}/{self.content_type}/{h[:2]}/{h[2:4]}/{h}"
+        )
 
     def load_index_from_bytes(self, archive_hash: str, data: bytes) -> bool:
         """Load an index from raw bytes and add to index map.
@@ -212,7 +216,9 @@ class CdnArchiveFetcher:
         try:
             response = client.get(url)
             if response.status_code != 200:
-                logger.warning(f"Failed to fetch index {archive_hash}: HTTP {response.status_code}")
+                logger.warning(
+                    f"Failed to fetch index {archive_hash}: HTTP {response.status_code}"
+                )
                 return False
 
             # Parse the index
@@ -229,10 +235,7 @@ class CdnArchiveFetcher:
             return False
 
     def download_index_with_cache(
-        self,
-        client: httpx.Client,
-        archive_hash: str,
-        cache_dir: Path | None = None
+        self, client: httpx.Client, archive_hash: str, cache_dir: Path | None = None
     ) -> tuple[bool, bytes | None]:
         """Download an index, optionally caching to disk.
 
@@ -279,7 +282,7 @@ class CdnArchiveFetcher:
     def download_indices(
         self,
         archive_hashes: list[str],
-        progress_callback: Callable[[int, int], None] | None = None
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> int:
         """Download multiple archive indices.
 
@@ -303,14 +306,14 @@ class CdnArchiveFetcher:
 
         logger.info(
             f"Downloaded {successful}/{total} archive indices",
-            total_entries=self.index_map.total_entries
+            total_entries=self.index_map.total_entries,
         )
         return successful
 
     async def download_indices_async(
         self,
         archive_hashes: list[str],
-        progress_callback: Callable[[int, int], None] | None = None
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> int:
         """Download multiple archive indices asynchronously.
 
@@ -368,7 +371,7 @@ class CdnArchiveFetcher:
 
         logger.info(
             f"Downloaded {successful}/{total} archive indices",
-            total_entries=self.index_map.total_entries
+            total_entries=self.index_map.total_entries,
         )
         return successful
 
@@ -409,7 +412,7 @@ class CdnArchiveFetcher:
                     f"Failed to fetch data: HTTP {response.status_code}",
                     archive=location.archive_hash,
                     offset=location.offset,
-                    size=location.size
+                    size=location.size,
                 )
                 return None
 
@@ -444,11 +447,7 @@ class CdnArchiveFetcher:
             return None
 
     def fetch_file_raw(
-        self,
-        client: httpx.Client,
-        archive_hash: str,
-        offset: int,
-        size: int
+        self, client: httpx.Client, archive_hash: str, offset: int, size: int
     ) -> bytes | None:
         """Fetch raw data from a specific archive location.
 
@@ -462,9 +461,7 @@ class CdnArchiveFetcher:
             Raw data or None on error
         """
         url = self._make_data_url(archive_hash)
-        headers = {
-            "Range": f"bytes={offset}-{offset + size - 1}"
-        }
+        headers = {"Range": f"bytes={offset}-{offset + size - 1}"}
 
         try:
             response = client.get(url, headers=headers)
@@ -566,7 +563,6 @@ class CdnArchiveFetcher:
         if last_error:
             logger.warning(f"All mirrors failed for range request: {last_error}")
         return None
-
 
     async def fetch_file_via_cdn_async(
         self,
@@ -691,9 +687,9 @@ def parse_cdn_config_archives(content: str) -> list[str]:
     Returns:
         List of archive hashes
     """
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip()
-        if line.startswith('archives = '):
-            hashes = line[len('archives = '):].split()
+        if line.startswith("archives = "):
+            hashes = line[len("archives = ") :].split()
             return hashes
     return []

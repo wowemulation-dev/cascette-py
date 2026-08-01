@@ -27,8 +27,12 @@ def mock_tact_manager() -> MagicMock:
 def mock_key_store_data() -> dict[bytes, bytes]:
     """Sample TACT keys for testing."""
     return {
-        bytes.fromhex("0123456789abcdef"): bytes.fromhex("00112233445566778899aabbccddeeff"),
-        bytes.fromhex("fedcba9876543210"): bytes.fromhex("ffeeddccbbaa99887766554433221100"),
+        bytes.fromhex("0123456789abcdef"): bytes.fromhex(
+            "00112233445566778899aabbccddeeff"
+        ),
+        bytes.fromhex("fedcba9876543210"): bytes.fromhex(
+            "ffeeddccbbaa99887766554433221100"
+        ),
     }
 
 
@@ -36,14 +40,18 @@ class TestDatabaseTACTKeyStore:
     """Tests for database-backed TACT key store."""
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_init_loads_keys(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_init_loads_keys(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         mock_create.return_value = {b"\x01" * 8: b"\x02" * 16}
         store = DatabaseTACTKeyStore(mock_tact_manager, "wow")
         mock_create.assert_called_once_with(mock_tact_manager, "wow")
         assert store.keys == {b"\x01" * 8: b"\x02" * 16}
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_get_key_from_memory(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_get_key_from_memory(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         key_name = b"\x01" * 8
         key_value = b"\x02" * 16
         mock_create.return_value = {key_name: key_value}
@@ -51,7 +59,9 @@ class TestDatabaseTACTKeyStore:
         assert store.get_key(key_name) == key_value
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_get_key_from_database(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_get_key_from_database(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         mock_create.return_value = {}
         key_name = b"\x01" * 8
         key_hex = "00112233445566778899aabbccddeeff"
@@ -66,15 +76,19 @@ class TestDatabaseTACTKeyStore:
         assert result == bytes.fromhex(key_hex)
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_get_key_not_found(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_get_key_not_found(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         mock_create.return_value = {}
         mock_tact_manager.get_key.return_value = None
         store = DatabaseTACTKeyStore(mock_tact_manager, "wow")
-        result = store.get_key(b"\xFF" * 8)
+        result = store.get_key(b"\xff" * 8)
         assert result is None
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_get_key_invalid_hex_in_db(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_get_key_invalid_hex_in_db(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         mock_create.return_value = {}
         mock_tact_manager.get_key.return_value = TACTKey(
             key_name="0123456789abcdef",
@@ -86,7 +100,9 @@ class TestDatabaseTACTKeyStore:
         assert result is None
 
     @patch("cascette_tools.formats.blte_integration.create_blte_key_store")
-    def test_refresh_reloads_keys(self, mock_create: MagicMock, mock_tact_manager: MagicMock) -> None:
+    def test_refresh_reloads_keys(
+        self, mock_create: MagicMock, mock_tact_manager: MagicMock
+    ) -> None:
         mock_create.return_value = {}
         store = DatabaseTACTKeyStore(mock_tact_manager, "wow")
         assert mock_create.call_count == 1
@@ -123,7 +139,9 @@ class TestIntegratedBLTEParser:
 
     @patch("cascette_tools.formats.blte_integration.TACTKeyManager")
     @patch("cascette_tools.formats.blte_integration.DatabaseTACTKeyStore")
-    def test_context_manager(self, mock_store_cls: MagicMock, mock_mgr_cls: MagicMock) -> None:
+    def test_context_manager(
+        self, mock_store_cls: MagicMock, mock_mgr_cls: MagicMock
+    ) -> None:
         mock_mgr = MagicMock()
         mock_mgr_cls.return_value = mock_mgr
         mock_store_cls.return_value = MagicMock(spec=TACTKeyStore)
@@ -138,7 +156,9 @@ class TestIntegratedBLTEParser:
         self, mock_store_cls: MagicMock, mock_mgr_cls: MagicMock
     ) -> None:
         mock_mgr = MagicMock()
-        mock_mgr.get_all_keys.return_value = [TACTKey(key_name="abc", key_value="def", lookup="0")]
+        mock_mgr.get_all_keys.return_value = [
+            TACTKey(key_name="abc", key_value="def", lookup="0")
+        ]
         mock_mgr_cls.return_value = mock_mgr
         mock_store_cls.return_value = MagicMock(spec=TACTKeyStore)
 
@@ -177,7 +197,7 @@ class TestDecompressBLTEWithDB:
         mock_parser.decompress.return_value = b"decompressed data"
         mock_parser_cls.return_value = mock_parser
 
-        result = decompress_blte_with_db(b"\x42\x4C\x54\x45dummy", product_family="wow")
+        result = decompress_blte_with_db(b"\x42\x4c\x54\x45dummy", product_family="wow")
 
         assert result == b"decompressed data"
         mock_parser.ensure_keys_synced.assert_called_once()

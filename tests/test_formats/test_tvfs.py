@@ -275,7 +275,9 @@ class TestTVFSParser:
         path_hash = 0x1111111111111111
         file_data_id = 12345
 
-        entry_data = ckey + struct.pack("<Q", path_hash) + struct.pack("<I", file_data_id)
+        entry_data = (
+            ckey + struct.pack("<Q", path_hash) + struct.pack("<I", file_data_id)
+        )
 
         data = header_data + entry_data
 
@@ -307,7 +309,9 @@ class TestTVFSParser:
         ]
 
         for ckey, path_hash, file_data_id in test_entries:
-            entry_data = ckey + struct.pack("<Q", path_hash) + struct.pack("<I", file_data_id)
+            entry_data = (
+                ckey + struct.pack("<Q", path_hash) + struct.pack("<I", file_data_id)
+            )
             entries_data += entry_data
 
         data = header_data + entries_data
@@ -330,7 +334,9 @@ class TestTVFSParser:
         # Create test data
         header_data = struct.pack(">4sBBBBIII", b"TVFS", 1, 0x07, 2, 0, 1, 1, 12345)
         ckey = b"1234567890123456"
-        entry_data = ckey + struct.pack("<Q", 0x1111111111111111) + struct.pack("<I", 12345)
+        entry_data = (
+            ckey + struct.pack("<Q", 0x1111111111111111) + struct.pack("<I", 12345)
+        )
         data = header_data + entry_data
 
         stream = BytesIO(data)
@@ -713,7 +719,7 @@ class TestTVFSEdgeCases:
         entries = []
         for i in range(num_entries):
             # Create proper 16-byte content key
-            ckey = f"{i:016d}".encode()[:16].ljust(16, b'\x00')
+            ckey = f"{i:016d}".encode()[:16].ljust(16, b"\x00")
             entries.append(
                 TVFSEntry(
                     ckey=ckey,
@@ -746,7 +752,7 @@ class TestTVFSEdgeCases:
         )
 
         entry = TVFSEntry(
-            ckey=b"\xFF" * 16,  # All 0xFF bytes
+            ckey=b"\xff" * 16,  # All 0xFF bytes
             path_hash=0xFFFFFFFFFFFFFFFF,  # Max uint64
             file_data_id=0xFFFFFFFF,  # Max uint32
         )
@@ -817,8 +823,16 @@ class TestTVFSBuilderAndEdgeCases:
     def test_tvfs_file_str(self):
         """TVFSFile.__str__ returns a readable string."""
         from cascette_tools.formats.tvfs import TVFSFile, TVFSHeader
-        header = TVFSHeader(magic=b'TVFS', version=1, flags=0, data_version=1,
-                            block_count=0, entry_count=0, max_file_data_id=0)
+
+        header = TVFSHeader(
+            magic=b"TVFS",
+            version=1,
+            flags=0,
+            data_version=1,
+            block_count=0,
+            entry_count=0,
+            max_file_data_id=0,
+        )
         tvfs = TVFSFile(header=header, entries=[])
         assert "TVFS" in str(tvfs)
 
@@ -829,16 +843,25 @@ class TestTVFSBuilderAndEdgeCases:
             TVFSFile,
             TVFSHeader,
         )
-        header = TVFSHeader(magic=b'TVFS', version=1, flags=0, data_version=1,
-                            block_count=0, entry_count=0, max_file_data_id=0)
+
+        header = TVFSHeader(
+            magic=b"TVFS",
+            version=1,
+            flags=0,
+            data_version=1,
+            block_count=0,
+            entry_count=0,
+            max_file_data_id=0,
+        )
         tvfs = TVFSFile(header=header, entries=[])
         builder = TVFSBuilder()
         result = builder.build(tvfs)
-        assert result[:4] == b'TVFS'
+        assert result[:4] == b"TVFS"
 
     def test_create_empty(self):
         """TVFSBuilder.create_empty() returns a valid empty TVFSFile."""
         from cascette_tools.formats.tvfs import TVFSBuilder, TVFSParser
+
         tvfs = TVFSBuilder.create_empty()
         assert tvfs.header.version == 1
         assert len(tvfs.entries) == 0
@@ -850,9 +873,10 @@ class TestTVFSBuilderAndEdgeCases:
     def test_create_with_entries(self):
         """TVFSBuilder.create_with_entries() sets entry_count and max_file_data_id."""
         from cascette_tools.formats.tvfs import TVFSBuilder, TVFSEntry, TVFSParser
+
         entries = [
-            TVFSEntry(ckey=b'\x01' * 16, path_hash=111, file_data_id=10),
-            TVFSEntry(ckey=b'\x02' * 16, path_hash=222, file_data_id=20),
+            TVFSEntry(ckey=b"\x01" * 16, path_hash=111, file_data_id=10),
+            TVFSEntry(ckey=b"\x02" * 16, path_hash=222, file_data_id=20),
         ]
         tvfs = TVFSBuilder.create_with_entries(entries)
         assert tvfs.header.entry_count == 2

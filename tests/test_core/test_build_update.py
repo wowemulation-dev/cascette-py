@@ -51,7 +51,9 @@ def _build_encoding_data(ckey_ekey_pairs: list[tuple[bytes, bytes]]) -> bytes:
     # Determine how many pages we need
     # Each entry is 1 + 5 + 16 + 16 = 38 bytes
     entries_per_page = page_size // 38
-    ckey_page_count = max(1, (len(ckey_ekey_pairs) + entries_per_page - 1) // entries_per_page)
+    ckey_page_count = max(
+        1, (len(ckey_ekey_pairs) + entries_per_page - 1) // entries_per_page
+    )
 
     # Pad page data to full page boundaries
     total_page_bytes = ckey_page_count * page_size

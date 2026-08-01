@@ -59,7 +59,9 @@ class DiskCache:
                     if isinstance(loaded_data, dict):
                         self.metadata = loaded_data
                     else:
-                        logger.warning("metadata_invalid_format", type=type(loaded_data).__name__)
+                        logger.warning(
+                            "metadata_invalid_format", type=type(loaded_data).__name__
+                        )
                         self.metadata = {}
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("metadata_load_failed", error=str(e))
@@ -198,7 +200,9 @@ class DiskCache:
             logger.warning("cdn_cache_read_failed", hash=hash_str, error=str(e))
             return None
 
-    def put_cdn(self, hash_str: str, data: bytes, file_type: str, cdn_path: str) -> None:
+    def put_cdn(
+        self, hash_str: str, data: bytes, file_type: str, cdn_path: str
+    ) -> None:
         """Store CDN file in cache.
 
         Args:
@@ -312,7 +316,9 @@ class DiskCache:
                         path.unlink()
                         removed += 1
                     except OSError as e:
-                        logger.warning("cache_cleanup_failed", path=str(path), error=str(e))
+                        logger.warning(
+                            "cache_cleanup_failed", path=str(path), error=str(e)
+                        )
 
         if removed > 0:
             logger.info("cache_cleanup", removed=removed)

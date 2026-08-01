@@ -23,9 +23,7 @@ from cascette_tools.core.local_storage import LocalStorage
 class TestPhase1Pipeline:
     """Test the fetch -> verify -> write -> deduplicate pipeline."""
 
-    def _make_fetcher_with_entry(
-        self, ekey: bytes, size: int
-    ) -> CdnArchiveFetcher:
+    def _make_fetcher_with_entry(self, ekey: bytes, size: int) -> CdnArchiveFetcher:
         fetcher = CdnArchiveFetcher(cdn_base="http://test.cdn", cdn_path="tpr/test")
         fetcher.index_map.entries[ekey[:16]] = ArchiveLocation(
             archive_hash="aabbccdd",

@@ -61,13 +61,13 @@ class TestShmemV4WriteRead:
     def test_v4_free_space_format(self) -> None:
         shmem = ShmemControl(version=4)
         data = shmem.to_bytes()
-        fmt = struct.unpack_from('<I', data, OFF_FREE_SPACE_FORMAT)[0]
+        fmt = struct.unpack_from("<I", data, OFF_FREE_SPACE_FORMAT)[0]
         assert fmt == FREE_SPACE_TABLE_FORMAT
 
     def test_v4_data_size_nonzero(self) -> None:
         shmem = ShmemControl(version=4, data_size=0)
         data = shmem.to_bytes()
-        ds = struct.unpack_from('<I', data, OFF_DATA_SIZE)[0]
+        ds = struct.unpack_from("<I", data, OFF_DATA_SIZE)[0]
         assert ds > 0  # Forced to 0x1000 when 0
 
     def test_v4_generation_numbers(self) -> None:
@@ -76,7 +76,7 @@ class TestShmemV4WriteRead:
         data = shmem.to_bytes()
 
         for i in range(16):
-            val = struct.unpack_from('<I', data, OFF_GENERATIONS + i * 4)[0]
+            val = struct.unpack_from("<I", data, OFF_GENERATIONS + i * 4)[0]
             assert val == gens[i]
 
     def test_v4_no_exclusive_flag(self) -> None:
@@ -84,7 +84,7 @@ class TestShmemV4WriteRead:
         shmem = ShmemControl(version=4)
         data = shmem.to_bytes()
         # In V4, offset 0x150 is the start of the free space table (should be zeros)
-        val = struct.unpack_from('<I', data, OFF_EXCLUSIVE_FLAG)[0]
+        val = struct.unpack_from("<I", data, OFF_EXCLUSIVE_FLAG)[0]
         assert val == 0
 
 
@@ -116,7 +116,7 @@ class TestShmemV5WriteRead:
     def test_v5_exclusive_flag(self) -> None:
         shmem = ShmemControl(version=5, exclusive_flag=0x01)
         data = shmem.to_bytes()
-        flag = struct.unpack_from('<I', data, OFF_EXCLUSIVE_FLAG)[0]
+        flag = struct.unpack_from("<I", data, OFF_EXCLUSIVE_FLAG)[0]
         assert flag == 0x01
         assert shmem.is_exclusive
 
@@ -387,5 +387,5 @@ class TestExclusiveAccess:
 
         data = shmem.to_bytes()
         # State should be at OFF_PID_TRACKING (0x154)
-        state = struct.unpack_from('<I', data, OFF_PID_TRACKING)[0]
+        state = struct.unpack_from("<I", data, OFF_PID_TRACKING)[0]
         assert state == 1  # idle

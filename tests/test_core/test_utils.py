@@ -89,9 +89,10 @@ class TestComputeMd5:
         # "hello"
         assert compute_md5(b"hello").hex() == "5d41402abc4b2a76b9719d911017c592"
         # "The quick brown fox jumps over the lazy dog"
-        assert compute_md5(
-            b"The quick brown fox jumps over the lazy dog"
-        ).hex() == "9e107d9d372bb6826bd81d3542a419d6"
+        assert (
+            compute_md5(b"The quick brown fox jumps over the lazy dog").hex()
+            == "9e107d9d372bb6826bd81d3542a419d6"
+        )
 
     def test_binary_data(self):
         """Test with binary data."""
