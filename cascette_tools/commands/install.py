@@ -1674,7 +1674,8 @@ def install_to_casc(
 
         # Initialize CDN client with proper Ribbit integration and fallback support
         product_enum = get_product_enum(product)
-        cdn_client = CDNClient(product_enum, region=region)
+        cdn_config = config_obj.create_cdn_config(product)
+        cdn_client = CDNClient(product_enum, region=region, config=cdn_config)
         console.print(f"  Product: {product}, Region: {region}")
 
         # CDNClient handles caching internally via DiskCache
