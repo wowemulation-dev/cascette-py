@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from cascette_tools.database.wago import (
+    _below_product_floor,
     WagoBuild,
     WagoCacheMetadata,
     adapt_datetime_iso,
@@ -134,3 +135,26 @@ class TestWagoCacheMetadata:
             api_version="v2",
         )
         assert meta.api_version == "v2"
+
+
+class TestBelowProductFloor:
+    """Tests for the product lineage-backfill floor filter."""
+
+    def test_era_build_before_fork_is_backfill(self) -> None:
+        # 1.13.2 classic builds shipped under wow_classic, not era
+        assert _below_product_floor("wow_classic_era", "31650")
+        assert _below_product_floor("wow_classic_era", "38631")
+
+    def test_era_build_at_or_after_fork_is_real(self) -> None:
+        # first era build is 38704 (TBC Classic pre-patch fork, 2021-05-18)
+        assert not _below_product_floor("wow_classic_era", "38704")
+        assert not _below_product_floor("wow_classic_era", "39692")
+
+    def test_products_without_floor_pass(self) -> None:
+        assert not _below_product_floor("wow_classic", "31650")
+        assert not _below_product_floor("wow_classic", "28211")
+        assert not _below_product_floor("wow", "31000")
+        assert not _below_product_floor("bna", "37165")
+
+    def test_malformed_build_does_not_crash(self) -> None:
+        assert not _below_product_floor("wow_classic_era", "not-a-number")

@@ -91,7 +91,7 @@ def sample_wago_response():
         "wow_classic_era": [
             {
                 "product": "wow_classic_era",
-                "version": "1.14.4.12344",
+                "version": "1.14.4.51146",
                 "created_at": "2024-09-14 10:30:00",
                 "build_config": "era123def456",
                 "cdn_config": "era456abc123",

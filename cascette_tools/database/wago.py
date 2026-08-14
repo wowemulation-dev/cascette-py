@@ -16,6 +16,29 @@ from cascette_tools.core.types import Product
 
 logger = structlog.get_logger()
 
+# Real start build per product. Upstream sources (wago.tools, BlizzTrack)
+# report the product's build lineage back to its launch, but some products
+# only came into existence later and their pre-start entries are backfill,
+# not real shipments.
+#
+# wow_classic_era: the "Classic Era" realms launched with the TBC Classic
+# pre-patch fork on 2021-05-18; the first era build is 38704 (the wiki
+# build list switches from "Classic" to "Classic Era" servers there).
+# 1.13.x builds below it (30786-38631) shipped under wow_classic only.
+PRODUCT_MIN_BUILD: dict[str, int] = {
+    "wow_classic_era": 38704,
+}
+
+
+def _below_product_floor(product: str, build: str) -> bool:
+    """True if the build predates the product's real start (lineage backfill)."""
+    floor = PRODUCT_MIN_BUILD.get(product)
+    if floor is None:
+        return False
+    try:
+        return int(build) < floor
+    except ValueError:
+        return False
 
 class WagoBuild(BaseModel):
     """Build information from Wago.tools."""
@@ -828,6 +851,13 @@ class WagoClient:
         try:
             with self.conn:
                 for build in builds:
+                    if _below_product_floor(build.product, build.build):
+                        # Lineage backfill from the upstream sources (wago /
+                        # blizztrack report the era product's history back to
+                        # the 2019 classic launch); the product did not exist
+                        # before its real start build.
+                        stats["skipped"] += 1
+                        continue
                     products_imported.add(build.product)
 
                     # Check if a row with the same (product, build) exists.
