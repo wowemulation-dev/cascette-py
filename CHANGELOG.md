@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tools/range_http_server.py` and `tools/setup_local_ribbit.sh`, imported
   from cascette-rs for local CDN mirror serving.
 
+
+- `LocalStorage` now writes the agent-format local data files the 1.13.2
+  client accepts: a 480-byte segment header (16 reconstruction headers, one
+  per KMT bucket) at `data.000` offset 0, and a 30-byte `LocalHeader`
+  (full 16-byte reversed key, `encoded_size` including the header,
+  checksum_a = `hashlittle(header[0:22], 0x3D6BE971)`, checksum_b = XOR/LUT
+  scramble) before every BLTE entry. Previously cascette-py wrote raw
+  headerless blobs; the client's `ValidateDataIntegrity` flagged the whole
+  store invalid and re-fetched files on first launch. Verified byte-identical
+  against a client-written entry (ekey `59cad02d...` header key field
+  `1b856f76...`, `enc_size` 13061932 = 30 + payload).
+- `LocalStorage.read_content` skips the 30-byte local header when present,
+  mirroring cascette-rs.
+- `LocalStorage.load_existing_entries` restores the archive write position
+  so resumed installs append after existing data instead of overwriting it.
 ### Fixed
 
 - `.build.info` writer now emits the 14-column Agent.exe header (no KeyRing
