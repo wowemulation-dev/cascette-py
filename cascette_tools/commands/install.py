@@ -1557,6 +1557,21 @@ def _resolve_ekey(
     help="Override existing .build.info even if config hashes differ",
 )
 @click.option(
+    "--subfolder",
+    type=str,
+    default="_classic_",
+    help="Product subfolder for loose files (e.g. _classic_, _retail_). "
+    "Empty string places loose files at the install root.",
+)
+@click.option(
+    "--loose-only",
+    is_flag=True,
+    default=False,
+    help="Install only the install manifest loose files (Wow.exe, DLLs, "
+    "locale packs) plus layout metadata. Skip the download manifest CASC "
+    "archive population entirely.",
+)
+@click.option(
     "--shmem-version",
     type=click.Choice(["4", "5"]),
     default="5",
@@ -1578,6 +1593,8 @@ def install_to_casc(
     region: str | None,
     resume: bool,
     force: bool,
+    subfolder: str,
+    loose_only: bool,
     shmem_version: str,
 ) -> None:
     """Install files to proper local CASC storage structure.
@@ -2144,8 +2161,14 @@ def install_to_casc(
 
                         try:
                             # Write to filesystem (normalize Windows paths)
+                            # Normalize Windows paths and place loose files
+                            # under the product subfolder (e.g. _classic_),
+                            # matching Agent.exe's LooseFileHandler behavior.
                             fname = inst_entry.filename.replace("\\", "/")
-                            output_file = install_path / fname
+                            target_root = (
+                                install_path / subfolder if subfolder else install_path
+                            )
+                            output_file = target_root / fname
                             output_file.parent.mkdir(parents=True, exist_ok=True)
                             output_file.write_bytes(file_data)
                             install_entries_extracted += 1
@@ -2164,24 +2187,37 @@ def install_to_casc(
             console.print("\n[cyan]Step 6:[/cyan] No install manifest in BuildConfig")
 
         # Step 7: Install CASC files from download manifest
-        if max_files > 0:
-            pending_entries = pending_entries[:max_files]
-
-        console.print(
-            f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC..."
-        )
-        console.print("  Concurrent connections: 12 global, 3 per host")
-
-        installed, failed, integrity_errors, total_bytes = asyncio.run(
-            _download_casc_files(
-                pending_entries,
-                fetcher,
-                cdn_client,
-                storage,
-                install_state,
-                console,
+        if loose_only:
+            installed = 0
+            failed = 0
+            integrity_errors = 0
+            total_bytes = 0
+            console.print(
+                "\n[cyan]Step 7:[/cyan] --loose-only: skipping download manifest CASC population"
             )
-        )
+            console.print(
+                "  The wow client will bootstrap Data/{config,data,indices} "
+                "from the CDN on first launch."
+            )
+        else:
+            if max_files > 0:
+                pending_entries = pending_entries[:max_files]
+
+            console.print(
+                f"\n[cyan]Step 7:[/cyan] Installing {len(pending_entries)} files to local CASC..."
+            )
+            console.print("  Concurrent connections: 12 global, 3 per host")
+
+            installed, failed, integrity_errors, total_bytes = asyncio.run(
+                _download_casc_files(
+                    pending_entries,
+                    fetcher,
+                    cdn_client,
+                    storage,
+                    install_state,
+                    console,
+                )
+            )
 
         # Final state save after all downloads
         install_state.save()
