@@ -361,9 +361,15 @@ class TestObsoleteEntryStatus:
         idx_path = storage.data_path / format_idx_filename(existing_bucket, generation)
         assert idx_path.exists()
 
-        # Read update section before insert (should be all zeros at 0x10000)
+        # Read update section before insert (all zeros at the aligned start)
+        from cascette_tools.core.local_storage import UPDATE_SECTION_ALIGNMENT
+
         data_before = idx_path.read_bytes()
-        update_offset = 0x10000
+        entry_block_size = int.from_bytes(data_before[0x20:0x24], "little")
+        sorted_end = 0x28 + entry_block_size
+        update_offset = (sorted_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
+            UPDATE_SECTION_ALIGNMENT - 1
+        )
         assert data_before[update_offset : update_offset + 24] == b"\x00" * 24
 
         # Mark an entry as non-resident in the same bucket

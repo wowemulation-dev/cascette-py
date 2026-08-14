@@ -167,7 +167,9 @@ class UpdateEntry:
 
         Computes the hash guard automatically.
         """
-        # Build the 20 bytes after the hash guard to compute the guard
+        # Hash guard: hashlittle(bytes[4..23]) over the 19 bytes after the
+        # guard (ekey + location + size + status), matching cascette-rs
+        # UpdateEntry::compute_hash_guard. The padding byte is excluded.
         key_bytes = entry.key[:9].ljust(9, b"\x00")
         index_high = (entry.archive_id >> 2) & 0xFF
         archive_low = entry.archive_id & 0x03
@@ -179,7 +181,7 @@ class UpdateEntry:
             + struct.pack("<I", entry.size)
             + struct.pack("BB", status, 0)
         )
-        hash_guard = hashlittle(payload, 0) | 0x80000000
+        hash_guard = hashlittle(payload[0:19], 0) | 0x80000000
 
         return cls(
             hash_guard=hash_guard,
@@ -191,9 +193,15 @@ class UpdateEntry:
         )
 
 
-# Update section constants
-UPDATE_PAGE_SIZE = 512  # Bytes per update page
-UPDATE_SECTION_MIN_SIZE = 0x7800  # Minimum update section size (60 pages)
+# Update section constants (V7 idx, matching cascette-rs and the 1.13.2
+# reference installation):
+# - Update section starts at a 4KB-aligned boundary after the sorted section.
+# - Reference files are exactly IDX_FILE_SIZE bytes; the update section
+#   fills the remainder.
+UPDATE_PAGE_SIZE = 0x1000  # 4KB pages
+UPDATE_SECTION_ALIGNMENT = 0x1000  # 4KB alignment after sorted section
+UPDATE_SECTION_MIN_SIZE = 12 * UPDATE_PAGE_SIZE  # 0xC000 = 48 KB
+IDX_FILE_SIZE = 0x30000  # Reference idx files are exactly 192 KB
 
 
 @dataclass
@@ -257,14 +265,18 @@ def compute_bucket(encoding_key: bytes, seed: int = 0) -> int:
 def format_idx_filename(bucket: int, generation: int = 1) -> str:
     """Format index filename for a bucket.
 
+    Filename format is `{bucket:02x}{generation:08x}.idx` — the generation
+    is HEX-encoded, matching cascette-rs and real Battle.net installations
+    (e.g. `000000000a.idx` for bucket 0, generation 10).
+
     Args:
         bucket: Bucket ID (0x00-0x0F)
         generation: File generation number
 
     Returns:
-        Filename like "0000000001.idx" or "0f00000001.idx"
+        Filename like "0000000001.idx" or "0f0000000c.idx"
     """
-    return f"{bucket:02x}{generation:08d}.idx"
+    return f"{bucket:02x}{generation:08x}.idx"
 
 
 def format_data_filename(archive_id: int) -> str:
@@ -313,8 +325,8 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
       0x18: Padding (8 bytes, zeros) — align to 0x20
       0x20: Guarded block header (8 bytes) — sorted section block
       0x28: Sorted entries (N * 18 bytes)
-      Pad to 0x10000 boundary
-      0x10000: Update section (24-byte entries in 512-byte pages)
+      Pad to 4KB-aligned boundary after the sorted section
+      aligned: Update section (24-byte entries in 4KB pages)
 
     Args:
         data: Raw .idx file bytes
@@ -410,10 +422,12 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
 
         offset += entry_size
 
-    # Parse update section (starts at 0x10000 if file is large enough)
+    # Parse update section (4KB-aligned after the sorted section).
     update_entries: list[UpdateEntry] = []
-    update_section_offset = 0x10000
-
+    sorted_end = entry_data_start + entry_block_size
+    update_section_offset = (sorted_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
+        UPDATE_SECTION_ALIGNMENT - 1
+    )
     if len(data) > update_section_offset:
         update_data = data[update_section_offset:]
         uoffset = 0
@@ -429,7 +443,7 @@ def parse_local_idx_file(data: bytes) -> LocalIndexFileInfo:
             try:
                 uentry = UpdateEntry.from_bytes(entry_bytes)
                 # Validate hash guard
-                payload = entry_bytes[4:24]
+                payload = entry_bytes[4:23]
                 expected_guard = hashlittle(payload, 0) | 0x80000000
                 if uentry.hash_guard != expected_guard:
                     logger.warning(
@@ -512,14 +526,14 @@ class LocalStorage:
         if not self.data_path.exists():
             return
 
-        # Pattern: {bucket:02x}{generation:08d}.idx
-        idx_pattern = re.compile(r"^([0-9a-f]{2})(\d{8})\.idx$", re.IGNORECASE)
+        # Pattern: {bucket:02x}{generation:08x}.idx
+        idx_pattern = re.compile(r"^([0-9a-f]{2})([0-9a-f]{8})\.idx$", re.IGNORECASE)
 
         for idx_file in self.data_path.glob("*.idx"):
             match = idx_pattern.match(idx_file.name)
             if match:
                 bucket = int(match.group(1), 16)
-                generation = int(match.group(2))
+                generation = int(match.group(2), 16)
                 # Set to next generation (increment existing max)
                 if generation >= self.bucket_generations[bucket]:
                     self.bucket_generations[bucket] = generation + 1
@@ -661,16 +675,17 @@ class LocalStorage:
     def _write_index_file(
         self, path: Path, bucket: int, entries: list[LocalIndexEntry]
     ) -> None:
-        """Write index file with correct V7 layout.
+        """Write index file with the V7 layout the 1.13.2 client accepts.
 
-        Layout:
+        Layout (matches cascette-rs and the reference installation):
           0x00: Guarded block header (8 bytes) — header block
           0x08: File header (16 bytes)
           0x18: Padding (8 bytes, zeros) — align to 0x20
           0x20: Guarded block header (8 bytes) — sorted section block
           0x28: Sorted entries (N * 18 bytes)
-          Pad to 0x10000 boundary
-          0x10000: Update section (empty pages, min 0x7800 bytes)
+          Pad to 4KB-aligned boundary after the sorted section
+          aligned: Update section (24-byte entries in 4KB pages), file
+                   padded to IDX_FILE_SIZE (0x30000) total
         """
         header = LocalIndexHeader(bucket=bucket)
         header_data = header.to_bytes()  # 16 bytes
@@ -686,6 +701,14 @@ class LocalStorage:
         for entry in entries:
             pc, pb = hashlittle2(entry.to_bytes(), pc, pb)
         entries_hash = pc
+
+        sorted_section_end = 0x28 + len(entries_data)
+        update_start = (sorted_section_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
+            UPDATE_SECTION_ALIGNMENT - 1
+        )
+        update_size = IDX_FILE_SIZE - update_start
+        if update_size < UPDATE_SECTION_MIN_SIZE:
+            update_size = UPDATE_SECTION_MIN_SIZE
 
         with open(path, "wb") as f:
             # 0x00: Header guarded block (8 bytes)
@@ -705,14 +728,14 @@ class LocalStorage:
             # 0x28: Sorted entries
             f.write(entries_data)
 
-            # Pad sorted section to 0x10000 boundary
-            current_pos = 0x28 + len(entries_data)
-            padding_needed = 0x10000 - current_pos
+            # Pad sorted section to the 4KB-aligned update section start
+            padding_needed = update_start - sorted_section_end
             if padding_needed > 0:
                 f.write(b"\x00" * padding_needed)
 
-            # 0x10000: Update section (empty, minimum 0x7800 bytes)
-            f.write(b"\x00" * UPDATE_SECTION_MIN_SIZE)
+            # Update section (empty pages; the client reads from the
+            # aligned boundary to EOF).
+            f.write(b"\x00" * update_size)
 
     def insert_entry(
         self, bucket: int, entry: LocalIndexEntry, status: int = 0
@@ -738,10 +761,13 @@ class LocalStorage:
         update_entry = UpdateEntry.from_index_entry(entry, status)
         update_bytes = update_entry.to_bytes()
 
-        # Read existing file to find first empty slot in update section
+        # Read existing file to find the aligned update section start
         file_data = idx_path.read_bytes()
-        update_offset = 0x10000
-
+        entry_block_size = int.from_bytes(file_data[0x20:0x24], "little")
+        sorted_end = 0x28 + entry_block_size
+        update_offset = (sorted_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
+            UPDATE_SECTION_ALIGNMENT - 1
+        )
         if len(file_data) < update_offset:
             logger.warning(f"Index file too small for update section: {idx_path}")
             return

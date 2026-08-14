@@ -181,7 +181,7 @@ class TestUpdateEntryRoundtrip:
         assert update.hash_guard & 0x80000000 != 0
 
     def test_hash_guard_computation(self) -> None:
-        """Verify hash guard matches hashlittle(bytes[4:24], 0) | 0x80000000."""
+        """Verify hash guard matches hashlittle(bytes[4:23], 0) | 0x80000000."""
         idx_entry = LocalIndexEntry(
             key=b"\xde\xad\xbe\xef\xca\xfe\xba\xbe\x42",
             archive_id=5,
@@ -190,9 +190,10 @@ class TestUpdateEntryRoundtrip:
         )
         update = UpdateEntry.from_index_entry(idx_entry, status=0)
 
-        # Recompute from serialized bytes
+        # Recompute from serialized bytes — the guard hashes the 19 bytes
+        # after it (ekey + location + size + status), matching cascette-rs.
         raw = update.to_bytes()
-        payload = raw[4:24]
+        payload = raw[4:23]
         expected_guard = hashlittle(payload, 0) | 0x80000000
         assert update.hash_guard == expected_guard
 
@@ -298,8 +299,15 @@ class TestFileLayout:
         data = idx_path.read_bytes()
         assert data[0x18:0x20] == b"\x00" * 8
 
-    def test_update_section_at_0x10000(self, tmp_path: pytest.TempPathFactory) -> None:
-        """Update section starts at offset 0x10000."""
+    def test_update_section_at_aligned_boundary(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        """Update section starts at a 4KB-aligned boundary after entries."""
+        from cascette_tools.core.local_storage import (
+            IDX_FILE_SIZE,
+            UPDATE_SECTION_ALIGNMENT,
+        )
+
         storage = LocalStorage(tmp_path)  # type: ignore[arg-type]
         storage.initialize()
 
@@ -309,14 +317,24 @@ class TestFileLayout:
 
         data = idx_path.read_bytes()
 
-        # File must be at least 0x10000 + 0x7800 bytes
-        assert len(data) >= 0x10000 + 0x7800
+        # File is exactly IDX_FILE_SIZE (matching the reference install).
+        assert len(data) == IDX_FILE_SIZE
+
+        # Update section starts at the 4KB-aligned boundary after entries.
+        entry_block_size = struct.unpack("<I", data[0x20:0x24])[0]
+        sorted_end = 0x28 + entry_block_size
+        update_offset = (sorted_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
+            UPDATE_SECTION_ALIGNMENT - 1
+        )
+        assert update_offset % UPDATE_SECTION_ALIGNMENT == 0
 
         # Update section should be all zeros (empty)
-        assert data[0x10000 : 0x10000 + 24] == b"\x00" * 24
+        assert data[update_offset : update_offset + 24] == b"\x00" * 24
 
     def test_file_size_with_entries(self, tmp_path: pytest.TempPathFactory) -> None:
-        """Total file size is 0x10000 + 0x7800 for small entry counts."""
+        """Total file size is IDX_FILE_SIZE (0x30000), like the reference."""
+        from cascette_tools.core.local_storage import IDX_FILE_SIZE
+
         storage = LocalStorage(tmp_path)  # type: ignore[arg-type]
         storage.initialize()
 
@@ -325,7 +343,7 @@ class TestFileLayout:
         storage._write_index_file(idx_path, 0, entries)
 
         data = idx_path.read_bytes()
-        assert len(data) == 0x10000 + 0x7800
+        assert len(data) == IDX_FILE_SIZE
 
 
 class TestSortedSectionHash:
