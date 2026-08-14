@@ -208,7 +208,7 @@ class TestLocalIndexHeaderSerialization:
 
     def test_header_fields(self) -> None:
         """Verify header field positions in serialized bytes."""
-        header = LocalIndexHeader(bucket=5, version=7, segment_size=0x40000000)
+        header = LocalIndexHeader(bucket=5, version=7, segment_size=(1 << 30) * 256)
         data = header.to_bytes()
 
         version = struct.unpack("<H", data[0:2])[0]
@@ -217,7 +217,7 @@ class TestLocalIndexHeaderSerialization:
 
         assert version == 7
         assert bucket == 5
-        assert segment_size == 0x40000000
+        assert segment_size == (1 << 30) * 256
 
 
 class TestFileLayout:
@@ -478,7 +478,7 @@ class TestParseRoundtrip:
         assert stored_hash == computed_hash
 
     def test_segment_size_roundtrip(self, tmp_path: pytest.TempPathFactory) -> None:
-        """Segment size field survives roundtrip."""
+        """Segment size field survives roundtrip (0x4000000000)."""
         storage = LocalStorage(tmp_path)  # type: ignore[arg-type]
         storage.initialize()
 
@@ -488,7 +488,7 @@ class TestParseRoundtrip:
         data = idx_path.read_bytes()
         info = parse_local_idx_file(data)
 
-        assert info.segment_size == 0x40000000
+        assert info.segment_size == (1 << 30) * 256
 
 
 class TestInsertEntry:

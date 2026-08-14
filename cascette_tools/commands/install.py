@@ -1977,6 +1977,9 @@ def install_to_casc(
             console.print(
                 f"  Previously written: {_fmt_size(install_state.total_bytes_written)}"
             )
+            # Reload existing idx entries so flush_indices does not drop
+            # prior downloads from the index files.
+            storage.load_existing_entries()
         else:
             install_state = InstallState(install_path, build_config_hash)
 
@@ -3836,6 +3839,17 @@ def _scan_local_installation(
     """Scan a local installation and gather state information."""
     state = InstallationState(install_path=install_path, product_code=product_code)
 
+    # Prefer .build.info for config hashes; the Data/config scan below is
+    # a fallback because it cannot distinguish build from CDN config.
+    build_info_path = install_path / ".build.info"
+    if build_info_path.exists():
+        try:
+            info = BuildInfoParser().parse_file(str(build_info_path))
+            state.build_config_hash = info.build_key or None
+            state.cdn_config_hash = info.cdn_key or None
+        except Exception as e:
+            logger.warning(f"Failed to read .build.info: {e}")
+
     state.tags = _parse_build_info_tags(install_path)
     if state.tags.platform:
         logger.info(
@@ -4079,15 +4093,28 @@ def _calculate_progress(
     "--product",
     "-p",
     type=str,
-    default="wow_classic_era",
-    help="Product code (e.g., wow_classic_era)",
+    default=None,
+    help="Product code override. When omitted, read from .build.info.",
 )
 @click.pass_context
-def scan_state(ctx: click.Context, install_path: Path, product: str) -> None:
+def scan_state(ctx: click.Context, install_path: Path, product: str | None) -> None:
     """Scan a local installation and show current state.
 
     INSTALL_PATH is the root of the game installation (e.g., /path/to/World of Warcraft).
+
+    The product code defaults to the .build.info Product column.
     """
+    if product is None:
+        build_info_path = install_path / ".build.info"
+        if build_info_path.exists():
+            try:
+                info = BuildInfoParser().parse_file(str(build_info_path))
+                if info.product:
+                    product = info.product
+            except Exception as e:
+                logger.warning(f"Failed to read .build.info product: {e}")
+        if product is None:
+            product = "wow_classic_era"
     _config, console, verbose, _ = _get_context_objects(ctx)
 
     try:

@@ -218,7 +218,6 @@ class LocalIndexHeader:
     - 1 byte: File offset bits (30)
     - 8 bytes: Segment size (little-endian uint64)
     """
-
     version: int = 7
     bucket: int = 0
     extra_bytes: int = 0
@@ -226,8 +225,10 @@ class LocalIndexHeader:
     storage_offset_length: int = 5
     ekey_length: int = 9
     file_offset_bits: int = 30
-    segment_size: int = 0x40000000  # 1 GB default
-
+    # Reference installations write (1 << file_offset_bits) * 256 =
+    # 0x4000000000 (256 GiB total addressable across 256 archives).
+    # A single-segment 1 GiB value would not match what the client reads.
+    segment_size: int = (1 << 30) * 256
     def to_bytes(self) -> bytes:
         """Serialize header to 16 bytes (without guarded block header)."""
         return struct.pack(
@@ -520,7 +521,13 @@ class LocalStorage:
         self._detect_existing_generations()
 
     def _detect_existing_generations(self) -> None:
-        """Detect existing index file generations and set next generation."""
+        """Detect existing index file generations.
+
+        Sets each bucket's generation to the highest existing generation so
+        flush_indices rewrites the same files in place (fresh buckets stay
+        at generation 1). Matches the reference install, where one idx file
+        per bucket serves a build; upgrades create new generations.
+        """
         import re
 
         if not self.data_path.exists():
@@ -534,11 +541,43 @@ class LocalStorage:
             if match:
                 bucket = int(match.group(1), 16)
                 generation = int(match.group(2), 16)
-                # Set to next generation (increment existing max)
-                if generation >= self.bucket_generations[bucket]:
-                    self.bucket_generations[bucket] = generation + 1
+                # Set to max existing generation (not +1) so we rewrite
+                # the same file on resume.
+                if generation > self.bucket_generations[bucket]:
+                    self.bucket_generations[bucket] = generation
 
         logger.debug(f"Detected generations: {self.bucket_generations}")
+    def load_existing_entries(self) -> None:
+        """Load entries from existing idx files into bucket_entries.
+
+        Used on resume: previously downloaded files are tracked in the
+        install state, but their index entries only exist on disk. Without
+        reloading, flush_indices would rewrite idx files with only the
+        in-memory entries, dropping all prior downloads.
+        """
+        import re
+
+        if not self.data_path.exists():
+            return
+        idx_pattern = re.compile(r"^([0-9a-f]{2})([0-9a-f]{8})\.idx$", re.IGNORECASE)
+        for idx_file in self.data_path.glob("*.idx"):
+            match = idx_pattern.match(idx_file.name)
+            if not match:
+                continue
+            bucket = int(match.group(1), 16)
+            try:
+                info = parse_local_idx_file(idx_file.read_bytes())
+            except Exception as e:
+                logger.warning(f"Failed to parse {idx_file.name}: {e}")
+                continue
+            existing = {e.key for e in self.bucket_entries[bucket]}
+            for entry in info.entries:
+                if entry.key not in existing:
+                    self.bucket_entries[bucket].append(entry)
+                    self._written_keys[entry.key] = entry.size
+            logger.debug(
+                f"Loaded {len(info.entries)} entries from {idx_file.name} (bucket {bucket:02x})"
+            )
 
     def _write_empty_index(self, path: Path, bucket: int) -> None:
         """Write an empty index file for a bucket."""
@@ -631,16 +670,23 @@ class LocalStorage:
         return entry
 
     def flush_indices(self) -> None:
-        """Write all bucket entries to index files."""
+        """Write all bucket entries to index files.
+
+        Entries are sorted by truncated key before writing. The client
+        binary-searches the sorted section (cascette-rs load_index sorts on
+        read); unsorted entries break lookups.
+        """
         for bucket in range(16):
             entries = self.bucket_entries[bucket]
             if not entries:
                 continue
 
+            entries_sorted = sorted(entries, key=lambda e: e.key)
+
             generation = self.bucket_generations[bucket]
             idx_path = self.data_path / format_idx_filename(bucket, generation)
-            self._write_index_file(idx_path, bucket, entries)
-            logger.info(f"Wrote index {idx_path.name}: {len(entries)} entries")
+            self._write_index_file(idx_path, bucket, entries_sorted)
+            logger.info(f"Wrote index {idx_path.name}: {len(entries_sorted)} entries")
 
         # Create shmem file
         self._write_shmem_file()
@@ -706,9 +752,12 @@ class LocalStorage:
         update_start = (sorted_section_end + UPDATE_SECTION_ALIGNMENT - 1) & ~(
             UPDATE_SECTION_ALIGNMENT - 1
         )
+        # The reference install pads every idx file to IDX_FILE_SIZE
+        # (0x30000); the update section is the remainder after the aligned
+        # sorted section. Bucket files with ~8200 entries have 11-12 pages.
         update_size = IDX_FILE_SIZE - update_start
-        if update_size < UPDATE_SECTION_MIN_SIZE:
-            update_size = UPDATE_SECTION_MIN_SIZE
+        if update_size < 0:
+            update_size = 0
 
         with open(path, "wb") as f:
             # 0x00: Header guarded block (8 bytes)
