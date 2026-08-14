@@ -218,6 +218,7 @@ class LocalIndexHeader:
     - 1 byte: File offset bits (30)
     - 8 bytes: Segment size (little-endian uint64)
     """
+
     version: int = 7
     bucket: int = 0
     extra_bytes: int = 0
@@ -229,6 +230,7 @@ class LocalIndexHeader:
     # 0x4000000000 (256 GiB total addressable across 256 archives).
     # A single-segment 1 GiB value would not match what the client reads.
     segment_size: int = (1 << 30) * 256
+
     def to_bytes(self) -> bytes:
         """Serialize header to 16 bytes (without guarded block header)."""
         return struct.pack(
@@ -547,6 +549,7 @@ class LocalStorage:
                     self.bucket_generations[bucket] = generation
 
         logger.debug(f"Detected generations: {self.bucket_generations}")
+
     def load_existing_entries(self) -> None:
         """Load entries from existing idx files into bucket_entries.
 

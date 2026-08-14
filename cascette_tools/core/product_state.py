@@ -47,6 +47,24 @@ class ProductInfo:
     install_path: Path
     """Installation directory path."""
 
+    game_subfolder: str | None = None
+    """Product subfolder (e.g., '_classic_'). Stored in UserSettings field 13."""
+
+    account_country: str | None = None
+    """Account country code (e.g., 'BGR'). Stored in UserSettings field 11."""
+
+    geo_ip_country: str | None = None
+    """Geo-IP country code (e.g., 'BG'). Stored in UserSettings field 12."""
+
+    install_key: str | None = None
+    """Install manifest encoding key. Stored in BaseProductState field 16."""
+
+    tags: str = ""
+    """Compound tag string. Stored in BaseProductState field 17."""
+
+    total_downloaded: int = 0
+    """Bytes downloaded during install. Stored in UpdateProgress field 4."""
+
 
 def encode_varint(value: int) -> bytes:
     """Encode an integer as a protobuf varint.
@@ -65,130 +83,16 @@ def encode_varint(value: int) -> bytes:
     return bytes(result) if result else b"\x00"
 
 
-def _build_install_info_protobuf(
-    install_path: Path,
-    region: str,
-    locale: str,
-) -> bytes:
-    """Build the install info protobuf structure.
-
-    Args:
-        install_path: Installation directory path.
-        region: Region code.
-        locale: Locale code.
-
-    Returns:
-        Serialized protobuf bytes.
-    """
-    data = bytearray()
-    path_str = str(install_path)
-
-    # Field 3: Install path (string) - tag 0x1a
-    data.append(0x1A)
-    data.append(len(path_str))
-    data.extend(path_str.encode("utf-8"))
-
-    # Field 2: Region (string) - tag 0x12
-    data.append(0x12)
-    data.append(len(region))
-    data.extend(region.encode("utf-8"))
-
-    # Field 3: Unknown field (int32) - tag 0x18
-    data.append(0x18)
-    data.append(0x02)  # Value 2
-
-    # Field 4: Unknown field (int32) - tag 0x20
-    data.append(0x20)
-    data.append(0x02)  # Value 2
-
-    # Field 5: Unknown field (int32) - tag 0x28
-    data.append(0x28)
-    data.append(0x03)  # Value 3
-
-    # Field 6: Locale info - tag 0x32
-    data.append(0x32)
-    data.append(len(locale))
-    data.extend(locale.encode("utf-8"))
-
-    # Field 7: Locale info repeated - tag 0x3a
-    data.append(0x3A)
-    data.append(len(locale))
-    data.extend(locale.encode("utf-8"))
-
-    # Field 8: Settings structure - tag 0x42
-    settings_len = 2 + len(locale) + 2  # Field 1 + locale + Field 2
-    data.append(0x42)
-    data.append(settings_len)
-    data.append(0x0A)  # Field 1 tag
-    data.append(len(locale))
-    data.extend(locale.encode("utf-8"))
-    data.append(0x10)  # Field 2 tag
-    data.append(0x03)  # Value 3
-
-    return bytes(data)
-
-
-def _build_build_info_protobuf(version: str, build_key: str) -> bytes:
-    """Build the build info protobuf structure.
-
-    Args:
-        version: Version string.
-        build_key: Build config hash.
-
-    Returns:
-        Serialized protobuf bytes.
-    """
-    data = bytearray()
-
-    # Field 1: Some flag (int32) - tag 0x08
-    data.extend([0x08, 0x01])  # Value 1
-
-    # Field 2: Some flag (int32) - tag 0x10
-    data.extend([0x10, 0x01])  # Value 1
-
-    # Field 3: Some flag (int32) - tag 0x18
-    data.extend([0x18, 0x01])  # Value 1
-
-    # Field 4: Some flag (int32) - tag 0x20
-    data.extend([0x20, 0x00])  # Value 0
-
-    # Field 5: Some flag (int32) - tag 0x28
-    data.extend([0x28, 0x01])  # Value 1
-
-    # Field 7: Version string - tag 0x3a
-    data.append(0x3A)
-    data.append(len(version))
-    data.extend(version.encode("utf-8"))
-
-    # Field 12: Build key (bytes) - tag 0x62
-    data.append(0x62)
-    data.append(0x20)  # 32 bytes for build key (hex string)
-    data.extend(build_key.encode("utf-8"))
-
-    # Field 14: Build key repeated (bytes) - tag 0x72
-    data.append(0x72)
-    data.append(0x20)  # 32 bytes
-    data.extend(build_key.encode("utf-8"))
-
-    # Field 16: Content key (bytes) - tag 0x82 0x01 (varint field number 16)
-    # Using a placeholder content key for now
-    content_key = "5090256c2742e6652de8aef3641c6eb1"
-    data.append(0x82)
-    data.append(0x01)  # Varint length prefix continuation
-    data.append(0x20)  # 32 bytes
-    data.extend(content_key.encode("utf-8"))
-
-    return bytes(data)
-
-
 def generate_product_db(info: ProductInfo, target_dir: Path) -> Path:
-    """Generate .product.db file (Battle.net compatible protobuf).
+    """Generate .product.db file matching Agent.exe output.
 
-    The .product.db file contains product metadata in protobuf format:
-    - Field 1: Product code
-    - Field 2: Product name (same as code)
-    - Field 3: Install info structure
-    - Field 4: Build info structure
+    Serializes a ``proto_database.ProductInstall`` protobuf message, the
+    same structure the Battle.net Agent writes to per-install
+    ``.product.db`` files. The schema is defined in
+    ``proto/proto_database.proto`` (compiled to
+    ``cascette_tools/proto/proto_database_pb2.py``), matching
+    battle.net-agent's ``proto_database.proto`` and cascette-rs's
+    ``layout/product_db.rs``.
 
     Args:
         info: Product information.
@@ -197,39 +101,75 @@ def generate_product_db(info: ProductInfo, target_dir: Path) -> Path:
     Returns:
         Path to the generated file.
     """
+    from cascette_tools.proto import proto_database_pb2 as pd
+
     logger.info("Generating .product.db", product=info.product_code)
 
-    data = bytearray()
-    product_name = info.product_code
+    msg = pd.ProductInstall()
+    msg.uid = info.product_code
+    msg.productCode = info.product_code
 
-    # Field 1: Product code (string) - tag 0x0a
-    data.append(0x0A)
-    data.append(len(product_name))
-    data.extend(product_name.encode("utf-8"))
+    s = msg.settings
+    s.install_path = str(info.install_path)
+    s.play_region = info.region
+    s.desktop_shortcut = pd.SHORTCUT_ALL_USERS
+    s.startmenu_shortcut = pd.SHORTCUT_ALL_USERS
+    s.language_settings = pd.LANGSETTING_ADVANCED
+    s.selected_text_language = info.locale
+    s.selected_speech_language = info.locale
+    lang = s.languages.add()
+    lang.language = info.locale
+    lang.option = pd.LANGOPTION_TEXT_AND_SPEECH
+    s.additional_tags = ""
+    s.version_branch = ""
+    if info.account_country:
+        s.account_country = info.account_country
+    if info.geo_ip_country:
+        s.geo_ip_country = info.geo_ip_country
+    if info.game_subfolder:
+        s.game_subfolder = info.game_subfolder
 
-    # Field 2: Product name (string) - tag 0x12
-    data.append(0x12)
-    data.append(len(product_name))
-    data.extend(product_name.encode("utf-8"))
+    b = msg.cachedProductState.baseProductState
+    b.installed = True
+    b.playable = True
+    b.updateComplete = True
+    b.backgroundDownloadAvailable = False
+    b.backgroundDownloadComplete = True
+    b.currentVersionStr = info.version
+    b.decryptionKey = ""
+    b.completedBuildKeys.append(info.build_config)
+    b.activeBuildKey = info.build_config
+    if info.install_key:
+        b.activeInstallKey = info.install_key
+    b.activeTagString = info.tags
 
-    # Field 3: Install info structure - tag 0x1a
-    install_info = _build_install_info_protobuf(
-        info.install_path,
-        info.region,
-        info.locale,
+    bp = msg.cachedProductState.backfillProgress
+    bp.progress = 0.0
+    bp.backgrounddownload = False
+    bp.paused = False
+
+    rp = msg.cachedProductState.repairProgress
+    rp.progress = 0.0
+
+    up = msg.cachedProductState.updateProgress
+    up.lastDiscSetUsed = ""
+    up.progress = 1.0
+    up.discIgnored = False
+    up.totalToDownload = info.total_downloaded
+    up.downloadRemaining = 0
+
+    # productFamily: first path component of the product code
+    # ("wow_classic" -> "wow"), matching cascette-rs.
+    msg.productFamily = (
+        info.product_code.split("_")[0]
+        if "_" in info.product_code
+        else info.product_code
     )
-    data.append(0x1A)
-    data.append(len(install_info))
-    data.extend(install_info)
+    msg.hidden = False
 
-    # Field 4: Build info structure - tag 0x22
-    build_info = _build_build_info_protobuf(info.version, info.build_config)
-    data.append(0x22)
-    data.extend(encode_varint(len(build_info)))
-    data.extend(build_info)
-
+    data = msg.SerializeToString()
     product_db_path = target_dir / ".product.db"
-    product_db_path.write_bytes(bytes(data))
+    product_db_path.write_bytes(data)
 
     logger.info("Generated .product.db", path=str(product_db_path), size=len(data))
     return product_db_path

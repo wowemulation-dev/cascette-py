@@ -2290,6 +2290,14 @@ def install_to_casc(
             region=region,
             locale=locale,
             install_path=install_path,
+            game_subfolder=subfolder or None,
+            install_key=(
+                install_info.encoding_key
+                if install_info and install_info.encoding_key
+                else None
+            ),
+            tags=build_info.tags if build_info else "",
+            total_downloaded=total_bytes,
         )
 
         state_files = generate_all_state_files(product_info, install_path)
@@ -3372,6 +3380,8 @@ def install_containerless(
             region=region,
             locale=locale,
             install_path=install_path,
+            tags=build_info.tags if build_info else "",
+            total_downloaded=total_bytes,
         )
         state_files = generate_all_state_files(product_info, install_path)
         for file_name in state_files:
