@@ -1140,6 +1140,7 @@ async def _download_casc_files(
             ekey = dl_entry.ekey
 
             async def make_factory(ek: bytes = ekey) -> DownloadResult:
+                # Try archive fetch first (range request).
                 data = await fetcher.fetch_file_via_cdn_async(
                     cdn_client,
                     ek,
@@ -1150,10 +1151,21 @@ async def _download_casc_files(
                 loc = fetcher.index_map.find(ek)
                 if loc:
                     source = loc.archive_hash
+                # Fall back to the loose CDN blob. Some files (e.g. the
+                # root manifest) are not in any archive index — they are
+                # served as loose files under data/xx/yy/{ekey}.
+                if data is None:
+                    try:
+                        data = await cdn_client.fetch_data_async(ek.hex(), quiet=True)
+                        source = "loose"
+                    except Exception:
+                        data = None
                 return DownloadResult(
                     ekey=ek,
                     data=data,
-                    error=None if data is not None else "Not found in archives",
+                    error=None
+                    if data is not None
+                    else "Not found in archives or loose",
                     source=source,
                 )
 
