@@ -36,6 +36,30 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
+def regions_for_entry(entries: list[dict[str, Any]], build_config: str) -> str | None:
+    """Collect the comma-separated region list for a build config.
+
+    The Ribbit versions manifest has one row per region; all regions
+    typically serve the same build config. Returns None when no region
+    column is present.
+
+    Args:
+        entries: Parsed versions manifest rows.
+        build_config: Build config hash to match.
+
+    Returns:
+        Comma-separated region codes, or None.
+    """
+    regions = [
+        e.get("Region", "")
+        for e in entries
+        if e.get("BuildConfig") == build_config and e.get("Region")
+    ]
+    if not regions:
+        return None
+    return ",".join(dict.fromkeys(regions))
+
+
 @click.group("builds", short_help="Manage build database.")
 def builds_group() -> None:
     """Manage build database from Wago.tools, BlizzTrack, and Ribbit.
@@ -102,6 +126,7 @@ def _fetch_ribbit_builds(
                 # Use the first entry (usually 'us') and skip duplicates
                 # by BuildConfig.
                 seen_configs: set[str] = set()
+                manifest_seqn = client.extract_seqn(manifest)
                 for entry in entries:
                     build_config = entry.get("BuildConfig", "")
                     if not build_config or build_config in seen_configs:
@@ -122,9 +147,11 @@ def _fetch_ribbit_builds(
                         build_config=build_config,
                         cdn_config=entry.get("CDNConfig") or None,
                         product_config=entry.get("ProductConfig") or None,
+                        keyring=entry.get("KeyRing") or None,
+                        regions=regions_for_entry(entries, build_config),
+                        seqn=manifest_seqn,
                     )
                     builds.append(build)
-
                     if verbose:
                         console.print(
                             f"[dim]  {product_code}: {version} "
@@ -917,6 +944,183 @@ def add_build(
                 console.print(f"  Build config: {build_config}")
             if cdn_config:
                 console.print(f"  CDN config: {cdn_config}")
+
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+@builds_group.command("ribbit-files")
+@click.argument("product", type=click.Choice(_ALL_PRODUCTS, case_sensitive=False))
+@click.argument("build", type=str)
+@click.option(
+    "--version",
+    "-v",
+    default=None,
+    help="Full version string to match (alternative to BUILD for lookup).",
+)
+@click.option(
+    "--regions",
+    default="us,eu,kr,tw,cn",
+    show_default=True,
+    help="Comma-separated regions to emit in the versions/cdns replies.",
+)
+@click.option(
+    "--host",
+    default="localhost:8000",
+    show_default=True,
+    help="Host:port rewritten into the cdns Hosts/Servers fields.",
+)
+@click.option(
+    "--cdn-path",
+    default="tpr/wow",
+    show_default=True,
+    help="CDN path for the product (cdns Path column).",
+)
+@click.option(
+    "--config-path",
+    default="tpr/configs/data",
+    show_default=True,
+    help="Config path (cdns ConfigPath column).",
+)
+@click.option(
+    "--seqn",
+    type=int,
+    default=None,
+    help="Override the seqn value (default: from DB or 9999999 when absent).",
+)
+@click.option(
+    "--out-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write versions/cdns files into this directory. Without it, prints both to stdout.",
+)
+@click.pass_context
+def ribbit_files(
+    ctx: click.Context,
+    product: str,
+    build: str,
+    version: str | None,
+    regions: str,
+    host: str,
+    cdn_path: str,
+    config_path: str,
+    seqn: int | None,
+    out_dir: Path | None,
+) -> None:
+    """Generate simulated Ribbit versions/cdns replies for a build.
+
+    Builds the BPSV documents the wow client and cascette tooling expect
+    from the version/CDN manifest endpoints, using the build database as
+    the source of truth. This replaces the Arctium archive fetch used by
+    tools/setup_local_ribbit.sh, which does not carry versions files for
+    historical builds.
+
+    The cdns reply rewrites every Hosts entry to --host and every Servers
+    URL to http://--host, matching setup_local_ribbit.sh.
+
+    \b
+    Examples:
+      cascette builds ribbit-files wow_classic 31650
+      cascette builds ribbit-files wow_classic 31650 \\
+        --host localhost:8000 --out-dir ./mirror/tpr/wow
+      cascette builds ribbit-files wow_classic 31650 \\
+        --host tactic.wowemu.dev --cdn-path tpr/wow
+    """
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        from cascette_tools.database.wago import WagoClient
+
+        with WagoClient(config_obj) as wago:
+            builds = wago.list_builds(product=product)
+            if not builds:
+                console.print(f"[red]No builds found for {product}[/red]")
+                raise click.Abort()
+
+            match: WagoBuild | None = None
+            for b in builds:
+                if b.build == build or (version and b.version == version):
+                    match = b
+                    break
+            if match is None:
+                console.print(
+                    f"[red]Build {build} not found for {product} "
+                    f"(got {len(builds)} builds)[/red]"
+                )
+                raise click.Abort()
+
+        build_config = match.build_config or ""
+        cdn_config = match.cdn_config or ""
+        versions_name = match.version or f"{build}.0.0.0"
+        build_id = match.build or build
+        keyring = match.keyring or ""
+        product_config = match.product_config or ""
+        seqn_value = seqn or match.seqn or 9999999
+
+        region_list = [r.strip() for r in regions.split(",") if r.strip()]
+        if not region_list:
+            console.print("[red]No regions provided[/red]")
+            raise click.Abort()
+
+        # --- versions BPSV ---
+        versions_header = (
+            "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|"
+            "KeyRing!HEX:16|BuildId!DEC:4|VersionsName!String:0|"
+            "ProductConfig!HEX:16"
+        )
+        versions_lines = [versions_header, f"## seqn = {seqn_value}"]
+        for region in region_list:
+            versions_lines.append(
+                "|".join(
+                    [
+                        region,
+                        build_config,
+                        cdn_config,
+                        keyring,
+                        build_id,
+                        versions_name,
+                        product_config,
+                    ]
+                )
+            )
+        versions_text = "\n".join(versions_lines) + "\n"
+
+        # --- cdns BPSV ---
+        cdns_header = (
+            "Name!STRING:0|Path!STRING:0|Hosts!STRING:0|Servers!STRING:0|"
+            "ConfigPath!STRING:0"
+        )
+        cdns_lines = [cdns_header, f"## seqn = {seqn_value}"]
+        for region in region_list:
+            cdns_lines.append(
+                "|".join([region, cdn_path, host, f"http://{host}", config_path])
+            )
+        cdns_text = "\n".join(cdns_lines) + "\n"
+
+        if out_dir is not None:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            versions_path = out_dir / "versions"
+            cdns_path = out_dir / "cdns"
+            versions_path.write_text(versions_text)
+            cdns_path.write_text(cdns_text)
+            console.print(f"[green]Wrote {versions_path}[/green]")
+            console.print(f"[green]Wrote {cdns_path}[/green]")
+            console.print(f"  Product: {product}, Build: {build}, seqn: {seqn_value}")
+            console.print(f"  Regions: {', '.join(region_list)}")
+            console.print(f"  CDN host: {host}, path: {cdn_path}")
+            console.print("  Verify with:")
+            console.print(f"    curl -s http://{host}/{cdn_path}/versions")
+            console.print(f"    curl -s http://{host}/{cdn_path}/cdns")
+        else:
+            console.print(versions_text)
+            console.print(cdns_text)
 
     except click.Abort:
         raise

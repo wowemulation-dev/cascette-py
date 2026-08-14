@@ -32,6 +32,17 @@ class WagoBuild(BaseModel):
     root_ekey: str | None = Field(default=None, description="Root key")
     install_ekey: str | None = Field(default=None, description="Install key")
     download_ekey: str | None = Field(default=None, description="Download key")
+    keyring: str | None = Field(
+        default=None, description="KeyRing hash from the Ribbit versions manifest"
+    )
+    regions: str | None = Field(
+        default=None,
+        description="Comma-separated regions serving this build (from the versions manifest)",
+    )
+    seqn: int | None = Field(
+        default=None,
+        description="Ribbit sequence number of the versions snapshot",
+    )
 
 
 class WagoCacheMetadata(BaseModel):
@@ -181,6 +192,9 @@ class WagoClient:
                     root_ekey TEXT,
                     install_ekey TEXT,
                     download_ekey TEXT,
+                    keyring TEXT,
+                    regions TEXT,
+                    seqn INTEGER,
                     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(product, build, build_config)
@@ -205,6 +219,7 @@ class WagoClient:
                 );
             """)
         self._migrate_db()
+        self._migrate_add_columns()
 
     def _migrate_db(self) -> None:
         """Migrate database schema from old UNIQUE(id, product) to
@@ -249,6 +264,9 @@ class WagoClient:
                     root_ekey TEXT,
                     install_ekey TEXT,
                     download_ekey TEXT,
+                    keyring TEXT,
+                    regions TEXT,
+                    seqn INTEGER,
                     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(product, build, build_config)
@@ -258,12 +276,14 @@ class WagoClient:
                     id, build, version, product, build_time,
                     build_config, cdn_config, product_config,
                     encoding_ekey, root_ekey, install_ekey, download_ekey,
+                    keyring, regions, seqn,
                     imported_at, updated_at
                 )
                 SELECT
                     id, build, version, product, build_time,
                     build_config, cdn_config, product_config,
                     encoding_ekey, root_ekey, install_ekey, download_ekey,
+                    keyring, regions, seqn,
                     imported_at, updated_at
                 FROM builds
                 ORDER BY
@@ -285,6 +305,25 @@ class WagoClient:
 
         old_count = self.conn.execute("SELECT COUNT(*) FROM builds").fetchone()
         logger.info("migration_complete", row_count=old_count[0] if old_count else 0)
+
+    def _migrate_add_columns(self) -> None:
+        """Add keyring/regions/seqn columns to an existing builds table.
+
+        Additive migration for databases created before these columns
+        existed. Uses ALTER TABLE ADD COLUMN; safe to run repeatedly.
+        """
+        cursor = self.conn.execute("PRAGMA table_info(builds)")
+        columns = {row[1] for row in cursor.fetchall()}
+        additions: list[tuple[str, str]] = [
+            ("keyring", "TEXT"),
+            ("regions", "TEXT"),
+            ("seqn", "INTEGER"),
+        ]
+        with self.conn:
+            for name, coltype in additions:
+                if name not in columns:
+                    logger.info("migrating_builds_add_column", column=name)
+                    self.conn.execute(f"ALTER TABLE builds ADD COLUMN {name} {coltype}")
 
     def _is_cache_valid(self) -> bool:
         """Check if cached data is still valid.
@@ -831,7 +870,8 @@ class WagoClient:
                                 UPDATE builds SET
                                     id = ?, version = ?, build_time = ?,
                                     build_config = ?, cdn_config = ?,
-                                    product_config = ?,
+                                    product_config = ?, keyring = ?,
+                                    regions = ?, seqn = ?,
                                     encoding_ekey = ?, root_ekey = ?,
                                     install_ekey = ?, download_ekey = ?,
                                     updated_at = CURRENT_TIMESTAMP
@@ -844,6 +884,9 @@ class WagoClient:
                                     build.build_config,
                                     build.cdn_config,
                                     build.product_config,
+                                    build.keyring,
+                                    build.regions,
+                                    build.seqn,
                                     enc,
                                     root,
                                     inst,
@@ -859,9 +902,10 @@ class WagoClient:
                                 INSERT INTO builds (
                                     id, build, version, product, build_time,
                                     build_config, cdn_config, product_config,
+                                    keyring, regions, seqn,
                                     encoding_ekey, root_ekey, install_ekey,
                                     download_ekey
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                                 (
                                     build.id,
@@ -872,6 +916,9 @@ class WagoClient:
                                     build.build_config,
                                     build.cdn_config,
                                     build.product_config,
+                                    build.keyring,
+                                    build.regions,
+                                    build.seqn,
                                     build.encoding_ekey,
                                     build.root_ekey,
                                     build.install_ekey,
@@ -890,9 +937,10 @@ class WagoClient:
                             INSERT INTO builds (
                                 id, build, version, product, build_time,
                                 build_config, cdn_config, product_config,
+                                keyring, regions, seqn,
                                 encoding_ekey, root_ekey, install_ekey,
                                 download_ekey
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                             (
                                 build.id,
@@ -903,6 +951,9 @@ class WagoClient:
                                 build.build_config,
                                 build.cdn_config,
                                 build.product_config,
+                                build.keyring,
+                                build.regions,
+                                build.seqn,
                                 build.encoding_ekey,
                                 build.root_ekey,
                                 build.install_ekey,

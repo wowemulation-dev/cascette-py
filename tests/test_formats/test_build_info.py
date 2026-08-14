@@ -25,8 +25,7 @@ class TestParseHeader:
         """Test parsing the standard .build.info header."""
         fields = parse_header(STANDARD_HEADER)
 
-        assert len(fields) == 15
-
+        assert len(fields) == 14
         # Check first field
         assert fields[0].name == "Branch"
         assert fields[0].field_type == FieldType.STRING

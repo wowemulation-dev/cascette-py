@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 import httpx
@@ -111,18 +112,33 @@ class TACTClient:
     with automatic caching of responses in ~/.cache/cascette/api/.
     """
 
-    def __init__(self, region: str = "us", config: TACTConfig | None = None):
+    def __init__(
+        self,
+        region: str = "us",
+        config: TACTConfig | None = None,
+        base_url: str | None = None,
+    ):
         """Initialize TACT client.
 
         Args:
             region: Region code (us, eu, kr, tw, cn, sg)
             config: Optional TACT configuration
+            base_url: Optional Ribbit base URL override, e.g.
+                "http://localhost:8000/tpr/wow" for a local mirror that
+                serves seeded versions/cdns files. When set, endpoints are
+                fetched from `{base_url}/versions` and `{base_url}/cdns`
+                instead of the live Ribbit HTTPS v2 endpoint.
         """
         self.region = region
         self.config = config or TACTConfig()
         self.cache = DiskCache()  # Uses same structure as Rust
         self.session = None
-        self._base_url = f"https://{region}.version.battle.net"
+        # Env override mirrors cascette-rs's CASCETTE_AGENT_CDN_HOSTS pattern:
+        # point the Ribbit fetches at a local mirror serving seeded files.
+        if base_url is None:
+            base_url = os.environ.get("CASCETTE_RIBBIT_BASE_URL")
+        self.base_url = base_url
+        self._base_url = base_url or f"https://{region}.version.battle.net"
 
     def _build_url(self, endpoint: str, product: Product) -> str:
         """Build URL for TACT endpoint.
@@ -134,8 +150,23 @@ class TACTClient:
         Returns:
             Full URL for the endpoint
         """
+        if self.base_url is not None:
+            # Local mirror mode: seeded files live at
+            # {base_url}/{endpoint} (e.g. /tpr/wow/versions).
+            return f"{self.base_url}/{endpoint}"
         # Ribbit HTTPS v2: /v2/products/{product}/{endpoint}
         return f"{self._base_url}/v2/products/{product.value}/{endpoint}"
+
+    def extract_seqn(self, manifest: str) -> int | None:
+        """Extract the Ribbit sequence number from a BPSV manifest.
+
+        Args:
+            manifest: Raw BPSV manifest text
+
+        Returns:
+            Sequence number, or None if absent
+        """
+        return BPSVParser().extract_sequence_number(manifest)
 
     def _fetch_with_retry(self, url: str) -> str:
         """Fetch URL with retry logic.

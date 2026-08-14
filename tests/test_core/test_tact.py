@@ -138,6 +138,28 @@ class TestTACTClient:
         url = client._build_url("bgdl", Product.WOW_CLASSIC_ERA)
         assert url == "https://kr.version.battle.net/v2/products/wow_classic_era/bgdl"
 
+    def test_build_url_base_url_override(self):
+        """Test base_url override points endpoints at a local mirror."""
+        client = TACTClient(region="eu", base_url="http://localhost:8000/tpr/wow")
+        assert client._build_url("versions", Product.WOW_CLASSIC) == (
+            "http://localhost:8000/tpr/wow/versions"
+        )
+        assert client._build_url("cdns", Product.WOW_CLASSIC) == (
+            "http://localhost:8000/tpr/wow/cdns"
+        )
+        assert client._build_url("bgdl", Product.WOW_CLASSIC) == (
+            "http://localhost:8000/tpr/wow/bgdl"
+        )
+
+    def test_base_url_env_override(self, monkeypatch):
+        """Test CASCETTE_RIBBIT_BASE_URL env var overrides the Ribbit base."""
+        monkeypatch.setenv("CASCETTE_RIBBIT_BASE_URL", "http://mirror:8000/tpr/wow")
+        client = TACTClient(region="eu")
+        assert client.base_url == "http://mirror:8000/tpr/wow"
+        assert client._build_url("versions", Product.WOW) == (
+            "http://mirror:8000/tpr/wow/versions"
+        )
+
     @patch("httpx.Client.get")
     def test_fetch_with_retry_success(self, mock_get):
         """Test successful fetch with retry."""

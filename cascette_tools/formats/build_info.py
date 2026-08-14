@@ -88,12 +88,16 @@ class LocalBuildInfo(BaseModel):
     region: str | None = Field(default=None, description="Target region (e.g., EU)")
 
 
-# Standard header used by Battle.net installations
+# Standard header used by Battle.net installations.
+# 14 columns in Agent.exe order. KeyRing is NOT present in .build.info —
+# cascette-rs confirmed this against real installations and Agent.exe RE.
+# The model keeps a `keyring` field only for reading legacy files that
+# contain the column.
 STANDARD_HEADER = (
     "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|"
     "Install Key!HEX:16|IM Size!DEC:4|CDN Path!STRING:0|CDN Hosts!STRING:0|"
     "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|Last Activated!STRING:0|"
-    "Version!STRING:0|KeyRing!HEX:16|Product!STRING:0"
+    "Version!STRING:0|Product!STRING:0"
 )
 
 # Field name mapping (header name -> model attribute)

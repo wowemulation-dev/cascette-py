@@ -136,9 +136,10 @@ class TestBlizzTrackClient:
         mock_get.return_value = mock_response
 
         with BlizzTrackClient(temp_config) as client:
-            entries = client._get_versions("wow")
+            entries, seqn = client._get_versions("wow")
 
         assert len(entries) == 2
+        assert seqn == 1234567
         assert entries[0]["build_config"] == "abc123def456789"
 
     @patch("httpx.Client.get")
@@ -287,15 +288,18 @@ class TestBlizzTrackClient:
 
     @patch.object(BlizzTrackClient, "_get_versions")
     def test_fetch_current_success(self, mock_get_versions, temp_config):
-        mock_get_versions.return_value = [
-            {
-                "build_config": "abc123",
-                "build_id": 12345,
-                "cdn_config": "def456",
-                "version_name": "10.2.5.52902",
-                "product_config": "ghi789",
-            }
-        ]
+        mock_get_versions.return_value = (
+            [
+                {
+                    "build_config": "abc123",
+                    "build_id": 12345,
+                    "cdn_config": "def456",
+                    "version_name": "10.2.5.52902",
+                    "product_config": "ghi789",
+                }
+            ],
+            1234567,
+        )
 
         with BlizzTrackClient(temp_config) as client:
             builds = client.fetch_current(products=["wow"])
@@ -362,14 +366,17 @@ class TestBlizzTrackClient:
 
     @patch.object(BlizzTrackClient, "_get_versions")
     def test_fetch_current_multiple_products(self, mock_get_versions, temp_config):
-        mock_get_versions.return_value = [
-            {
-                "build_config": "abc123",
-                "build_id": 12345,
-                "cdn_config": "def456",
-                "version_name": "10.2.5.52902",
-            }
-        ]
+        mock_get_versions.return_value = (
+            [
+                {
+                    "build_config": "abc123",
+                    "build_id": 12345,
+                    "cdn_config": "def456",
+                    "version_name": "10.2.5.52902",
+                }
+            ],
+            1234567,
+        )
 
         with BlizzTrackClient(temp_config) as client:
             builds = client.fetch_current(products=["wow", "wow_classic"])

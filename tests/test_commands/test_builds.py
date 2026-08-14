@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from cascette_tools.commands.builds import (
     _ALL_PRODUCTS,
@@ -229,3 +229,143 @@ class TestImportFromFile:
 
         assert len(builds) == 1
         assert builds[0].id == 12345
+
+
+class TestRegionsForEntry:
+    """Test regions_for_entry helper."""
+
+    def test_collects_regions_for_build_config(self):
+        from cascette_tools.commands.builds import regions_for_entry
+
+        entries = [
+            {"Region": "us", "BuildConfig": "abc"},
+            {"Region": "eu", "BuildConfig": "abc"},
+            {"Region": "kr", "BuildConfig": "def"},
+        ]
+        assert regions_for_entry(entries, "abc") == "us,eu"
+        assert regions_for_entry(entries, "def") == "kr"
+        assert regions_for_entry(entries, "zzz") is None
+
+    def test_deduplicates_regions(self):
+        from cascette_tools.commands.builds import regions_for_entry
+
+        entries = [
+            {"Region": "us", "BuildConfig": "abc"},
+            {"Region": "us", "BuildConfig": "abc"},
+            {"Region": "eu", "BuildConfig": "abc"},
+        ]
+        assert regions_for_entry(entries, "abc") == "us,eu"
+
+    def test_returns_none_without_region_column(self):
+        from cascette_tools.commands.builds import regions_for_entry
+
+        entries = [{"BuildConfig": "abc"}]
+        assert regions_for_entry(entries, "abc") is None
+
+
+class TestRibbitFilesCommand:
+    """Test the ribbit-files command."""
+
+    def _invoke(self, *args: str, config: AppConfig) -> Result:
+        from cascette_tools.__main__ import main
+
+        runner = CliRunner()
+        with patch.object(AppConfig, "load", return_value=config):
+            return runner.invoke(main, ["builds", "ribbit-files", *args])
+
+    @patch("cascette_tools.database.wago.WagoClient")
+    def test_writes_versions_and_cdns(self, mock_wago, tmp_path):
+
+        mock_client = Mock()
+        mock_wago.return_value.__enter__.return_value = mock_client
+        mock_client.list_builds.return_value = [
+            WagoBuild(
+                id=31650,
+                build="31650",
+                version="1.13.2.31650",
+                product="wow_classic",
+                build_config="2c915a9a226a3f35af6c65fcc7b6ca4a",
+                cdn_config="c54b41b3195b9482ce0d3c6bf0b86cdb",
+                regions="us,eu",
+                seqn=12345,
+            )
+        ]
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = tmp_path / "mirror" / "tpr" / "wow"
+        result = self._invoke(
+            "wow_classic",
+            "31650",
+            "--host",
+            "localhost:8000",
+            "--out-dir",
+            str(out_dir),
+            config=config,
+        )
+        assert result.exit_code == 0, result.output
+
+        versions = (out_dir / "versions").read_text()
+        cdns = (out_dir / "cdns").read_text()
+
+        # versions BPSV: header, seqn, rows per region
+        lines = versions.strip().split("\n")
+        assert lines[0].startswith("Region!STRING:0|BuildConfig!HEX:16")
+        assert "## seqn = 12345" in versions
+        assert (
+            "us|2c915a9a226a3f35af6c65fcc7b6ca4a|c54b41b3195b9482ce0d3c6bf0b86cdb"
+            in versions
+        )
+        assert "eu|2c915a9a226a3f35af6c65fcc7b6ca4a" in versions
+        assert "31650|1.13.2.31650" in versions
+
+        # cdns BPSV: hosts rewritten to the mirror host
+        assert "## seqn = 12345" in cdns
+        assert (
+            "us|tpr/wow|localhost:8000|http://localhost:8000|tpr/configs/data" in cdns
+        )
+
+    @patch("cascette_tools.database.wago.WagoClient")
+    def test_default_host_and_regions(self, mock_wago, tmp_path):
+        mock_client = Mock()
+        mock_wago.return_value.__enter__.return_value = mock_client
+        mock_client.list_builds.return_value = [
+            WagoBuild(
+                id=31650,
+                build="31650",
+                version="1.13.2.31650",
+                product="wow_classic",
+                build_config="bc",
+                cdn_config="cc",
+            )
+        ]
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        out_dir = tmp_path / "out"
+        result = self._invoke(
+            "wow_classic", "31650", "--out-dir", str(out_dir), config=config
+        )
+        assert result.exit_code == 0, result.output
+
+        versions = (out_dir / "versions").read_text()
+        # Default regions us,eu,kr,tw,cn; seqn falls back to 9999999
+        assert "## seqn = 9999999" in versions
+        assert versions.count("|bc|cc|") == 5
+
+    @patch("cascette_tools.database.wago.WagoClient")
+    def test_build_not_found(self, mock_wago, tmp_path):
+        mock_client = Mock()
+        mock_wago.return_value.__enter__.return_value = mock_client
+        mock_client.list_builds.return_value = []
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            "wow_classic", "99999", "--out-dir", str(tmp_path), config=config
+        )
+        assert result.exit_code != 0
+        assert "No builds found" in result.output

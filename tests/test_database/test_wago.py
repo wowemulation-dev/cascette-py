@@ -579,6 +579,91 @@ class TestWagoClient:
         ).fetchone()[0]
         assert count == 1
 
+    def test_import_builds_ribbit_columns(self, wago_client):
+        """Test keyring/regions/seqn columns survive import roundtrip."""
+        build = WagoBuild(
+            id=31650,
+            build="31650",
+            version="1.13.2.31650",
+            product="wow_classic",
+            build_config="2c915a9a226a3f35af6c65fcc7b6ca4a",
+            cdn_config="c54b41b3195b9482ce0d3c6bf0b86cdb",
+            keyring="",
+            regions="us,eu,kr,tw,cn",
+            seqn=9999999,
+        )
+        wago_client.import_builds_to_database([build])
+
+        row = wago_client.conn.execute(
+            "SELECT keyring, regions, seqn FROM builds "
+            "WHERE product = 'wow_classic' AND build = '31650'"
+        ).fetchone()
+        assert row["regions"] == "us,eu,kr,tw,cn"
+        assert row["seqn"] == 9999999
+        # keyring empty string stored as-is (versions column is empty for this build)
+        assert row["keyring"] == ""
+
+        # Update path also preserves the new columns
+        updated = WagoBuild(
+            id=31650,
+            build="31650",
+            version="1.13.2.31650",
+            product="wow_classic",
+            build_config="2c915a9a226a3f35af6c65fcc7b6ca4a",
+            cdn_config="c54b41b3195b9482ce0d3c6bf0b86cdb",
+            regions="eu,us",
+            seqn=1234,
+        )
+        wago_client.import_builds_to_database([updated])
+        row = wago_client.conn.execute(
+            "SELECT regions, seqn FROM builds "
+            "WHERE product = 'wow_classic' AND build = '31650'"
+        ).fetchone()
+        assert row["regions"] == "eu,us"
+        assert row["seqn"] == 1234
+
+    def test_migrate_adds_ribbit_columns(self, temp_config):
+        """Test _migrate_add_columns adds missing columns to old DBs."""
+        import sqlite3
+
+        db_path = temp_config.data_dir / "wago_builds.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Simulate an old-schema DB without the ribbit columns
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE builds (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER NOT NULL,
+                build TEXT NOT NULL,
+                version TEXT NOT NULL,
+                product TEXT NOT NULL,
+                build_time TIMESTAMP,
+                build_config TEXT,
+                cdn_config TEXT,
+                product_config TEXT,
+                encoding_ekey TEXT,
+                root_ekey TEXT,
+                install_ekey TEXT,
+                download_ekey TEXT,
+                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(product, build, build_config)
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        from cascette_tools.database.wago import WagoClient
+
+        client = WagoClient(temp_config)
+        cols = [r[1] for r in client.conn.execute("PRAGMA table_info(builds)")]
+        client.close()
+        assert "keyring" in cols
+        assert "regions" in cols
+        assert "seqn" in cols
+
     def test_get_database_builds(self, wago_client):
         """Test retrieving builds from database."""
         builds = [

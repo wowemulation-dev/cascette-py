@@ -77,15 +77,12 @@ class BlizzTrackClient:
             )
         return self._client
 
-    def _get_versions(self, product: str) -> list[dict[str, Any]]:
+    def _get_versions(self, product: str) -> tuple[list[dict[str, Any]], int | None]:
         """Fetch current versions manifest for a product.
 
         Returns:
-            List of per-region version entries from BlizzTrack.
-
-        Raises:
-            httpx.HTTPError: On network or API errors.
-            ValueError: If the API reports failure.
+            (list of per-region version entries, seqn of the snapshot).
+            seqn is None when the response omits it.
         """
         response = self.client.get(f"/manifest/{product}/versions")
         response.raise_for_status()
@@ -98,7 +95,9 @@ class BlizzTrackClient:
                 f"{result.get('code')} {result.get('message')}"
             )
 
-        return list(data["result"].get("data", []))
+        result = data["result"]
+        seqn = result.get("seqn")
+        return list(result.get("data", [])), (int(seqn) if seqn else None)
 
     def _get_seqn_history(
         self, product: str, file: str = "versions", page: int = 1, limit: int = 100
@@ -146,11 +145,13 @@ class BlizzTrackClient:
         entries: list[dict[str, Any]],
         product: str,
         recorded_at: datetime | None = None,
+        seqn: int | None = None,
     ) -> list[WagoBuild]:
         """Convert BlizzTrack per-region entries to deduplicated WagoBuild records.
 
         Multiple regions share identical config hashes within a snapshot.
-        We take the first occurrence per build_config and discard duplicates.
+        We take the first occurrence per build_config and discard duplicates,
+        but collect the full region list for the stored build record.
         """
         seen_configs: set[str] = set()
         builds: list[WagoBuild] = []
@@ -181,6 +182,12 @@ class BlizzTrackClient:
             elif build_id_raw:
                 build_num = str(build_id_raw)
 
+            regions = [
+                e.get("region", "")
+                for e in entries
+                if e.get("build_config") == build_config and e.get("region")
+            ]
+
             builds.append(
                 WagoBuild(
                     id=build_id,
@@ -191,6 +198,8 @@ class BlizzTrackClient:
                     build_config=build_config,
                     cdn_config=entry.get("cdn_config"),
                     product_config=entry.get("product_config"),
+                    regions=",".join(dict.fromkeys(regions)) if regions else None,
+                    seqn=seqn,
                 )
             )
 
@@ -211,8 +220,10 @@ class BlizzTrackClient:
 
         for product in targets:
             try:
-                entries = self._get_versions(product)
-                builds = self._entries_to_builds(entries, product, recorded_at=now)
+                entries, seqn = self._get_versions(product)
+                builds = self._entries_to_builds(
+                    entries, product, recorded_at=now, seqn=seqn
+                )
                 logger.info(
                     "blizztrack_current_fetched",
                     product=product,
@@ -235,7 +246,9 @@ class BlizzTrackClient:
         """Fetch and convert a single seqn snapshot. Called from worker threads."""
         try:
             entries = self._get_versions_at_seqn(product, seqn)
-            return self._entries_to_builds(entries, product, recorded_at=recorded_at)
+            return self._entries_to_builds(
+                entries, product, recorded_at=recorded_at, seqn=seqn
+            )
         except Exception as e:
             logger.debug(
                 "blizztrack_seqn_fetch_failed",
