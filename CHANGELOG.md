@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantics matching Agent.exe and cascette-rs. Previously additive tags
   were OR'd across groups, selecting all files for queries like
   `Windows,x86_64,enUS`.
+- `.patch.result` is written as ASCII text (`"0\n"`, matching the reference
+  installation) instead of the binary byte `0x01`. The client reads it on
+  startup; a missing or non-zero file triggers the online update check.
 - Catalog sync no longer fails when a root fragment ref gates on a bare
   boolean `requires` (build 4957 emits `"requires": true` for fragments
   without a gating condition); the boolean normalizes to the
