@@ -434,3 +434,50 @@ class TestValidateHashString:
         # SHA256 (64 chars)
         sha256_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         assert validate_hash_string(sha256_hash) is True
+
+
+class TestPathNormalizer:
+    """Test PathNormalizer path casing canonicalization."""
+
+    def test_backslash_to_slash(self):
+        from cascette_tools.core.utils import PathNormalizer
+
+        n = PathNormalizer()
+        assert n.normalize(r"Wow.exe") == "Wow.exe"
+        assert n.normalize(r"Utils\cef.pak") == "Utils/cef.pak"
+        assert n.normalize(r"Utils\locales\it.pak") == "Utils/locales/it.pak"
+
+    def test_first_seen_casing_wins(self):
+        from cascette_tools.core.utils import PathNormalizer
+
+        n = PathNormalizer()
+        # "Utils" seen first -> later "UTILS" references collapse to "Utils"
+        assert n.normalize(r"Utils\cef.pak") == "Utils/cef.pak"
+        assert n.normalize(r"UTILS\LIBCEF.DLL") == "Utils/LIBCEF.DLL"
+        assert n.normalize(r"UTILS\LOCALES\DE.PAK") == "Utils/LOCALES/DE.PAK"
+
+    def test_uppercase_first_seen_wins(self):
+        from cascette_tools.core.utils import PathNormalizer
+
+        n = PathNormalizer()
+        assert n.normalize(r"UTILS\LIBCEF.DLL") == "UTILS/LIBCEF.DLL"
+        assert n.normalize(r"Utils\cef.pak") == "UTILS/cef.pak"
+
+    def test_filename_preserved_verbatim(self):
+        from cascette_tools.core.utils import PathNormalizer
+
+        n = PathNormalizer()
+        assert n.normalize(r"Utils\MyFile.PAK") == "Utils/MyFile.PAK"
+        assert n.normalize(r"Utils\myfile.pak") == "Utils/myfile.pak"
+
+    def test_app_bundle_nested_paths(self):
+        from cascette_tools.core.utils import PathNormalizer
+
+        n = PathNormalizer()
+        p = n.normalize(
+            r"World of Warcraft.app\Contents\Helpers\Blizzard Error.app\Contents\MacOS\Blizzard Error"
+        )
+        assert p == (
+            "World of Warcraft.app/Contents/Helpers/Blizzard Error.app/"
+            "Contents/MacOS/Blizzard Error"
+        )

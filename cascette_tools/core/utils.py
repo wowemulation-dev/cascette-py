@@ -206,3 +206,58 @@ def validate_hash_string(hash_str: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+class PathNormalizer:
+    """Normalize install-manifest paths for case-sensitive filesystems.
+
+    Install manifest entries use Windows backslash separators and mixed
+    directory casing (e.g. ``Utils\\cef.pak`` next to ``UTILS\\LIBCEF.DLL``).
+    On Linux/macOS those are distinct directories, which would create
+    duplicate ``Utils/`` and ``UTILS/`` trees. To match Agent.exe and
+    cascette-rs, each directory component is rewritten to the first casing
+    seen for it within a single install; filenames are preserved verbatim.
+
+    On case-insensitive filesystems (Windows) only the backslash conversion
+    is applied.
+    """
+
+    def __init__(self) -> None:
+        # Lowercased directory path -> first casing seen.
+        self.dir_case: dict[str, str] = {}
+
+    def normalize(self, file_path: str) -> str:
+        """Normalize an install manifest path.
+
+        Args:
+            file_path: Install manifest path with backslash separators.
+
+        Returns:
+            Path with forward slashes and canonicalized directory casing.
+        """
+        path = file_path.replace("\\", "/")
+
+        # On case-insensitive filesystems, only the separator conversion
+        # is needed. On POSIX, canonicalize directory casing.
+        import sys
+
+        if sys.platform == "win32":
+            return path
+
+        components = path.split("/")
+        if len(components) <= 1:
+            return path
+
+        canonical: list[str] = []
+        key = ""
+        for i, component in enumerate(components):
+            if i == len(components) - 1:
+                canonical.append(component)
+                continue
+            if key:
+                key += "/"
+            key += component.lower()
+            cased = self.dir_case.setdefault(key, component)
+            canonical.append(cased)
+
+        return "/".join(canonical)

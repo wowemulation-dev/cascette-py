@@ -57,7 +57,7 @@ from cascette_tools.core.product_state import (
     generate_all_state_files,
 )
 from cascette_tools.core.types import LocaleConfig, Product
-from cascette_tools.core.utils import format_size
+from cascette_tools.core.utils import PathNormalizer, format_size
 from cascette_tools.formats.blte import BLTEBuilder, decompress_blte, is_blte
 from cascette_tools.formats.build_info import (
     BuildInfoParser,
@@ -1696,6 +1696,10 @@ def install_to_casc(
         console.print(f"\n[cyan]Initializing CASC storage at:[/cyan] {install_path}")
         storage = LocalStorage(install_path, shmem_version=int(shmem_version))
         storage.initialize()
+        # Path normalizer for install-manifest loose files. Shared across
+        # all writes so directory casing is canonicalized to the first
+        # occurrence (e.g. "Utils" vs "UTILS"), matching cascette-rs.
+        path_normalizer = PathNormalizer()
 
         console.print("  Created: Data/data/")
         console.print("  Created: Data/indices/")
@@ -2181,11 +2185,10 @@ def install_to_casc(
                             continue
 
                         try:
-                            # Write to filesystem (normalize Windows paths)
                             # Normalize Windows paths and place loose files
                             # under the product subfolder (e.g. _classic_),
                             # matching Agent.exe's LooseFileHandler behavior.
-                            fname = inst_entry.filename.replace("\\", "/")
+                            fname = path_normalizer.normalize(inst_entry.filename)
                             target_root = (
                                 install_path / subfolder if subfolder else install_path
                             )
