@@ -1774,6 +1774,8 @@ def install_to_casc(
         else:
             console.print("\n[cyan]Using existing .build.info...[/cyan]")
             build_info = existing_info
+            if not version_str and existing_info.version:
+                version_str = existing_info.version
 
         # Step 2: Load ecache or fetch encoding file
         ecache_path = install_path / "Data" / "ecache"

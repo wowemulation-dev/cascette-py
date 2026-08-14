@@ -260,14 +260,15 @@ def generate_launcher_db(locale: str, target_dir: Path) -> Path:
 def generate_patch_result(target_dir: Path, success: bool = True) -> Path:
     """Generate .patch.result file indicating patch operation status.
 
-    The .patch.result file contains a single byte indicating the result
-    of the last patch operation:
-    - 0x01: Success
-    - 0x00: Failure
+    The client reads this file at the installation root on startup. Writing
+    ASCII "0" signals that no update is pending; a missing or non-zero file
+    makes the client contact the live patch server and show an update
+    dialog. Matches the reference install ("0\n") and cascette-rs (b"0").
 
     Args:
         target_dir: Target installation directory.
-        success: Whether the patch was successful.
+        success: Whether the patch was successful (kept for API parity;
+            a successful install always writes "0").
 
     Returns:
         Path to the generated file.
@@ -275,7 +276,7 @@ def generate_patch_result(target_dir: Path, success: bool = True) -> Path:
     logger.info("Generating .patch.result", success=success)
 
     patch_result_path = target_dir / ".patch.result"
-    patch_result_path.write_bytes(b"\x01" if success else b"\x00")
+    patch_result_path.write_bytes(b"0\n")
 
     logger.info("Generated .patch.result", path=str(patch_result_path))
     return patch_result_path

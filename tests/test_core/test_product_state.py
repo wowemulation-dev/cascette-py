@@ -169,11 +169,12 @@ class TestGeneratePatchResult:
 
     def test_success_byte(self, tmp_path: Path) -> None:
         path = generate_patch_result(tmp_path, success=True)
-        assert path.read_bytes() == b"\x01"
+        # ASCII "0" signals no update pending (reference: "0\n")
+        assert path.read_bytes() == b"0\n"
 
     def test_failure_byte(self, tmp_path: Path) -> None:
         path = generate_patch_result(tmp_path, success=False)
-        assert path.read_bytes() == b"\x00"
+        assert path.read_bytes() == b"0\n"
 
 
 class TestGenerateFlavorInfo:
