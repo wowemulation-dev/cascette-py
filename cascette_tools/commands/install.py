@@ -1748,16 +1748,20 @@ def install_to_casc(
                 build_config_hash=build_config_hash,
                 cdn_config_hash=cdn_config_hash,
                 cdn_path=cdn_client.cdn_path or "",
-                cdn_hosts=cdn_client.cdn_servers or [],
+                cdn_hosts=cdn_client.cdn_hosts or [],
                 version=version_str,
-                product=build_config.build_product or product,
+                product=product,
                 platform=platform,
                 architecture=arch,
                 locale=locale,
                 region=region,
                 has_speech=True,
                 has_text=True,
-                install_key="",
+                install_key=(
+                    install_info.encoding_key
+                    if install_info and install_info.encoding_key
+                    else ""
+                ),
                 im_size=None,
                 keyring="",
             )
@@ -2259,8 +2263,9 @@ def install_to_casc(
         console.print("\n[cyan]Step 10:[/cyan] Generating product state files...")
 
         # Determine product code from build config
-        product_code = build_config.build_product or product
-
+        # Use the requested product code for state files. build_product is
+        # a display name (e.g. "WoW"), not the TACT product code.
+        product_code = product
         product_info = ProductInfo(
             product_code=product_code,
             version=version_str or "1.0.0.00000",
@@ -2779,9 +2784,9 @@ def update(
             build_config_hash=build_config_hash,
             cdn_config_hash=cdn_config_hash,
             cdn_path=cdn_client.cdn_path or "",
-            cdn_hosts=cdn_client.cdn_servers or [],
+            cdn_hosts=cdn_client.cdn_hosts or [],
             version=version_str,
-            product=new_build_config.build_product or product,
+            product=product,
             platform=platform,
             architecture=arch,
             locale=locale,
@@ -3325,9 +3330,9 @@ def install_containerless(
             build_config_hash=build_config_hash,
             cdn_config_hash=cdn_config_hash,
             cdn_path=cdn_client.cdn_path or "",
-            cdn_hosts=cdn_client.cdn_servers or [],
+            cdn_hosts=cdn_client.cdn_hosts or [],
             version=version_str,
-            product=build_config.build_product or product,
+            product=product,
             platform=platform,
             architecture=arch,
             locale=locale,
@@ -3342,7 +3347,7 @@ def install_containerless(
 
         # Step 10: Generate product state files
         console.print("\n[cyan]Step 10:[/cyan] Generating product state files...")
-        product_code = build_config.build_product or product
+        product_code = product
         product_info = ProductInfo(
             product_code=product_code,
             version=version_str or "1.0.0.00000",
@@ -3667,9 +3672,9 @@ def update_containerless(
             build_config_hash=build_config_hash,
             cdn_config_hash=cdn_config_hash,
             cdn_path=cdn_client.cdn_path or "",
-            cdn_hosts=cdn_client.cdn_servers or [],
+            cdn_hosts=cdn_client.cdn_hosts or [],
             version=version_str,
-            product=build_config.build_product or product,
+            product=product,
             platform=platform,
             architecture=arch,
             locale=locale,

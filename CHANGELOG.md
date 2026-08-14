@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cascette builds ribbit-files <product> <build>` command: generates the
+  simulated `versions`/`cdns` BPSV replies a wow client and cascette tooling
+  expect, from the build database. Replaces the Arctium archive fetch used
+  by `tools/setup_local_ribbit.sh`, which does not carry versions files for
+  historical builds. Hosts are rewritten to the chosen mirror (`--host`).
+- `--loose-only` and `--subfolder` options on `install install-to-casc`:
+  stage-1 installs write only the install-manifest loose files (Wow.exe,
+  DLLs, locale packs) plus layout metadata, and place them under the product
+  subfolder (e.g. `_classic_`) matching Agent.exe's LooseFileHandler.
+- `keyring`, `regions`, `seqn` columns on the wago build database, populated
+  from Ribbit and BlizzTrack syncs; additive migration for existing DBs.
+- `TACTClient` `base_url` override (also via `CASCETTE_RIBBIT_BASE_URL`) so
+  Ribbit fetches can be pointed at a local mirror serving seeded
+  versions/cdns files.
+- `tools/range_http_server.py` and `tools/setup_local_ribbit.sh`, imported
+  from cascette-rs for local CDN mirror serving.
+
+### Fixed
+
+- `.build.info` writer now emits the 14-column Agent.exe header (no KeyRing
+  column). The previous 15-column header would misalign Product during the
+  client's PSV parse. Product is now the requested TACT product code
+  (`wow_classic`), not the build-config display name (`WoW`); Install Key is
+  the install manifest encoding key; CDN Hosts/Servers are split correctly.
+- `apply_tag_query` now implements OR-within-group / AND-between-groups tag
+  semantics matching Agent.exe and cascette-rs. Previously additive tags
+  were OR'd across groups, selecting all files for queries like
+  `Windows,x86_64,enUS`.
+- Catalog sync no longer fails when a root fragment ref gates on a bare
+  boolean `requires` (build 4957 emits `"requires": true` for fragments
+  without a gating condition); the boolean normalizes to the
+  `{"always": ...}` criteria form.
+
 ## [0.3.0] - 2026-08-01
 
 ### Added

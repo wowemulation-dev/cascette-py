@@ -336,7 +336,40 @@ class TestCreateBuildInfo:
         )
 
         assert info.cdn_hosts == "host1.com host2.com host3.com"
-        assert info.cdn_servers == "host1.com host2.com host3.com"
+        # Servers are full URLs per host, matching Agent.exe output shape.
+        assert info.cdn_servers == (
+            "http://host1.com/?maxhosts=4 https://host1.com/?maxhosts=4&fallback=1 "
+            "http://host2.com/?maxhosts=4 https://host2.com/?maxhosts=4&fallback=1 "
+            "http://host3.com/?maxhosts=4 https://host3.com/?maxhosts=4&fallback=1"
+        )
+
+    def test_cdn_servers_loopback_single_http(self):
+        """Test loopback hosts get only an HTTP server entry."""
+        info = create_build_info(
+            branch="us",
+            build_config_hash="abc",
+            cdn_config_hash="def",
+            cdn_path="tpr/wow",
+            cdn_hosts=["localhost:8000"],
+            version="1.0.0",
+            product="wow",
+        )
+        assert info.cdn_hosts == "localhost:8000"
+        assert info.cdn_servers == "http://localhost:8000/?maxhosts=4"
+
+    def test_cdn_servers_explicit_list(self):
+        """Test an explicit cdn_servers list is used verbatim."""
+        info = create_build_info(
+            branch="us",
+            build_config_hash="abc",
+            cdn_config_hash="def",
+            cdn_path="tpr/wow",
+            cdn_hosts=["localhost:8000"],
+            cdn_servers=["http://localhost:8000/?maxhosts=4"],
+            version="1.0.0",
+            product="wow",
+        )
+        assert info.cdn_servers == "http://localhost:8000/?maxhosts=4"
 
 
 class TestUpdateLastActivated:

@@ -393,6 +393,7 @@ def create_build_info(
     install_key: str = "",
     im_size: int | None = None,
     keyring: str = "",
+    cdn_servers: list[str] | None = None,
 ) -> LocalBuildInfo:
     """Create a new LocalBuildInfo with computed fields.
 
@@ -424,6 +425,25 @@ def create_build_info(
     )
     cdn_hosts_str = " ".join(cdn_hosts)
 
+    # CDN Servers: full URLs per host, matching Agent.exe output shape.
+    # Local-loopback hosts (localhost, 127.*, ::1) get only an HTTP entry
+    # because local mirrors don't terminate TLS.
+    def is_loopback(host: str) -> bool:
+        host = host.split(":")[0].lower()
+        return host in ("localhost", "::1") or host.startswith("127.")
+
+    if cdn_servers is None:
+        cdn_servers = [
+            f"http://{host}/?maxhosts=4" if is_loopback(host) else url
+            for host in cdn_hosts
+            for url in (
+                [f"http://{host}/?maxhosts=4", f"https://{host}/?maxhosts=4&fallback=1"]
+                if not is_loopback(host)
+                else [f"http://{host}/?maxhosts=4"]
+            )
+        ]
+    cdn_servers_str = " ".join(cdn_servers)
+
     # Build locale config
     locale_config = LocaleConfig(code=locale, has_speech=has_speech, has_text=has_text)
 
@@ -436,7 +456,7 @@ def create_build_info(
         im_size=im_size,
         cdn_path=cdn_path,
         cdn_hosts=cdn_hosts_str,
-        cdn_servers=cdn_hosts_str,
+        cdn_servers=cdn_servers_str,
         tags=tags_str,
         armadillo="",
         last_activated="",

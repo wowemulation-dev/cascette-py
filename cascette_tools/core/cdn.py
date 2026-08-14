@@ -42,6 +42,7 @@ class CDNClient:
 
         # These will be populated from TACT cdns endpoint
         self.cdn_path: str | None = None  # e.g., "tpr/wow"
+        self.cdn_hosts: list[str] = []  # List of CDN hostnames
         self.cdn_servers: list[str] = []  # List of CDN server URLs
         self._initialized = False
 
@@ -82,8 +83,9 @@ class CDNClient:
                 # Extract the Path value - CRITICAL!
                 self.cdn_path = entry.get("Path", "")
 
-                # Extract CDN servers
+                # Extract CDN hosts and servers
                 hosts = entry.get("Hosts", "").split()
+                self.cdn_hosts = list(hosts)
                 self.cdn_servers = [f"http://{host}" for host in hosts]
 
                 logger.info(

@@ -503,17 +503,21 @@ def parse_tag_query(query: str) -> list[tuple[str, bool]]:
 def apply_tag_query(tags: list[SizeTag], query: str, file_count: int) -> bytes:
     """Apply tag query and generate selection bitmap matching Agent.exe behavior.
 
-    Implements ApplyTagQuery algorithm from Agent.exe:
-    1. Parse query to find matching tags
-    2. If any subtractive tags, initialize bitmap to 0xFF (all selected)
-       Otherwise, initialize to 0x00 (none selected)
-    3. Apply tag filters:
-       - Subtractive tags: clear bits to exclude files
-       - Additive tags: set bits to include files
+    Tag query logic (from Agent.exe ApplyTagQuery / cascette-rs
+    get_files_for_tag_query):
+    1. Requested tags are grouped by TagType (Platform, Architecture,
+       Locale, etc.)
+    2. Within each group, the tag bitmasks are OR'd — a file matches the
+       group if ANY tag in the group matches (multi-locale installs).
+    3. Between groups, the group masks are AND'd — a file must match ALL
+       groups.
+    4. Subtractive tags (prefixed with `!`) clear bits after the groups
+       have been combined.
 
     Args:
         tags: List of SizeTag objects
-        query: Tag query string (e.g., "enUS,!beta,debug")
+        query: Tag query string (e.g., "enUS,!beta,debug" or
+            "Windows,x86_64,enUS")
         file_count: Total number of files in manifest
 
     Returns:
@@ -530,42 +534,50 @@ def apply_tag_query(tags: list[SizeTag], query: str, file_count: int) -> bytes:
         logger.debug("No tags or empty query, returning all files selected")
         return bytes([0xFF] * bitmap_size)
 
-    # Determine if any subtractive tags in query
-    has_subtractive = any(is_subtractive for _, is_subtractive in parsed_query)
-
-    # Initialize bitmap based on tag type
-    if has_subtractive:
-        # Start with all selected, then clear subtractive tags
-        bitmap = bytearray([0xFF] * bitmap_size)
-    else:
-        # Start with none selected, then set additive tags
-        bitmap = bytearray([0x00] * bitmap_size)
-
     # Create tag lookup for quick access
     tag_map: dict[str, SizeTag] = {tag.name: tag for tag in tags}
 
-    # Apply each tag filter
+    # Resolve query tokens to tags, split subtractive from additive
+    additive: list[SizeTag] = []
+    subtractive: list[SizeTag] = []
     for tag_name, is_subtractive in parsed_query:
         tag = tag_map.get(tag_name)
-
         if tag is None:
             logger.warning("Unknown tag '%s' found in query, ignoring", tag_name)
             continue
+        (subtractive if is_subtractive else additive).append(tag)
 
-        # Apply tag bitmap to selection
-        for i in range(len(tag.bit_mask)):
-            if i >= bitmap_size:
-                break
+    # No recognized tags: keep the legacy fallback (all selected).
+    if not additive and not subtractive:
+        logger.debug("No recognized tags in query, returning all files selected")
+        return bytes([0xFF] * bitmap_size)
 
-            if is_subtractive:
-                # Clear bits for subtractive tags
-                bitmap[i] &= ~tag.bit_mask[i]
-            else:
-                # Set bits for additive tags
-                bitmap[i] |= tag.bit_mask[i]
+    # AND identity: start with all bits set.
+    result_mask = bytearray([0xFF] * bitmap_size)
 
-    logger.debug("Applied tag query, bitmap size: %d bytes", len(bitmap))
-    return bytes(bitmap)
+    # OR within tag-type group, AND between groups.
+    if additive:
+        groups: dict[int, list[SizeTag]] = {}
+        for tag in additive:
+            groups.setdefault(tag.tag_type, []).append(tag)
+
+        for group_tags in groups.values():
+            # OR identity: start with all bits clear.
+            group_mask = bytearray(bitmap_size)
+            for tag in group_tags:
+                for i in range(min(len(tag.bit_mask), bitmap_size)):
+                    group_mask[i] |= tag.bit_mask[i]
+            # AND between groups.
+            for i in range(bitmap_size):
+                result_mask[i] &= group_mask[i]
+
+    # Subtractive tags clear bits.
+    for tag in subtractive:
+        for i in range(min(len(tag.bit_mask), bitmap_size)):
+            result_mask[i] &= ~tag.bit_mask[i]
+
+    logger.debug("Applied tag query, bitmap size: %d bytes", len(result_mask))
+    return bytes(result_mask)
 
 
 def is_file_selected(bitmap: bytes, file_index: int) -> bool:
