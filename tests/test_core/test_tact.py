@@ -500,7 +500,7 @@ class TestBPSVParserCommentHandling:
         manifest = "\n".join(
             [
                 "## seqn = 3568387",
-                "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|BuildId!DEC:0|VersionsName!String:0|ProductConfig!HEX:16",
+                "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|BuildId!DEC:0|VersionsName!STRING:0|ProductConfig!HEX:16",
                 "us|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
                 "eu|4e4525fb424e72da28bc1b9ab5f22a84|c4a9ee27e76de9f8d63cd65cf8dce5bf||9370|3.13.3.9370|e3a2ca2b2d1abf6d3dfbaab3a29e8af0",
             ]

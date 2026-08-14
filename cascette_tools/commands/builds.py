@@ -1070,9 +1070,11 @@ def ribbit_files(
             raise click.Abort()
 
         # --- versions BPSV ---
+        # Type tags are case-sensitive: STRING / DEC / HEX. "String:0" for
+        # VersionsName is a fatal assert in the client's FormatHeader.
         versions_header = (
             "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|"
-            "KeyRing!HEX:16|BuildId!DEC:4|VersionsName!String:0|"
+            "KeyRing!HEX:16|BuildId!DEC:4|VersionsName!STRING:0|"
             "ProductConfig!HEX:16"
         )
         versions_lines = [versions_header, f"## seqn = {seqn_value}"]
