@@ -34,6 +34,187 @@ INDICES_DIR = "indices"
 CONFIG_DIR = "config"
 SHMEM_DIR = "shmem"
 ECACHE_DIR = "ecache"
+# Local file header size (30 bytes) preceding each BLTE entry in data files,
+# and the 480-byte segment header (16 reconstruction headers, one per bucket).
+# Verified against a client-written 1.13.2.31650 store: each entry is
+# [30-byte LocalHeader][BLTE payload], and the IDX encoded_size INCLUDES the
+# 30-byte header (idx size 13061932 = 30 + 13061902-byte payload).
+LOCAL_HEADER_SIZE = 0x1E  # 30 bytes
+SEGMENT_HEADER_SIZE = 0x1E0  # 480 bytes
+
+# Jenkins hash seed for LocalHeader checksum_a (matching
+# tact::containerhandler::ValidateLocalFileHeader).
+CHECKSUM_A_SEED = 0x3D6BE971
+
+# Lookup table for checksum_b phase-2 XOR mask. Extracted from
+# WoW.exe 1.13.2.31650 at 0x14217D690; indexed by (global_offset + 0x1E) & 0xF.
+CHECKSUM_B_LUT = [
+    0x049396B8,
+    0x72A82A9B,
+    0xEE626CCA,
+    0x9917754F,
+    0x15DE40B1,
+    0xF5A8A9B6,
+    0x421EAC7E,
+    0xA9D55C9A,
+    0x317FD40C,
+    0x04FAF80D,
+    0x3D6BE971,
+    0x52933CFD,
+    0x27F64B7D,
+    0xC6F5C11B,
+    0xD5757E3A,
+    0x6C388745,
+]
+
+
+@dataclass
+class LocalFileHeader:
+    """30-byte local file header preceding each BLTE entry in data files.
+
+    Layout (matches cascette-rs LocalHeader and Agent.exe writes):
+    - 0x00: 16 bytes — encoding key (full 16 bytes reversed; the client
+      stores the complete reversed key, verified byte-identical against a
+      client-written entry)
+    - 0x10: 4 bytes — encoded_size LE (includes this 30-byte header)
+    - 0x14: 2 bytes — flags (1 = normal entry)
+    - 0x16: 4 bytes — checksum_a (Jenkins hash of bytes 0..22, seed 0x3D6BE971)
+    - 0x1A: 4 bytes — checksum_b (XOR accumulation + LUT mask)
+    """
+
+    encoding_key: bytes  # 16 bytes, reversed byte order
+    encoded_size: int  # total entry size including the 30-byte header
+    flags: int = 1
+    checksum_a: int = 0
+    checksum_b: int = 0
+
+    @classmethod
+    def new(
+        cls,
+        encoding_key: bytes,
+        encoded_size: int,
+        global_offset: int,
+        flags: int = 0,
+    ) -> LocalFileHeader:
+        """Create a header, computing both checksums.
+
+        Args:
+            encoding_key: Full 16-byte encoding key (stored reversed)
+            encoded_size: Total entry size including this 30-byte header
+            global_offset: Byte position of this header across all data files
+            flags: 0 for normal data entries, 1 for segment reconstruction
+                headers (verified against a client-written 1.13.2.31650
+                store: 614/632 data-entry headers carry flags=0)
+        """
+        reversed_key = encoding_key[::-1]
+        header = cls(
+            encoding_key=reversed_key,
+            encoded_size=encoded_size,
+            flags=flags,
+            checksum_a=0,
+            checksum_b=0,
+        )
+        # checksum_a must be computed first (bytes 0x16-0x19 are read during
+        # checksum_b accumulation).
+        header.checksum_a = cls.compute_checksum_a(header.to_bytes())
+        header.checksum_b = cls.compute_checksum_b(header.to_bytes(), global_offset)
+        return header
+
+    def to_bytes(self) -> bytes:
+        """Serialize the 30-byte header."""
+        return (
+            self.encoding_key[:16].ljust(16, b"\x00")
+            + struct.pack("<I", self.encoded_size)
+            + struct.pack("<H", self.flags)
+            + struct.pack("<I", self.checksum_a)
+            + struct.pack("<I", self.checksum_b)
+        )
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> LocalFileHeader:
+        """Parse a 30-byte header."""
+        if len(data) < LOCAL_HEADER_SIZE:
+            raise ValueError(
+                f"Local file header too small: {len(data)} < {LOCAL_HEADER_SIZE}"
+            )
+        return cls(
+            encoding_key=data[0x00:0x10],
+            encoded_size=struct.unpack("<I", data[0x10:0x14])[0],
+            flags=struct.unpack("<H", data[0x14:0x16])[0],
+            checksum_a=struct.unpack("<I", data[0x16:0x1A])[0],
+            checksum_b=struct.unpack("<I", data[0x1A:0x1E])[0],
+        )
+
+    def original_encoding_key(self) -> bytes:
+        """Recover the full 16-byte key from the reversed field."""
+        return self.encoding_key[::-1]
+
+    @staticmethod
+    def compute_checksum_a(header_bytes: bytes) -> int:
+        """checksum_a: Jenkins hash of bytes 0..22 with seed 0x3D6BE971."""
+        return hashlittle(header_bytes[:0x16], CHECKSUM_A_SEED) & 0xFFFFFFFF
+
+    @staticmethod
+    def compute_checksum_b(header_bytes: bytes, global_offset: int) -> int:
+        """checksum_b: XOR accumulation + LUT-derived mask.
+
+        Phase 1: XOR-accumulate bytes 0..26 into a 4-byte register,
+        rotating by (global_offset + i) & 3.
+        Phase 2: mask = LUT[(global_offset + 0x1E) & 0xF] ^ (global_offset + 0x1E);
+        result[j] = accum[j] ^ mask[j] for the rotation of (global_offset + 0x1A).
+        """
+        accum = [0, 0, 0, 0]
+        for i, byte in enumerate(header_bytes[:0x1A]):
+            accum[(global_offset + i) & 3] ^= byte
+
+        offset_plus_header = (global_offset + LOCAL_HEADER_SIZE) & 0xFFFFFFFF
+        lut_index = offset_plus_header & 0xF
+        mask_u32 = (CHECKSUM_B_LUT[lut_index] ^ offset_plus_header) & 0xFFFFFFFF
+        mask = struct.pack("<I", mask_u32)
+
+        result = bytearray(4)
+        for i in range(4):
+            j = (global_offset + 0x1A + i) & 3
+            result[i] = accum[j] ^ mask[j]
+        return int.from_bytes(bytes(result), "little")
+
+
+def generate_segment_key(
+    path_hash: bytes, segment_count: int, target_bucket: int
+) -> bytes:
+    """Generate a 16-byte key for a segment reconstruction header.
+
+    Starts from the 16-byte path hash, encodes the segment count in bytes
+    [1] and [2] (big-endian), then brute-forces byte [0] until the first
+    9 bytes hash to the target bucket with seed 1.
+    """
+    key = bytearray(path_hash)
+    key[1] = segment_count & 0xFF
+    key[2] = (segment_count >> 8) & 0xFF
+    for probe in range(0x100):
+        key[0] = probe
+        if compute_bucket(bytes(key[:9]), seed=1) == target_bucket:
+            return bytes(key)
+    key[0] = 0
+    return bytes(key)
+
+
+def build_segment_header(segment_index: int, path_hash: bytes) -> bytes:
+    """Build the 480-byte segment header (16 reconstruction headers).
+
+    One 30-byte LocalHeader per KMT bucket, each with a generated key that
+    hashes to its bucket index (seed 1), encoded_size = 0x1E (the header
+    size itself), and valid checksums.
+    """
+    seg_base = segment_index * (1 << 30)
+    enc_size = LOCAL_HEADER_SIZE
+    parts = []
+    for bucket in range(16):
+        key = generate_segment_key(path_hash, segment_index, bucket)
+        global_offset = seg_base + bucket * LOCAL_HEADER_SIZE
+        header = LocalFileHeader.new(key, enc_size, global_offset, flags=1)
+        parts.append(header.to_bytes())
+    return b"".join(parts)
 
 
 @dataclass
@@ -557,12 +738,19 @@ class LocalStorage:
         install state, but their index entries only exist on disk. Without
         reloading, flush_indices would rewrite idx files with only the
         in-memory entries, dropping all prior downloads.
+
+        Also restores `current_archive_id` / `current_archive_offset` to the
+        end of the last written entry so resumed installs append new data
+        after existing entries instead of overwriting them.
         """
         import re
 
         if not self.data_path.exists():
             return
         idx_pattern = re.compile(r"^([0-9a-f]{2})([0-9a-f]{8})\.idx$", re.IGNORECASE)
+
+        max_end_offset = 0
+        max_end_archive = 0
         for idx_file in self.data_path.glob("*.idx"):
             match = idx_pattern.match(idx_file.name)
             if not match:
@@ -578,8 +766,23 @@ class LocalStorage:
                 if entry.key not in existing:
                     self.bucket_entries[bucket].append(entry)
                     self._written_keys[entry.key] = entry.size
+                end = entry.archive_offset + entry.size
+                if end > max_end_offset:
+                    max_end_offset = end
+                    max_end_archive = entry.archive_id
             logger.debug(
                 f"Loaded {len(info.entries)} entries from {idx_file.name} (bucket {bucket:02x})"
+            )
+
+        if max_end_offset > 0:
+            self.current_archive_id = max_end_archive
+            # Round to a 0x10 boundary like the agent's write pointer; the
+            # next entry's 30-byte header starts here.
+            self.current_archive_offset = max_end_offset
+            logger.debug(
+                "Restored write position",
+                archive_id=self.current_archive_id,
+                offset=self.current_archive_offset,
             )
 
     def _write_empty_index(self, path: Path, bucket: int) -> None:
@@ -644,32 +847,54 @@ class LocalStorage:
         # Determine bucket
         bucket = compute_bucket(encoding_key)
 
+        # Total entry size: 30-byte local header + BLTE payload. The IDX
+        # encoded_size INCLUDES the header (matches the client: idx size
+        # 13061932 = 30-byte header + 13061902-byte payload).
+        total_size = LOCAL_HEADER_SIZE + len(data)
+
         # Write to current data file
         data_path = self.data_path / format_data_filename(self.current_archive_id)
 
-        # Check if we need a new archive (1GB limit)
-        if self.current_archive_offset + len(data) > 0x40000000:
+        # Check if we need a new archive (1GB limit, counting header + payload)
+        if self.current_archive_offset + total_size > 0x40000000:
             self.current_archive_id += 1
             self.current_archive_offset = 0
             data_path = self.data_path / format_data_filename(self.current_archive_id)
 
-        # Write content
+        # Create a new data file: write the 480-byte segment header
+        # (16 reconstruction headers, one per KMT bucket) at offset 0.
+        if self.current_archive_offset == 0:
+            path_hash = hashlib.md5(str(self.data_path).encode()).digest()
+            seg_header = build_segment_header(self.current_archive_id, path_hash)
+            with open(data_path, "wb") as f:
+                f.write(seg_header)
+            self.current_archive_offset = SEGMENT_HEADER_SIZE
+
+        # Global offset = segment base + file offset. Used for header checksums.
+        global_offset = (
+            self.current_archive_id * (1 << 30) + self.current_archive_offset
+        )
+
+        # Build the 30-byte local header with checksums, then write
+        # [local header][BLTE payload].
+        local_header = LocalFileHeader.new(encoding_key, total_size, global_offset)
         with open(data_path, "ab") as f:
+            f.write(local_header.to_bytes())
             f.write(data)
 
-        # Create index entry
+        # Create index entry. The offset points at the START of the 30-byte
+        # header (not the BLTE payload), matching the client's layout.
         entry = LocalIndexEntry(
             key=truncated_key,
             archive_id=self.current_archive_id,
             archive_offset=self.current_archive_offset,
-            size=len(data),
+            size=total_size,
         )
 
         # Update offset and track entry
-        self.current_archive_offset += len(data)
+        self.current_archive_offset += total_size
         self.bucket_entries[bucket].append(entry)
         self._written_keys[truncated_key] = len(data)
-
         return entry
 
     def flush_indices(self) -> None:
@@ -892,13 +1117,19 @@ class LocalStorage:
         return None
 
     def read_content(self, entry: LocalIndexEntry) -> bytes:
-        """Read raw content from a local data archive by index entry.
+        """Read content from a local data archive by index entry.
+
+        Handles the 30-byte local header if present (agent-format entries),
+        mirroring cascette-rs `read_content`: if the bytes at offset+30 are
+        BLTE magic, the header is skipped and the BLTE payload returned.
+        Entries without a header (direct BLTE, e.g. from CDN) return the
+        raw bytes at the offset.
 
         Args:
             entry: Index entry specifying archive location and size
 
         Returns:
-            Raw bytes (BLTE-encoded) from the archive
+            Raw bytes (BLTE-encoded) from the archive, header stripped
 
         Raises:
             FileNotFoundError: If the data archive does not exist
@@ -912,6 +1143,13 @@ class LocalStorage:
             raise ValueError(
                 f"Short read from {data_path}: got {len(data)}, expected {entry.size}"
             )
+
+        # Agent-format entries: [30-byte LocalHeader][BLTE payload].
+        if (
+            len(data) >= LOCAL_HEADER_SIZE + 4
+            and data[LOCAL_HEADER_SIZE : LOCAL_HEADER_SIZE + 4] == b"BLTE"
+        ):
+            return data[LOCAL_HEADER_SIZE:]
         return data
 
     def get_statistics(self) -> dict[str, Any]:

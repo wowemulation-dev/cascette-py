@@ -17,7 +17,13 @@ from cascette_tools.core.cdn_archive_fetcher import (
     CdnArchiveFetcher,
 )
 from cascette_tools.core.integrity import IntegrityError
-from cascette_tools.core.local_storage import LocalStorage
+from cascette_tools.core.local_storage import (
+    LOCAL_HEADER_SIZE,
+    SEGMENT_HEADER_SIZE,
+    LocalFileHeader,
+    LocalStorage,
+    build_segment_header,
+)
 
 
 class TestPhase1Pipeline:
@@ -59,12 +65,21 @@ class TestPhase1Pipeline:
         storage.initialize()
 
         entry = storage.write_content(ekey, fetched, expected_ckey=ckey)
-        assert entry.size == len(data)
+        assert entry.size == LOCAL_HEADER_SIZE + len(data)
 
         # Step 3: Verify data file was written
         data_file = storage.data_path / "data.000"
         assert data_file.exists()
-        assert data_file.read_bytes() == data
+        assert (
+            data_file.read_bytes()
+            == build_segment_header(
+                0, hashlib.md5(str(storage.data_path).encode()).digest()
+            )
+            + LocalFileHeader.new(
+                ekey, LOCAL_HEADER_SIZE + len(data), SEGMENT_HEADER_SIZE
+            ).to_bytes()
+            + data
+        )
 
     def test_fetch_size_mismatch_prevents_write(self, tmp_path: Path):
         """Size verification failure in fetcher prevents any write to storage."""
@@ -120,7 +135,10 @@ class TestPhase1Pipeline:
 
         # Data file contains data only once
         data_file = storage.data_path / "data.000"
-        assert data_file.stat().st_size == len(data)
+        assert (
+            data_file.stat().st_size
+            == SEGMENT_HEADER_SIZE + LOCAL_HEADER_SIZE + len(data)
+        )
 
     def test_different_content_not_deduplicated(self, tmp_path: Path):
         """Different content with different keys is written separately."""
@@ -140,4 +158,7 @@ class TestPhase1Pipeline:
 
         # Data file contains both
         data_file = storage.data_path / "data.000"
-        assert data_file.stat().st_size == len(data1) + len(data2)
+        assert (
+            data_file.stat().st_size
+            == SEGMENT_HEADER_SIZE + 2 * LOCAL_HEADER_SIZE + len(data1) + len(data2)
+        )

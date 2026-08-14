@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from cascette_tools.core.integrity import IntegrityError
-from cascette_tools.core.local_storage import LocalStorage, compute_bucket
+from cascette_tools.core.local_storage import (
+    LOCAL_HEADER_SIZE,
+    LocalStorage,
+    compute_bucket,
+)
 
 
 class TestWriteContentDeduplication:
@@ -79,7 +83,7 @@ class TestWriteContentVerification:
         ckey = hashlib.md5(data).digest()
 
         entry = storage.write_content(ekey, data, expected_ckey=ckey)
-        assert entry.size == len(data)
+        assert entry.size == LOCAL_HEADER_SIZE + len(data)
 
     def test_wrong_ckey_raises(self, tmp_path: Path):
         """Test that wrong content key raises IntegrityError."""
@@ -105,7 +109,7 @@ class TestWriteContentVerification:
 
         # Should not raise even without verification
         entry = storage.write_content(ekey, data)
-        assert entry.size == len(data)
+        assert entry.size == LOCAL_HEADER_SIZE + len(data)
 
     def test_failed_verification_does_not_write(self, tmp_path: Path):
         """Test that failed verification prevents data from being written."""
