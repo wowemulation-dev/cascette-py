@@ -224,6 +224,34 @@ class TestParse:
             "type": "login_region",
         }
 
+    def test_parse_v30_root_boolean_requires(self, parser: CatalogParser):
+        """Boolean ``requires`` gates parse to the ``always`` criteria form.
+
+        Build 4957 emits ``"requires": true`` for fragments with no gating
+        condition (e.g. ``fenris_enable_trial``).
+        """
+        payload = dict(V30_ROOT)
+        payload["fragments"] = [
+            {
+                "hash": "f553e93cd67f24d1b8158a68d5406edc",
+                "name": "world_of_warcraft",
+            },
+            {
+                "hash": "764b44f693d3fd5effe00d42938f977d",
+                "name": "fenris_enable_trial",
+                "requires": True,
+            },
+            {
+                "hash": "f3a167cfd4a3c0fd17af2e4e2ce15d3e",
+                "name": "never_applies",
+                "requires": False,
+            },
+        ]
+        fragment = parser.parse(_dumps(payload))
+        refs = fragment.fragments
+        assert refs[1].requires == {"always": True}
+        assert refs[2].requires == {"always": False}
+
     def test_parse_v30_product_fragment(self, parser: CatalogParser):
         fragment = parser.parse(_dumps(V30_WOW))
         assert fragment.fragment_id == "world_of_warcraft"

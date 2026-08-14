@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 import pytest
 
 from cascette_tools.database.wago import (
-    _below_product_floor,
     WagoBuild,
     WagoCacheMetadata,
+    _below_product_floor,
     adapt_datetime_iso,
     convert_datetime_iso,
 )

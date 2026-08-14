@@ -14,6 +14,9 @@ Two catalog schemas exist in the wild:
   product fragments carry entitlement rules in ``program_configuration``
   and install configs in ``installs``.
 
+Fragment refs in the root fragment may gate on a ``requires`` criteria
+dict, or a bare boolean (``true``/``false``) meaning the fragment always
+or never applies (observed in build 4957).
 The parser stores the raw JSON for byte-exact round-trips and exposes
 typed views (products, rules, installs, categories, types) through
 properties, since ``build()`` re-serializes ``data`` verbatim.
@@ -61,7 +64,8 @@ class CatalogFragmentRef(BaseModel):
         None, description="Optional platform filter (e.g. 'mac')"
     )
     requires: dict[str, Any] | None = Field(
-        None, description="Optional region/country gate (v30+ only)"
+        None,
+        description="Optional fragment gate (v30+; boolean means always/never apply)",
     )
     encrypted_hash: str | None = Field(
         None, description="Hash of the encrypted form served by the CDN"
@@ -74,6 +78,20 @@ class CatalogFragmentRef(BaseModel):
     def is_encrypted(self) -> bool:
         """True when the fragment is served encrypted on the CDN."""
         return bool(self.encrypted_hash or self.decryption_key_id)
+
+    @field_validator("requires", mode="before")
+    @classmethod
+    def _normalize_requires(cls, v: Any) -> Any:
+        """Accept boolean gates: ``true``/``false`` mean always/never apply.
+
+        Newer catalog builds emit ``requires: true`` for fragments with no
+        gating condition (previously expressed as a criteria dict).
+        """
+        if v is True:
+            return {"always": True}
+        if v is False:
+            return {"always": False}
+        return v
 
 
 class CatalogCategory(BaseModel):

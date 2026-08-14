@@ -40,6 +40,7 @@ def _below_product_floor(product: str, build: str) -> bool:
     except ValueError:
         return False
 
+
 class WagoBuild(BaseModel):
     """Build information from Wago.tools."""
 
