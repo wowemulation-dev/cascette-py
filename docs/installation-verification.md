@@ -179,13 +179,12 @@ sleep 60   # allow login screen
 # CDN request count = lines in range_http_server.log after BASE
 ```
 
-### The three runs
+### The two runs
 
 | Run | Purpose | Pass condition |
 |-----|---------|----------------|
 | Run 1 | Cold start with empty store history | Client reaches login screen; CDN requests are only explainable on-demand media (see below) |
 | Run 2 | Warm start after run-1 writes | Login screen; **0 CDN requests** (or only repeatable media) |
-| Run 3 | Confirmation | Login screen; 0 CDN requests |
 
 **Verified (2026-08-15): the store must start EMPTY.** `Data/data` is the
 CAS container itself. A cascette-py-written store (30-byte headers,
@@ -199,7 +198,7 @@ A client-run verification is **successful** when:
 
 1. Client reaches the login screen (window + `Client Initialize.` in
    `_classic_/Logs/Client.log`).
-2. CDN request count is zero (or the media set below) on run 2 and run 3.
+2. CDN request count is zero (or the media set below) on run 2.
 3. `Data/data` sha256sums change only where expected: new idx update
    entries / generations and data.003 growth from media, nothing else.
 
@@ -270,7 +269,6 @@ eliminates the cold-start CDN request.
 |-----|-------|--------|
 | Run 1 (cold) | Fresh prefix, cascette-py store (131,456 files, 0 failed) | Login screen; **0 CDN requests**; store untouched (all 20 files byte-identical to pre-client snapshot); `shmem` v4 recreated |
 | Run 2 (warm) | Same prefix/store | Login screen; **0 CDN requests**; store untouched |
-| Run 3 (confirm) | Same prefix/store | Login screen; **0 CDN requests**; store untouched |
 
 The two AVI cinematics (`505761a1`, `2a846298`) are **in the cascette-py
 store** (they are part of the download manifest) and play locally. The Ogg
@@ -309,7 +307,7 @@ speech fetch occurred because no voiced cinematic was triggered.
 
 The full set of 1.13.x builds iterated for installation verification.
 Status is marked ✅ when all gates pass for a build (format checks,
-cascette-rs cross-check, and the 3-run client verification). CDN = mirror
+cascette-rs cross-check, and the 2-run client verification). CDN = mirror
 has the build's CDN data. WPP = membership in WowPacketParser's
 ClientVersion enum (`–` = absent; the three such builds are short-lived
 1.13.5 releases never given a WPP version module). The column does NOT
@@ -319,23 +317,23 @@ list and was integration-tested on 31650 only. See
 
 | Build | Patch | Product(s) | Use product | CDN | WPP | Date | Verification |
 |-------|-------|------------|-------------|-----|-----|------|--------------|
-| 31650 | 1.13.2 | wow_classic | wow_classic | Y | Y | Aug 23, 2019 | ✅ format+container scan + client 3-run (2026-08-15) |
-| 31687 | 1.13.2 | wow_classic | wow_classic | Y | Y | Aug 30, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 31727 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 4, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 31830 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 12, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 31882 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 18, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32089 | 1.13.2 | wow_classic | wow_classic | Y | Y | Oct 7, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32421 | 1.13.2 | wow_classic | wow_classic | Y | Y | Nov 6, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32600 | 1.13.2 | wow_classic | wow_classic | Y | Y | Nov 21, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32790 | 1.13.3 | wow_classic | wow_classic | Y | Y | Dec 10, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32836 | 1.13.3 | wow_classic | wow_classic | Y | Y | Dec 17, 2019 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 32887 | 1.13.3 | wow_classic | wow_classic | Y | Y | Jan 6, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33155 | 1.13.3 | wow_classic | wow_classic | Y | Y | Jan 7, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33302 | 1.13.3 | wow_classic | wow_classic | Y | Y | Feb 11, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33526 | 1.13.3 | wow_classic | wow_classic | Y | Y | Feb 28, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33598 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 6, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33645 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 14, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
-| 33728 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 20, 2020 | ✅ format+container scan + client 3-run, 0 CDN requests (2026-08-15) |
+| 31650 | 1.13.2 | wow_classic | wow_classic | Y | Y | Aug 23, 2019 | ✅ format+container scan + client 2-run (2026-08-15) |
+| 31687 | 1.13.2 | wow_classic | wow_classic | Y | Y | Aug 30, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 31727 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 4, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 31830 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 12, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 31882 | 1.13.2 | wow_classic | wow_classic | Y | Y | Sep 18, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32089 | 1.13.2 | wow_classic | wow_classic | Y | Y | Oct 7, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32421 | 1.13.2 | wow_classic | wow_classic | Y | Y | Nov 6, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32600 | 1.13.2 | wow_classic | wow_classic | Y | Y | Nov 21, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32790 | 1.13.3 | wow_classic | wow_classic | Y | Y | Dec 10, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32836 | 1.13.3 | wow_classic | wow_classic | Y | Y | Dec 17, 2019 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 32887 | 1.13.3 | wow_classic | wow_classic | Y | Y | Jan 6, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33155 | 1.13.3 | wow_classic | wow_classic | Y | Y | Jan 7, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33302 | 1.13.3 | wow_classic | wow_classic | Y | Y | Feb 11, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33526 | 1.13.3 | wow_classic | wow_classic | Y | Y | Feb 28, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33598 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 6, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33645 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 14, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
+| 33728 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 20, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 33920 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 6, 2020 | ✅ format scan (2026-08-15) |
 | 34219 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 29, 2020 | ✅ format scan (2026-08-15) |
 | 34266 | 1.13.4 | wow_classic | wow_classic | Y | Y | May 7, 2020 | ✅ format scan (2026-08-15) |

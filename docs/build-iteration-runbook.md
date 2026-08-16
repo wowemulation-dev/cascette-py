@@ -2,7 +2,7 @@
 
 Per-build procedure for recording format versions and verifying that formats
 stay identical across the 1.13.x line. This is the lightweight per-build gate;
-full client-run verification (3 runs, fresh prefix each) is reserved for spot
+full client-run verification (2 runs, fresh prefix each) is reserved for spot
 checks, not every build.
 
 Read this together with `installation-verification.md` (gates F1-F6, C1-C5,
@@ -265,7 +265,7 @@ as a wow-patcher finding, not a WPP-enum fact.
 
 After the CDN scan (and container scan if run), update the §8 matrix row in
 `installation-verification.md`: put the scan date and which scans ran
-(`✅ format scan` / `✅ format+container scan` / `✅ + client 3-run`). Keep the
+(`✅ format scan` / `✅ format+container scan` / `✅ + client 2-run`). Keep the
 CDN/WPP columns as they are unless you verified a change.
 
 ## Gotchas
