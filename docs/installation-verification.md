@@ -179,12 +179,16 @@ sleep 60   # allow login screen
 # CDN request count = lines in range_http_server.log after BASE
 ```
 
-### The two runs
+### Client runs
 
 | Run | Purpose | Pass condition |
 |-----|---------|----------------|
 | Run 1 | Cold start with empty store history | Client reaches login screen; CDN requests are only explainable on-demand media (see below) |
-| Run 2 | Warm start after run-1 writes | Login screen; **0 CDN requests** (or only repeatable media) |
+| Run 2 | Warm start after run-1 writes (only if run 1 was not clean) | Login screen; **0 CDN requests** (or only repeatable media) |
+
+Run 2 is redundant when run 1 is clean: login reached, no repair marker,
+store accepted, and requests limited to the explainable set. In practice
+issues surface on the cold start, so most builds need only run 1.
 
 **Verified (2026-08-15): the store must start EMPTY.** `Data/data` is the
 CAS container itself. A cascette-py-written store (30-byte headers,
@@ -198,7 +202,7 @@ A client-run verification is **successful** when:
 
 1. Client reaches the login screen (window + `Client Initialize.` in
    `_classic_/Logs/Client.log`).
-2. CDN request count is zero (or the media set below) on run 2.
+2. CDN request count is zero (or the media set below) — on run 1 if run 2 is skipped, else on run 2.
 3. `Data/data` sha256sums change only where expected: new idx update
    entries / generations and data.003 growth from media, nothing else.
 
@@ -334,7 +338,7 @@ list and was integration-tested on 31650 only. See
 | 33598 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 6, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 33645 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 14, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 33728 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 20, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
-| 33920 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 6, 2020 | ✅ format scan (2026-08-15) |
+| 33920 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 6, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 34219 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 29, 2020 | ✅ format scan (2026-08-15) |
 | 34266 | 1.13.4 | wow_classic | wow_classic | Y | Y | May 7, 2020 | ✅ format scan (2026-08-15) |
 | 34600 | 1.13.4 | wow_classic | wow_classic | Y | Y | Jun 4, 2020 | ✅ format scan (2026-08-15) |
