@@ -363,6 +363,17 @@ class TestCDNClient:
         assert isinstance(async_client, httpx.AsyncClient)
         assert async_client is client.async_client  # Should reuse same instance
 
+    def test_reset_async_client(self):
+        """reset_async_client drops the client so the next access rebuilds it."""
+        client = CDNClient(Product.WOW)
+
+        first = client.async_client
+        client.reset_async_client()
+        second = client.async_client
+
+        assert first is not second
+        assert isinstance(second, httpx.AsyncClient)
+
     def test_client_configuration(self):
         """Test HTTP client configuration."""
         config = CDNConfig(timeout=60.0, verify_ssl=False)

@@ -369,3 +369,261 @@ class TestRibbitFilesCommand:
         )
         assert result.exit_code != 0
         assert "No builds found" in result.output
+
+
+class TestExportRibbit:
+    """Tests for the builds export-ribbit command."""
+
+    def _invoke(self, *args: str, config: AppConfig) -> Result:
+        from cascette_tools.__main__ import main
+
+        runner = CliRunner()
+        with patch.object(AppConfig, "load", return_value=config):
+            return runner.invoke(main, ["builds", "export-ribbit", *args])
+
+    @patch("cascette_tools.database.wago.WagoClient")
+    def test_writes_all_builds_versions_and_cdns(self, mock_wago, tmp_path):
+        mock_client = Mock()
+        mock_wago.return_value.__enter__.return_value = mock_client
+        mock_client.get_database_builds.return_value = [
+            WagoBuild(
+                id=31650,
+                build="31650",
+                version="1.13.2.31650",
+                product="wow_classic",
+                build_config="2c9159a226a3f35af6c65fcc7b6ca4a",
+                cdn_config="c54b41b3195b9482ce0d3c6bf0b86cdb",
+            ),
+            WagoBuild(
+                id=38704,
+                build="38704",
+                version="1.13.7.38704",
+                product="wow_classic_era",
+                build_config="30daec22777cbe6ab7a0aa31ce621f1b",
+                cdn_config="572649a9eda7c06a42b37858d27fbc0f",
+            ),
+        ]
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        mirror = tmp_path / "mirror"
+        result = self._invoke("--mirror-root", str(mirror), config=config)
+        assert result.exit_code == 0, result.output
+
+        versions = (mirror / "tpr" / "wow" / "versions").read_text()
+        cdns = (mirror / "tpr" / "wow" / "cdns").read_text()
+
+        # Newest build first (agent takes first us row as current)
+        assert versions.splitlines()[2].startswith(
+            "us|30daec22777cbe6ab7a0aa31ce621f1b"
+        )
+        # Both builds present, 5 regions each
+        assert versions.count("|31650|1.13.2.31650|") == 5
+        assert versions.count("|38704|1.13.7.38704|") == 5
+        assert "Region!STRING:0|BuildConfig!HEX:16" in versions
+        # cdns rewritten to localhost
+        assert (
+            "us|tpr/wow|localhost:8000|http://localhost:8000|tpr/configs/data" in cdns
+        )
+
+    @patch("cascette_tools.database.wago.WagoClient")
+    def test_skips_builds_without_config_hashes(self, mock_wago, tmp_path):
+        mock_client = Mock()
+        mock_wago.return_value.__enter__.return_value = mock_client
+        mock_client.get_database_builds.return_value = [
+            WagoBuild(
+                id=31650,
+                build="31650",
+                version="1.13.2.31650",
+                product="wow_classic",
+                build_config=None,
+                cdn_config=None,
+            ),
+        ]
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        mirror = tmp_path / "mirror"
+        result = self._invoke("--mirror-root", str(mirror), config=config)
+        assert result.exit_code == 0, result.output
+
+        versions = (mirror / "tpr" / "wow" / "versions").read_text()
+        assert "31650" not in versions
+        assert versions.count("\n") == 2  # header + seqn only
+
+
+class TestArchivePristine:
+    """Tests for the builds archive-pristine command."""
+
+    def _make_install(self, tmp_path):
+        """Create a minimal install dir with .build.info + a fake exe."""
+        install = tmp_path / "install"
+        (install / "_classic_").mkdir(parents=True)
+        (install / ".build.info").write_text(
+            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|"
+            "Install Key!HEX:16|IM Size!DEC:4|CDN Path!STRING:0|CDN Hosts!STRING:0|"
+            "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|"
+            "Last Activated!STRING:0|Version!STRING:0|Product!STRING:0\n"
+            "us|1|2c9159a226a3f35af6c65fcc7b6ca4a|"
+            "c54b41b3195b9482ce0d3c6bf0b86cdb|||tpr/wow|localhost:8000|||"
+            "||1.13.2.31650|wow_classic\n"
+        )
+        (install / "_classic_" / "Wow.exe").write_bytes(b"\x00" * 64)
+        return install
+
+    def _invoke(self, *args: str, config: AppConfig) -> Result:
+        from cascette_tools.__main__ import main
+
+        runner = CliRunner()
+        with patch.object(AppConfig, "load", return_value=config):
+            return runner.invoke(main, ["builds", "archive-pristine", *args])
+
+    @patch("subprocess.run")
+    def test_archives_windows_install(self, mock_run, tmp_path):
+        """Detects windows-win64 and moves to the archive path."""
+        mock_run.return_value = Mock(
+            stdout="Wow.exe: PE32+ executable for MS Windows 6.00 (GUI), x86-64\n"
+        )
+        install = self._make_install(tmp_path)
+        archive = tmp_path / "archive"
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code == 0, result.output
+        target = archive / "1.13.2.31650.windows-win64"
+        assert target.exists()
+        assert (target / "_classic_" / "Wow.exe").exists()
+        assert not install.exists()  # moved
+
+    @patch("subprocess.run")
+    def test_detects_macos_x86_64(self, mock_run, tmp_path):
+        """Mach-O x86_64 -> macos-x86_64 naming."""
+        mock_run.return_value = Mock(
+            stdout="Wow.exe: Mach-O 64-bit executable x86_64\n"
+        )
+        install = self._make_install(tmp_path)
+        archive = tmp_path / "archive"
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code == 0, result.output
+        assert (archive / "1.13.2.31650.macos-x86_64").exists()
+
+    @patch("subprocess.run")
+    def test_detects_macos_arm64(self, mock_run, tmp_path):
+        """Mach-O arm64 -> macos-arm64 naming."""
+        mock_run.return_value = Mock(stdout="Wow.exe: Mach-O 64-bit executable arm64\n")
+        install = self._make_install(tmp_path)
+        archive = tmp_path / "archive"
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code == 0, result.output
+        assert (archive / "1.13.2.31650.macos-arm64").exists()
+
+    @patch("subprocess.run")
+    def test_archives_wowclassic_exe(self, mock_run, tmp_path):
+        """1.13.3+ installs ship WowClassic.exe instead of Wow.exe."""
+        mock_run.return_value = Mock(
+            stdout="WowClassic.exe: PE32+ executable for MS Windows 6.00 (GUI), x86-64\n"
+        )
+        install = tmp_path / "install"
+        (install / "_classic_").mkdir(parents=True)
+        (install / ".build.info").write_text(
+            "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|CDN Key!HEX:16|"
+            "Install Key!HEX:16|IM Size!DEC:4|CDN Path!STRING:0|CDN Hosts!STRING:0|"
+            "CDN Servers!STRING:0|Tags!STRING:0|Armadillo!STRING:0|"
+            "Last Activated!STRING:0|Version!STRING:0|Product!STRING:0\n"
+            "us|1|eabc7dd92330e4907bc234899dd0cd4b|"
+            "efc95c64488ab6dda10a7f57eca91f19|||tpr/wow|localhost:8000|||"
+            "||1.13.3.32790|wow_classic\n"
+        )
+        (install / "_classic_" / "WowClassic.exe").write_bytes(b"\x00" * 64)
+        archive = tmp_path / "archive"
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code == 0, result.output
+        target = archive / "1.13.3.32790.windows-win64"
+        assert target.exists()
+        assert (target / "_classic_" / "WowClassic.exe").exists()
+        assert not install.exists()  # moved
+
+    @patch("subprocess.run")
+    def test_rejects_existing_target(self, mock_run, tmp_path):
+        """Existing archived version is an error without --force."""
+        mock_run.return_value = Mock(
+            stdout="Wow.exe: PE32+ executable for MS Windows 6.00 (GUI), x86-64\n"
+        )
+        install = self._make_install(tmp_path)
+        archive = tmp_path / "archive"
+        (archive / "1.13.2.31650.windows-win64").mkdir(parents=True)
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code != 0
+        assert "already" in result.output and "exists" in result.output
+        assert install.exists()  # not moved on conflict
+
+    @patch("subprocess.run")
+    def test_unrecognized_binary_aborts(self, mock_run, tmp_path):
+        """Non-PE/Mach-O binary aborts with a clear message."""
+        mock_run.return_value = Mock(stdout="Wow.exe: data\n")
+        install = self._make_install(tmp_path)
+        archive = tmp_path / "archive"
+
+        config = AppConfig()
+        config.data_dir = tmp_path / "data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        result = self._invoke(
+            str(install),
+            "--archive-root",
+            str(archive),
+            "--skip-verify",
+            config=config,
+        )
+        assert result.exit_code != 0
+        assert "Unrecognized binary" in result.output
+        assert install.exists()

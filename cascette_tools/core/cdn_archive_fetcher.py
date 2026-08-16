@@ -558,6 +558,9 @@ class CdnArchiveFetcher:
             except Exception as e:
                 last_error = e
                 logger.debug(f"Mirror {mirror} failed: {e}")
+                # Drop the client so retries open fresh connections instead
+                # of reusing a possibly-poisoned pool (see async variant).
+                cdn_client.reset_async_client()
                 continue
 
         if last_error:
@@ -642,6 +645,10 @@ class CdnArchiveFetcher:
             except Exception as e:
                 last_error = e
                 logger.debug(f"Mirror {mirror} failed: {e}")
+                # A stalled keep-alive connection can poison the whole pool
+                # for subsequent retries. Drop the client so the next retry
+                # opens fresh connections (observed on 1.13.2.31882).
+                cdn_client.reset_async_client()
                 continue
 
         if last_error:

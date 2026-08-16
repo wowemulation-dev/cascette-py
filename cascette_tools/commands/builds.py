@@ -1133,3 +1133,560 @@ def ribbit_files(
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
+
+
+@builds_group.command("scan-formats")
+@click.argument("build_config", type=str)
+@click.argument("cdn_config", type=str)
+@click.option(
+    "--product",
+    "-r",
+    type=click.Choice(_ALL_PRODUCTS, case_sensitive=False),
+    default="wow_classic",
+    help="Product code for CDN path (default: wow_classic).",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default="us",
+    help="CDN region (default: us).",
+)
+@click.option(
+    "--build",
+    type=str,
+    default=None,
+    help="Build number to record (default: derived from build config via DB lookup).",
+)
+@click.option(
+    "--install-path",
+    type=click.Path(path_type=Path, exists=True),
+    default=None,
+    help="Local install path to also scan for container-side formats.",
+)
+@click.pass_context
+def scan_formats(
+    ctx: click.Context,
+    build_config: str,
+    cdn_config: str,
+    product: str,
+    region: str,
+    build: str | None,
+    install_path: Path | None,
+) -> None:
+    """Detect and record a build's file-format versions.
+
+    Fetches the build's manifests from CDN (root, install, download, size,
+    encoding, archive index) and records their format versions. When
+    --install-path is given, also scans the local CAS container (idx,
+    local headers, segment headers, shmem).
+
+    Examples:
+      cascette builds scan-formats 2c9159a... c54b41b... --product wow_classic
+      cascette builds scan-formats 2c9159a... c54b41b... \\
+        --install-path ~/Downloads/wow_classic/1.13.2.31650.windows-win64
+    """
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        from cascette_tools.core.types import Product as ProductEnum
+        from cascette_tools.database.build_formats import (
+            detect_cdn_formats,
+            detect_container_formats,
+        )
+        from cascette_tools.database.wago import WagoClient
+
+        product_enum = ProductEnum(product)
+
+        # Resolve build number if not given: query the DB by build config
+        build_number = build
+        if build_number is None:
+            with WagoClient(config_obj) as wago:
+                rows = wago.get_database_builds(product=product, limit=2000)
+                match = next((r for r in rows if r.build_config == build_config), None)
+                if match is not None:
+                    build_number = str(match.build)
+                    console.print(
+                        f"  Build number from DB: {build_number} "
+                        f"(product {match.product})"
+                    )
+            if build_number is None:
+                console.print(
+                    "[yellow]No build number given and not found in DB; "
+                    "recording with build_config only.[/yellow]"
+                )
+                build_number = "unknown"
+
+        console.print(f"Scanning CDN formats for build config {build_config}...")
+        fmts = detect_cdn_formats(
+            build_config, cdn_config, product=product_enum, region=region
+        )
+
+        # Container-side scan
+        if install_path:
+            console.print(f"Scanning container formats at {install_path}...")
+            cont = detect_container_formats(str(install_path))
+            fmts.idx_version = cont.idx_version
+            fmts.local_header_version = cont.local_header_version
+            fmts.segment_header_bytes = cont.segment_header_bytes
+            fmts.shmem_version = cont.shmem_version
+            fmts.warnings.extend(cont.warnings)
+            source = "container"
+        else:
+            source = "cdn"
+
+        # Show what was detected
+        table = Table(title=f"Format Versions — build {build_number} ({product})")
+        table.add_column("Format", style="cyan")
+        table.add_column("Version", style="green")
+        for key, label in [
+            ("root_version", "Root manifest (TVFS)"),
+            ("install_version", "Install manifest"),
+            ("download_version", "Download manifest"),
+            ("size_version", "Size manifest"),
+            ("encoding_version", "Encoding file"),
+            ("archive_index_version", "CDN archive index footer"),
+            ("blte_magic", "BLTE magic"),
+            ("idx_version", "Local KMT idx"),
+            ("local_header_version", "Local file header"),
+            ("segment_header_bytes", "Segment header"),
+            ("shmem_version", "shmem protocol"),
+        ]:
+            table.add_row(label, str(getattr(fmts, key) or "-"))
+        console.print(table)
+        for w in fmts.warnings:
+            console.print(f"  [yellow]warn: {w}[/yellow]")
+
+        # Persist
+        with WagoClient(config_obj) as wago:
+            inserted = wago.upsert_build_formats(
+                product,
+                build_number,
+                build_config,
+                root_version=fmts.root_version,
+                install_version=fmts.install_version,
+                download_version=fmts.download_version,
+                size_version=fmts.size_version,
+                encoding_version=fmts.encoding_version,
+                archive_index_version=fmts.archive_index_version,
+                blte_magic=fmts.blte_magic,
+                idx_version=fmts.idx_version,
+                local_header_version=fmts.local_header_version,
+                segment_header_bytes=fmts.segment_header_bytes,
+                shmem_version=fmts.shmem_version,
+                source=source,
+            )
+            action = "inserted" if inserted else "updated"
+            console.print(f"[green]Recorded format versions ({action})[/green]")
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+@builds_group.command("formats")
+@click.option(
+    "--product",
+    type=click.Choice(_ALL_PRODUCTS, case_sensitive=False),
+    default=None,
+    help="Filter by product.",
+)
+@click.option(
+    "--build",
+    type=str,
+    default=None,
+    help="Filter by build number.",
+)
+@click.pass_context
+def list_formats(ctx: click.Context, product: str | None, build: str | None) -> None:
+    """List recorded per-build file-format versions.
+
+    Shows the format versions recorded by `scan-formats` for each build,
+    making branch drift (1.13 / 1.14 / 1.15) visible.
+    """
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        from cascette_tools.database.wago import WagoClient
+
+        with WagoClient(config_obj) as wago:
+            rows = wago.get_build_formats(product=product, build=build)
+
+        if not rows:
+            console.print(
+                "[dim]No format records found. Run 'builds scan-formats'.[/dim]"
+            )
+            return
+
+        table = Table(title="Build Format Versions")
+        table.add_column("Build", style="cyan")
+        table.add_column("Product", style="green")
+        table.add_column("Root", justify="right")
+        table.add_column("Install", justify="right")
+        table.add_column("Dl", justify="right")
+        table.add_column("Size", justify="right")
+        table.add_column("Enc", justify="right")
+        table.add_column("Idx", justify="right")
+        table.add_column("CDN-idx", justify="right")
+        table.add_column("Shmem", justify="right")
+        table.add_column("Source", style="dim")
+        for r in rows:
+            table.add_row(
+                r["build"],
+                r["product"],
+                str(r.get("root_version") or "-"),
+                str(r.get("install_version") or "-"),
+                str(r.get("download_version") or "-"),
+                str(r.get("size_version") or "-"),
+                str(r.get("encoding_version") or "-"),
+                str(r.get("idx_version") or "-"),
+                str(r.get("archive_index_version") or "-"),
+                str(r.get("shmem_version") or "-"),
+                r.get("source") or "-",
+            )
+        console.print(table)
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+@builds_group.command("export-ribbit")
+@click.option(
+    "--mirror-root",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Local mirror root (the tree the range HTTP server serves).",
+)
+@click.option(
+    "--host",
+    default="localhost:8000",
+    show_default=True,
+    help="Host:port to rewrite CDN hosts/servers to.",
+)
+@click.option(
+    "--product-path",
+    default="tpr/wow",
+    show_default=True,
+    help="CDN product path under the mirror root (e.g. tpr/wow).",
+)
+@click.option(
+    "--region",
+    multiple=True,
+    default=["us", "eu", "kr", "tw", "cn"],
+    show_default=True,
+    help="Regions to emit rows for (repeatable).",
+)
+@click.pass_context
+def export_ribbit(
+    ctx: click.Context,
+    mirror_root: Path,
+    host: str,
+    product_path: str,
+    region: tuple[str, ...],
+) -> None:
+    """Generate local versions/cdns fake endpoints from the builds DB.
+
+    Writes <mirror-root>/<product-path>/versions and .../cdns as Ribbit v2
+    BPSV files, listing every build in the builds DB that has both a build
+    config and a CDN config. The wow client scans the versions file for its
+    own version string, and the agent takes the first 'us' row, so a single
+    file covering all builds serves any patched client. The cdns file
+    rewrites every Hosts/Servers entry to --host.
+
+    This replaces per-build Arctium fetching (tools/setup_local_ribbit.sh):
+    the DB already holds the hashes the mirror needs.
+    """
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        from cascette_tools.database.wago import WagoClient
+
+        products = ["wow_classic", "wow_classic_era"]
+        builds: list[tuple[str, str, str, str]] = []  # (build, bcfg, ccfg, version)
+        with WagoClient(config_obj) as wago:
+            seen: set[tuple[str, str]] = set()
+            for product in products:
+                for r in wago.get_database_builds(product=product, limit=100000):
+                    if not r.build_config or not r.cdn_config:
+                        continue
+                    key = (r.build, r.build_config)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    builds.append((r.build, r.build_config, r.cdn_config, r.version))
+
+        builds.sort(key=lambda b: int(b[0]) if b[0].isdigit() else 0, reverse=True)
+
+        target = mirror_root / product_path
+        target.mkdir(parents=True, exist_ok=True)
+
+        # versions BPSV
+        versions_lines = [
+            "Region!STRING:0|BuildConfig!HEX:16|CDNConfig!HEX:16|KeyRing!HEX:16|"
+            "BuildId!DEC:4|VersionsName!STRING:0|ProductConfig!HEX:16",
+            "## seqn = 9999999",
+        ]
+        for build, bcfg, ccfg, version in builds:
+            for r in region:
+                versions_lines.append(f"{r}|{bcfg}|{ccfg}||{build}|{version}|")
+        (target / "versions").write_text("\n".join(versions_lines) + "\n")
+
+        # cdns BPSV
+        cdns_lines = [
+            "Name!STRING:0|Path!STRING:0|Hosts!STRING:0|Servers!STRING:0|"
+            "ConfigPath!STRING:0",
+            "## seqn = 9999999",
+        ]
+        for r in region:
+            cdns_lines.append(
+                f"{r}|{product_path}|{host}|http://{host}|tpr/configs/data"
+            )
+        (target / "cdns").write_text("\n".join(cdns_lines) + "\n")
+
+        console.print(
+            f"[green]Wrote[/green] {len(builds)} builds to {target / 'versions'} "
+            f"({len(region)} regions each)"
+        )
+        console.print(f"[green]Wrote[/green] {target / 'cdns'}")
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+@builds_group.command("archive-pristine")
+@click.argument("install_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--archive-root",
+    type=click.Path(path_type=Path),
+    default=Path.home() / "Downloads" / "battle.net" / "wow_classic",
+    show_default=True,
+    help="Archive root for pristine installs (version dirs live directly under it).",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an existing archived build of the same version.",
+)
+@click.option(
+    "--skip-verify",
+    is_flag=True,
+    help="Skip the CDN pristine check (exe sha256 vs CDN-extracted).",
+)
+@click.pass_context
+def archive_pristine(
+    ctx: click.Context,
+    install_path: Path,
+    archive_root: Path,
+    force: bool,
+    skip_verify: bool,
+) -> None:
+    """Verify a build is pristine and archive it for examination.
+
+    Reads .build.info from the install, verifies the game executable
+    (Wow.exe or WowClassic.exe) sha256 against the CDN-extracted
+    executable (unless --skip-verify), detects OS/ARCH from
+    the binary via `file`, and moves the install to
+    <archive-root>/<version>.<os>-<arch>.
+
+    The prefix (patched copy) is NOT archived; only the pristine source
+    install. An existing target of the same version is an error unless
+    --force.
+    """
+    config_obj, console, _, debug = _get_context_objects(ctx)
+
+    try:
+        import hashlib
+        import shutil
+        import subprocess
+
+        from cascette_tools.core.cdn import CDNClient
+        from cascette_tools.core.types import Product
+        from cascette_tools.formats.blte import decompress_blte, is_blte
+        from cascette_tools.formats.build_info import BuildInfoParser
+        from cascette_tools.formats.config import BuildConfigParser
+        from cascette_tools.formats.encoding import EncodingParser
+        from cascette_tools.formats.install import InstallParser
+
+        # 1. Read .build.info
+        bi_path = install_path / ".build.info"
+        if not bi_path.exists():
+            console.print(f"[red].build.info not found in {install_path}[/red]")
+            raise click.Abort()
+        bi = BuildInfoParser().parse_file(str(bi_path))
+        version = bi.version
+        product = bi.product
+        if not version or not product:
+            console.print("[red].build.info missing version or product[/red]")
+            raise click.Abort()
+        console.print(f"  Build: {version} ({product})")
+
+        # 2. Locate the game executable (product subfolder). 1.13.2 ships
+        # Wow.exe; 1.13.3+ renamed it to WowClassic.exe. Check both.
+        subdir = "_classic_era_" if product == "wow_classic_era" else "_classic_"
+        exe = None
+        for exe_name in ("Wow.exe", "WowClassic.exe"):
+            cand = install_path / subdir / exe_name
+            if cand.exists():
+                exe = cand
+                break
+        if exe is None:
+            console.print(
+                f"[red]Wow.exe / WowClassic.exe not found in {install_path}/{subdir}[/red]"
+            )
+            raise click.Abort()
+
+        # 3. Pristine check: compare sha256 against CDN-extracted Wow.exe
+        if not skip_verify:
+            try:
+                from cascette_tools.database.wago import WagoClient
+
+                local_sha = hashlib.sha256(exe.read_bytes()).hexdigest()
+                product_enum = Product(product)
+                cdn = CDNClient(product_enum)
+                with WagoClient(config_obj) as wago:
+                    rows = wago.get_database_builds(product=product, limit=100000)
+                    row = next((r for r in rows if r.version == version), None)
+                if row is None or not row.build_config:
+                    console.print(
+                        "[yellow]Build not in DB with config hashes; "
+                        "skipping CDN pristine check.[/yellow]"
+                    )
+                else:
+                    bc_raw = cdn.fetch_config(row.build_config)
+                    bc = BuildConfigParser().parse(bc_raw)
+                    enc_info = bc.get_encoding_info()
+                    inst_info = bc.get_install_info()
+                    if (
+                        enc_info is None
+                        or inst_info is None
+                        or not enc_info.encoding_key
+                        or not inst_info.encoding_key
+                    ):
+                        console.print(
+                            "[yellow]Build config lacks encoding/install keys; "
+                            "skipping CDN pristine check.[/yellow]"
+                        )
+                    else:
+                        enc_raw = cdn.fetch_data(enc_info.encoding_key)
+                        enc_data = (
+                            decompress_blte(enc_raw) if is_blte(enc_raw) else enc_raw
+                        )
+                        enc_parser = EncodingParser()
+                        enc_parsed = enc_parser.parse(enc_data)
+                        inst_raw = cdn.fetch_data(inst_info.encoding_key)
+                        inst_data = (
+                            decompress_blte(inst_raw) if is_blte(inst_raw) else inst_raw
+                        )
+                        inst = InstallParser().parse(inst_data)
+                        entry = next(
+                            (
+                                e
+                                for e in inst.entries
+                                if e.filename
+                                and (
+                                    "wow.exe" in e.filename.lower()
+                                    or "wowclassic.exe" in e.filename.lower()
+                                )
+                            ),
+                            None,
+                        )
+                        if entry is None:
+                            console.print(
+                                "[yellow]Game executable not in install manifest; "
+                                "skipping CDN pristine check.[/yellow]"
+                            )
+                        else:
+                            ekeys = enc_parser.find_content_key(
+                                enc_data, enc_parsed, entry.md5_hash
+                            )
+                            if not ekeys:
+                                console.print(
+                                    "[yellow]Wow.exe ckey not in encoding "
+                                    "table; skipping CDN pristine check.[/yellow]"
+                                )
+                            else:
+                                raw = cdn.fetch_data(ekeys[0].hex())
+                                data = decompress_blte(raw) if is_blte(raw) else raw
+                                cdn_sha = hashlib.sha256(data).hexdigest()
+                                if local_sha != cdn_sha:
+                                    console.print(
+                                        "[red]PRISTINE CHECK FAILED: local Wow.exe "
+                                        f"sha256 {local_sha} != CDN {cdn_sha}. "
+                                        "The executable was patched or corrupted. "
+                                        "Aborting; nothing moved.[/red]"
+                                    )
+                                    raise click.Abort()
+                                console.print(
+                                    f"[green]Pristine OK[/green] "
+                                    f"(sha256 {local_sha[:16]}...)"
+                                )
+            except click.Abort:
+                raise
+            except Exception as e:
+                console.print(
+                    f"[yellow]CDN pristine check failed ({e}); continuing "
+                    "without verification.[/yellow]"
+                )
+                if debug:
+                    import traceback
+
+                    console.print(traceback.format_exc())
+
+        # 4. Detect OS/ARCH via `file`
+        try:
+            file_out = subprocess.run(
+                ["file", str(exe)], capture_output=True, text=True, check=True
+            ).stdout
+        except (subprocess.CalledProcessError, OSError) as e:
+            console.print(f"[red]file(1) failed: {e}[/red]")
+            raise click.Abort() from e
+        if "Mach-O" in file_out:
+            os_name = "macos"
+            arch = "arm64" if "arm64" in file_out else "x86_64"
+        elif "PE32+" in file_out and "x86-64" in file_out:
+            os_name = "windows"
+            arch = "win64"
+        else:
+            console.print(f"[red]Unrecognized binary: {file_out.strip()}[/red]")
+            raise click.Abort()
+        console.print(f"  Detected: {os_name}-{arch} ({file_out.strip()[:60]})")
+
+        # 5. Move to archive
+        target = archive_root / f"{version}.{os_name}-{arch}"
+        if target.exists():
+            if not force:
+                console.print(
+                    f"[red]{target} already exists; use --force to replace.[/red]"
+                )
+                raise click.Abort()
+            console.print(f"[yellow]Replacing existing {target}[/yellow]")
+            shutil.rmtree(target)
+        archive_root.mkdir(parents=True, exist_ok=True)
+        console.print(f"  Moving {install_path} -> {target}")
+        shutil.move(str(install_path), str(target))
+        console.print(f"[green]Archived pristine build at {target}[/green]")
+    except click.Abort:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        if debug:
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e

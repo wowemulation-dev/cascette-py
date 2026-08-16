@@ -33,9 +33,25 @@ class TestWriteContentDeduplication:
         assert entry1.archive_offset == entry2.archive_offset
         assert entry1.size == entry2.size
 
-        # Only one entry should exist in bucket
+        # Only one real entry should exist in bucket (plus 16 segment
+        # reconstruction-header entries indexed in the KMT, one per seed-1
+        # bucket, added when the first data file is created).
         bucket = compute_bucket(ekey)
-        assert len(storage.bucket_entries[bucket]) == 1
+        real_entries = [
+            e for e in storage.bucket_entries[bucket] if e.size != LOCAL_HEADER_SIZE
+        ]
+        assert len(real_entries) == 1
+
+        # The reconstruction entries are present in their seed-1 buckets.
+        from cascette_tools.core.local_storage import compute_bucket as cb
+
+        recon_total = 0
+        for b, entries in storage.bucket_entries.items():
+            for e in entries:
+                if e.size == LOCAL_HEADER_SIZE:
+                    recon_total += 1
+                    assert cb(e.key, seed=1) == b, "recon key in wrong bucket"
+        assert recon_total == 16
 
     def test_different_size_not_deduplicated(self, tmp_path: Path):
         """Test that same key with different size writes both."""
@@ -49,9 +65,13 @@ class TestWriteContentDeduplication:
         storage.write_content(ekey, data1)
         storage.write_content(ekey, data2)
 
-        # Both entries should exist (different sizes)
+        # Both entries should exist (different sizes); the bucket also holds
+        # its segment reconstruction-header entry (size 30).
         bucket = compute_bucket(ekey)
-        assert len(storage.bucket_entries[bucket]) == 2
+        real_entries = [
+            e for e in storage.bucket_entries[bucket] if e.size != LOCAL_HEADER_SIZE
+        ]
+        assert len(real_entries) == 2
 
     def test_different_keys_not_deduplicated(self, tmp_path: Path):
         """Test that different keys with same data are both written."""
@@ -65,9 +85,10 @@ class TestWriteContentDeduplication:
         storage.write_content(ekey1, data)
         storage.write_content(ekey2, data)
 
-        # Both should be written (different keys)
+        # Both should be written (different keys). Total = 16 segment
+        # reconstruction entries + 2 real file entries.
         total = sum(len(entries) for entries in storage.bucket_entries.values())
-        assert total == 2
+        assert total == 18
 
 
 class TestWriteContentVerification:

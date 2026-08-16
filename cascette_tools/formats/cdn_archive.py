@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from io import BytesIO
+from pathlib import Path
 from typing import Any, BinaryIO
 
 import structlog
@@ -450,3 +451,288 @@ def is_cdn_archive_index(data: bytes) -> bool:
         return version <= 1 and size_bytes == 4 and offset_bytes in [4, 6]
     except Exception:
         return False
+
+
+def _calculate_block_hash(block_data: bytes, hash_bytes: int) -> bytes:
+    """Per-block hash: MD5(block_data)[:hash_bytes].
+
+    Mirrors cascette-rs ``calculate_block_hash``.
+    """
+    return hashlib.md5(block_data).digest()[:hash_bytes]
+
+
+def _calculate_toc_hash(
+    toc_keys: list[bytes], block_hashes: list[bytes], hash_bytes: int
+) -> bytes:
+    """TOC hash: MD5(toc_keys || block_hashes)[:hash_bytes].
+
+    Mirrors cascette-rs ``calculate_toc_hash``.
+    """
+    data = b"".join(toc_keys) + b"".join(block_hashes)
+    return hashlib.md5(data).digest()[:hash_bytes]
+
+
+def _calculate_footer_hash(
+    *,
+    version: int,
+    reserved: bytes,
+    page_size_kb: int,
+    offset_bytes: int,
+    size_bytes: int,
+    key_bytes: int,
+    footer_hash_bytes: int,
+    entry_count: int,
+) -> bytes:
+    """Footer hash: MD5(12-byte header padded to 20 bytes)[:8].
+
+    Header fields: version(1) reserved(2) page_size_kb(1) offset_bytes(1)
+    size_bytes(1) key_bytes(1) footer_hash_bytes(1) entry_count(4, LE),
+    then zero-padded to 20 bytes. Mirrors cascette-rs
+    ``IndexFooter::calculate_footer_hash`` (verified against client files).
+    """
+    data = bytearray()
+    data.append(version)
+    data.extend(reserved)
+    data.append(page_size_kb)
+    data.append(offset_bytes)
+    data.append(size_bytes)
+    data.append(key_bytes)
+    data.append(footer_hash_bytes)
+    data.extend(struct.pack("<I", entry_count))
+    data.extend(b"\x00" * (20 - len(data)))
+    return hashlib.md5(bytes(data)).digest()[:8]
+
+
+def build_merged_archive_group(
+    archives: list[tuple[int, CdnArchiveIndex]],
+    *,
+    key_bytes: int = 16,
+    page_size_kb: int = 4,
+    footer_hash_bytes: int = 8,
+) -> bytes:
+    """K-way merge of pre-sorted archive indices into an archive-group.
+
+    Archive-groups are locally generated mega-indices (never on CDN). Each
+    input ``(archive_index, index)`` pair uses the *positional* archive
+    number from the CDN config's archive list (0-based), matching the
+    client and cascette-rs ``build_merged``. Duplicate keys across archives
+    are deduplicated, keeping the first occurrence (lowest archive index).
+
+    Entry layout (26 bytes): [key (16)][size (4, BE)][archive_index (2, BE)]
+    [offset (4, BE)]. Pages are 4KB with MD5 block hashes; the TOC holds the
+    last key per page then the block hashes.
+
+    Args:
+        archives: List of (positional_archive_index, parsed index)
+        key_bytes: Key length in bytes
+        page_size_kb: Page size in KB
+        footer_hash_bytes: Footer/TOC hash length in bytes
+
+    Returns:
+        Serialized archive-group bytes (pages + TOC + footer)
+    """
+    page_size = page_size_kb * 1024
+    bytes_per_entry = key_bytes + 6 + 4  # key + size + 6-byte composite offset
+    entries_per_page = page_size // bytes_per_entry
+    hash_bytes = footer_hash_bytes
+
+    # Validate inputs are sorted by key (format invariant, matches cascette-rs).
+    for _archive_idx, index in archives:
+        for prev, cur in zip(index.entries, index.entries[1:], strict=False):
+            if prev.encoding_key > cur.encoding_key:
+                raise ValueError(
+                    "Archive index entries must be sorted by encoding key "
+                    "(format invariant)"
+                )
+
+    # K-way merge: each archive's entries are already sorted; walk them in
+    # key order via a heap, deduplicating identical keys (first archive wins).
+    import heapq
+
+    heap: list[tuple[bytes, int, int, int, int]] = []
+    # (key, archive_index, offset, size, cursor) per live stream
+    cursors: list[int] = [0] * len(archives)
+
+    for stream_idx, (archive_idx, index) in enumerate(archives):
+        if index.entries:
+            first = index.entries[0]
+            heapq.heappush(
+                heap,
+                (
+                    first.encoding_key,
+                    archive_idx,
+                    first.offset,
+                    first.size,
+                    stream_idx,
+                ),
+            )
+
+    out_entries: list[CdnArchiveEntry] = []
+    prev_key: bytes | None = None
+
+    while heap:
+        key, archive_idx, offset, size, stream_idx = heapq.heappop(heap)
+
+        # Deduplicate: skip if key matches the previously emitted key.
+        if prev_key is not None and key == prev_key:
+            # still advance the stream so we do not re-emit later
+            pass
+        else:
+            out_entries.append(
+                CdnArchiveEntry(
+                    encoding_key=key,
+                    archive_index=archive_idx,
+                    offset=offset,
+                    size=size,
+                )
+            )
+            prev_key = key
+
+        # Advance the stream that produced this entry.
+        stream_cursor = cursors[stream_idx] + 1
+        cursors[stream_idx] = stream_cursor
+        stream_entries = archives[stream_idx][1].entries
+        if stream_cursor < len(stream_entries):
+            nxt = stream_entries[stream_cursor]
+            heapq.heappush(
+                heap,
+                (
+                    nxt.encoding_key,
+                    archives[stream_idx][0],
+                    nxt.offset,
+                    nxt.size,
+                    stream_idx,
+                ),
+            )
+
+    # Build pages.
+    pages: list[bytes] = []
+    toc_keys: list[bytes] = []
+    block_hashes: list[bytes] = []
+    for start in range(0, len(out_entries), entries_per_page):
+        page_entries = out_entries[start : start + entries_per_page]
+        page_data = bytearray()
+        last_key = b"\x00" * key_bytes
+        for entry in page_entries:
+            key = (entry.encoding_key + b"\x00" * key_bytes)[:key_bytes]
+            last_key = key
+            page_data.extend(key)
+            page_data.extend(struct.pack(">I", entry.size))
+            archive_idx = entry.archive_index if entry.archive_index is not None else 0
+            page_data.extend(struct.pack(">H", archive_idx))
+            page_data.extend(struct.pack(">I", entry.offset))
+        page_data.extend(b"\x00" * (page_size - len(page_data)))
+        pages.append(bytes(page_data))
+        toc_keys.append(last_key)
+        block_hashes.append(_calculate_block_hash(bytes(page_data), hash_bytes))
+
+    if not out_entries:
+        # Empty group: one empty page (matches cascette-rs build path).
+        empty_page = b"\x00" * page_size
+        pages.append(empty_page)
+        toc_keys.append(b"\x00" * key_bytes)
+        block_hashes.append(_calculate_block_hash(empty_page, hash_bytes))
+
+    toc_hash = _calculate_toc_hash(toc_keys, block_hashes, hash_bytes)
+
+    footer = CdnArchiveFooter(
+        toc_hash=toc_hash,
+        version=1,
+        reserved=b"\x00\x00",
+        page_size_kb=page_size_kb,
+        offset_bytes=6,
+        size_bytes=4,
+        key_bytes=key_bytes,
+        footer_hash_bytes=footer_hash_bytes,
+        entry_count=len(out_entries),
+        footer_hash=b"\x00" * 8,  # placeholder, recomputed below
+    )
+    footer.footer_hash = _calculate_footer_hash(
+        version=footer.version,
+        reserved=footer.reserved,
+        page_size_kb=footer.page_size_kb,
+        offset_bytes=footer.offset_bytes,
+        size_bytes=footer.size_bytes,
+        key_bytes=footer.key_bytes,
+        footer_hash_bytes=footer.footer_hash_bytes,
+        entry_count=footer.entry_count,
+    )
+
+    result = bytearray()
+    for page in pages:
+        result.extend(page)
+    for key in toc_keys:
+        result.extend(key)
+    for h in block_hashes:
+        result.extend(h)
+    result.extend(footer.toc_hash)
+    result.append(footer.version)
+    result.extend(footer.reserved)
+    result.append(footer.page_size_kb)
+    result.append(footer.offset_bytes)
+    result.append(footer.size_bytes)
+    result.append(footer.key_bytes)
+    result.append(footer.footer_hash_bytes)
+    result.extend(struct.pack("<I", footer.entry_count))
+    result.extend(footer.footer_hash)
+    return bytes(result)
+
+
+def generate_group_index(
+    indices_dir: Path,
+    archive_keys: list[str],
+    group_hash: str,
+    is_patch: bool = False,
+) -> bool:
+    """Generate ``{group_hash}.index`` from individual archive indices.
+
+    Archive-groups are locally generated (the client merges the individual
+    CDN archive indices; they are never served from the CDN). Mirrors
+    cascette-rs ``generate_group_index``: each archive keeps its positional
+    index from the config's archive list (0-based).
+
+    Args:
+        indices_dir: Directory containing ``{key}.index`` files
+        archive_keys: Archive hashes in CDN config order
+        group_hash: Target archive-group hash
+        is_patch: Logging label only (data vs patch)
+
+    Returns:
+        True if the group was written, False if no indices were available
+    """
+    from pathlib import Path
+
+    indices_dir = Path(indices_dir)
+    group_path = indices_dir / f"{group_hash}.index"
+    if group_path.exists():
+        return True
+
+    parser = CdnArchiveParser()
+    parsed: list[tuple[int, CdnArchiveIndex]] = []
+    for i, key in enumerate(archive_keys):
+        index_path = indices_dir / f"{key}.index"
+        if not index_path.exists():
+            logger.debug("individual index missing, skipping for group", key=key)
+            continue
+        try:
+            index = parser.parse(index_path.read_bytes())
+            parsed.append((i, index))
+        except Exception as e:
+            logger.warning(
+                "failed to parse index for group merge", key=key, error=str(e)
+            )
+
+    if not parsed:
+        logger.warning("no indices parsed, skipping group generation")
+        return False
+
+    output = build_merged_archive_group(parsed)
+    group_path.write_bytes(output)
+    logger.info(
+        "generated archive group index",
+        is_patch=is_patch,
+        group_hash=group_hash,
+        archives=len(parsed),
+        size=len(output),
+    )
+    return True

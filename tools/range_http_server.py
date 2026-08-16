@@ -28,7 +28,14 @@ from socketserver import ThreadingMixIn
 
 # Default pool size: covers agent's max concurrent connections (12 global)
 # plus headroom for index fetches and config requests.
-DEFAULT_POOL_SIZE = 16
+# Default pool size: covers the client's concurrent connections plus
+# headroom. HTTP/1.1 keep-alive means each open connection holds one pool
+# worker for its lifetime; 12 concurrent downloads plus stale CLOSE-WAIT
+# sockets can exhaust a 16-worker pool (observed 2026-08-15: 190 sockets
+# stuck in CLOSE-WAIT after several installs, all range requests timed
+# out client-side). 64 gives headroom; the idle timeout below releases
+# workers when a client goes away.
+DEFAULT_POOL_SIZE = 64
 
 
 class ThreadPoolHTTPServer(ThreadingMixIn, HTTPServer):
@@ -93,6 +100,10 @@ class RangeHTTPRequestHandler(SimpleHTTPRequestHandler):
     """
 
     protocol_version = "HTTP/1.1"
+
+    # Close keep-alive connections idle for >10s so they do not hold a
+    # pool worker indefinitely (CLOSE-WAIT accumulation stalled installs).
+    timeout = 10
 
     def send_head(self):
         """Serve a GET request, handling Range headers."""

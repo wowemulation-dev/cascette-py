@@ -99,6 +99,23 @@ def _get_context_objects(ctx: click.Context) -> tuple[AppConfig, Console, bool, 
     return config, console, verbose, debug
 
 
+def _ecache_path(install_path: Path) -> Path:
+    """Resolve the cascette-py ecache location for an install.
+
+    The ecache is a cascette-py-internal CKey->EKey lookup cache used for
+    fast delta computation during update(). It is deliberately NOT stored
+    inside the client install's Data/ tree: the client manages its own
+    Data/ecache at runtime, and writing a foreign ecache pollutes the
+    install. Keyed by install path so updates against different installs
+    do not collide.
+    """
+    import hashlib
+
+    data_dir = Path.home() / ".local" / "share" / "cascette-tools"
+    key = hashlib.sha256(str(install_path.resolve()).encode()).hexdigest()[:16]
+    return data_dir / "ecache" / key
+
+
 def _populate_ecache(
     ecache_path: Path,
     encoding_data: bytes,
@@ -140,6 +157,151 @@ def get_product_enum(product_code: str) -> Product:
 def install() -> None:
     """Install and manage game content via the NGDP/CASC pipeline."""
     pass
+
+
+@install.command()
+@click.argument("build_config_hash", type=str)
+@click.argument("cdn_config_hash", type=str)
+@click.argument("install_path", type=click.Path(path_type=Path))
+@click.option(
+    "--product",
+    "-r",
+    type=click.Choice(PRODUCT_CHOICES),
+    default="wow_classic_era",
+    help="Product code for Ribbit lookup",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["us", "eu", "kr", "tw", "cn"]),
+    default=None,
+    help="CDN region (default: from config, initially 'kr')",
+)
+@click.option(
+    "--platform",
+    type=click.Choice(["Windows", "OSX", "Android", "iOS"]),
+    default="Windows",
+    help="Target platform",
+)
+@click.option(
+    "--arch",
+    type=click.Choice(["x86_64", "x86_32", "arm64"]),
+    default="x86_64",
+    help="Target architecture",
+)
+@click.option(
+    "--locale",
+    type=click.Choice(
+        ["enUS", "deDE", "esES", "esMX", "frFR", "koKR", "ptBR", "ruRU", "zhCN", "zhTW"]
+    ),
+    default="enUS",
+    help="Target locale",
+)
+@click.option(
+    "--max-archives",
+    "-m",
+    type=int,
+    default=0,
+    help="Maximum archives to download indices for (0 = all)",
+)
+@click.option(
+    "--max-files",
+    "-f",
+    type=int,
+    default=0,
+    help="Maximum files to install (0 = all)",
+)
+@click.option(
+    "--priority",
+    "-P",
+    type=int,
+    default=255,
+    help="Maximum priority level to install (0 = critical, 255 = all; container mode only)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Override existing .build.info even if config hashes differ (container mode only)",
+)
+@click.option(
+    "--subfolder",
+    type=str,
+    default="_classic_",
+    help="Product subfolder for loose files (container mode only)",
+)
+@click.option(
+    "--loose-only",
+    is_flag=True,
+    default=False,
+    help="Install only install-manifest loose files, skip CASC population (container mode only)",
+)
+@click.option(
+    "--shmem-version",
+    type=click.Choice(["4", "5"]),
+    default="5",
+    help="Shmem protocol version (container mode only)",
+)
+@click.pass_context
+def install_product(
+    ctx: click.Context,
+    build_config_hash: str,
+    cdn_config_hash: str,
+    install_path: Path,
+    product: str,
+    region: str | None,
+    platform: str,
+    arch: str,
+    locale: str,
+    max_archives: int,
+    max_files: int,
+    priority: int,
+    force: bool,
+    subfolder: str,
+    loose_only: bool,
+    shmem_version: str,
+) -> None:
+    """Install a product, dispatching on the build config's storage mode.
+
+    The build config's ``build-file-db`` key is the single discriminator
+    (A2 alignment with the verified agent workflow): a config carrying it
+    installs in containerless mode (loose files + SQLite file DB); a config
+    without it installs in container mode (CASC archives). This is the
+    unified entry point; the mode-specific commands remain available for
+    direct use and auto-dispatch the same way.
+
+    BUILD_CONFIG_HASH and CDN_CONFIG_HASH are the hashes from the versions
+    endpoint. INSTALL_PATH is the installation directory.
+    """
+    config_obj, _console, _verbose, _debug = _get_context_objects(ctx)
+    region = region or config_obj.default_region
+
+    # Delegate to install_to_casc, which reads the build config and
+    # auto-routes to containerless when build-file-db is present.
+    try:
+        ctx.invoke(
+            install_to_casc,
+            build_config_hash=build_config_hash,
+            cdn_config_hash=cdn_config_hash,
+            install_path=install_path,
+            product=product,
+            max_archives=max_archives,
+            max_files=max_files,
+            priority=priority,
+            platform=platform,
+            arch=arch,
+            locale=locale,
+            region=region,
+            resume=True,
+            force=force,
+            subfolder=subfolder,
+            loose_only=loose_only,
+            shmem_version=shmem_version,
+        )
+    except click.ClickException:
+        raise
+    except Exception as e:
+        logger.error("Install dispatch failed", error=str(e))
+        raise click.ClickException(f"Install dispatch failed: {e}") from e
 
 
 @install.command()
@@ -1211,6 +1373,173 @@ async def _download_casc_files(
     return installed, failed, integrity_errors, total_bytes
 
 
+def _fetch_patch_config_and_indices(
+    build_config: Any,
+    cdn_config: Any,
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    console: Console,
+) -> None:
+    """Fetch the patch config and patch archive indices into the install.
+
+    Mirrors the client's fresh-install behavior (B1 alignment): the client
+    fetches the patch config (referenced by the build config's
+    ``patch-config`` key) into ``Data/config/`` and all patch-related
+    index files into ``Data/indices/``. Verified against the client-built
+    1.13.2.31650 store: 135 extra indices = 131 patch-archives plus
+    archive-group, patch-archive-group, file-index, and patch-file-index.
+
+    Args:
+        build_config: Parsed build config (may carry ``patch_config``)
+        cdn_config: Parsed CDN config (carries ``patch_archives`` etc.)
+        cdn_client: CDN client for fetching
+        storage: Local storage for saving configs and indices
+        console: Rich console for output
+    """
+    patch_config_hash = getattr(build_config, "patch_config", None)
+    console.print("\n[cyan]Step 5.5:[/cyan] Fetching patch config and patch indices...")
+    try:
+        if patch_config_hash:
+            patch_config_data = cdn_client.fetch_config(
+                patch_config_hash, config_type="patch"
+            )
+            storage.save_config(patch_config_hash, patch_config_data)
+            console.print(f"  PatchConfig: {patch_config_hash}")
+        else:
+            # Some builds (e.g. 1.13.3.33155) carry no patch-config key but
+            # the CDN config still lists patch archives / file indices that
+            # the client fetches on first start. Continue with the CDN-
+            # config-driven parts regardless.
+            console.print("  [dim]No patch config in build config[/dim]")
+
+        # Patch archive indices from the CDN config
+        patch_archives = getattr(cdn_config, "patch_archives", None) or []
+        console.print(f"  Patch archives: {len(patch_archives)}")
+        saved_indices = 0
+        for pa_hash in patch_archives:
+            try:
+                idx_data = cdn_client.fetch_patch(pa_hash, is_index=True)
+                storage.save_cdn_index(pa_hash, idx_data)
+                saved_indices += 1
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch patch archive index",
+                    hash=pa_hash,
+                    error=str(e),
+                )
+
+        # archive-group / patch-archive-group are LOCALLY GENERATED
+        # mega-indices (the client merges the individual CDN archive
+        # indices; they are never served from the CDN). Generate them from
+        # the saved Data/indices files. file-index and patch-file-index are
+        # real CDN files (data and patch content types respectively) and
+        # are fetched normally. All four are stored as `.index` files in
+        # Data/indices/ (verified in the real agent install at
+        # ~/Downloads/battle.net/agent).
+        extra_indices: list[tuple[str, str]] = []  # (hash, content_type)
+        for attr, content_type in (
+            ("file_index", "data"),
+            ("patch_file_index", "patch"),
+        ):
+            val = getattr(cdn_config, attr, None)
+            if val:
+                extra_indices.append((val, content_type))
+        for idx_hash, content_type in extra_indices:
+            try:
+                if content_type == "data":
+                    # Data-type index: {hash}.index under the data tree.
+                    idx_data = cdn_client.fetch_data(idx_hash, is_index=True)
+                else:
+                    idx_data = cdn_client.fetch_patch(idx_hash, is_index=True)
+                storage.save_cdn_index(idx_hash, idx_data)
+                saved_indices += 1
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch group/file index",
+                    hash=idx_hash,
+                    error=str(e),
+                )
+
+        # Locally generate the archive-group mega-indices from the
+        # individual archive indices already saved above (data archives from
+        # Step 5, patch archives from the loop above). The client generates
+        # these during install; the CDN never serves them.
+        from cascette_tools.formats.cdn_archive import generate_group_index
+
+        archive_group_hash = getattr(cdn_config, "archive_group", None)
+        if archive_group_hash:
+            if generate_group_index(
+                storage.indices_path,
+                getattr(cdn_config, "archives", None) or [],
+                archive_group_hash,
+                is_patch=False,
+            ):
+                saved_indices += 1
+            else:
+                logger.warning(
+                    "Failed to generate archive-group index",
+                    hash=archive_group_hash,
+                )
+
+        patch_archive_group_hash = getattr(cdn_config, "patch_archive_group", None)
+        if patch_archive_group_hash:
+            if generate_group_index(
+                storage.indices_path,
+                getattr(cdn_config, "patch_archives", None) or [],
+                patch_archive_group_hash,
+                is_patch=True,
+            ):
+                saved_indices += 1
+            else:
+                logger.warning(
+                    "Failed to generate patch archive-group index",
+                    hash=patch_archive_group_hash,
+                )
+
+        console.print(f"  Saved {saved_indices} patch index files to Data/indices/")
+
+        # Patch manifest (B6-patch): the client fetches the patch manifest
+        # from the build config's `patch` key (content key) into the CASC
+        # store on first start (the only remaining CDN request on cold
+        # start). Verified against the client-built 1.13.2.31650 store: the
+        # manifest is stored RAW (no BLTE wrapping) as the first entry after
+        # the segment header, keyed by its CONTENT key (not an encoding
+        # key), with a 30-byte local header and a KMT entry. Only builds
+        # with a `patch` key (e.g. 1.13.2/1.13.3 early) have one; later
+        # builds (e.g. 1.13.3.33155) omit it entirely.
+        patch_key = getattr(build_config, "patch", None)
+        patch_size = getattr(build_config, "patch_size", None)
+        if patch_key:
+            try:
+                patch_key_hex = patch_key.split()[0]
+                patch_manifest_raw = cdn_client.fetch_patch(patch_key_hex)
+                if len(patch_manifest_raw) != int(patch_size or 0):
+                    logger.warning(
+                        "Patch manifest size mismatch",
+                        expected=patch_size,
+                        actual=len(patch_manifest_raw),
+                    )
+                storage.write_content(bytes.fromhex(patch_key_hex), patch_manifest_raw)
+                console.print(
+                    f"  Patch manifest: {patch_key_hex} ({len(patch_manifest_raw):,} bytes)"
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch/write patch manifest",
+                    hash=patch_key,
+                    error=str(e),
+                )
+                console.print(
+                    f"  [yellow]Patch manifest unavailable: {e!s:.80}[/yellow]"
+                )
+    except Exception as e:
+        logger.warning(
+            "Failed to fetch patch config/indices during install",
+            error=str(e),
+        )
+        console.print(f"  [yellow]Patch data unavailable: {e!s:.80}[/yellow]")
+
+
 def _fetch_patch_manifest(
     cdn_client: CDNClient,
     patch_config_hash: str,
@@ -1726,6 +2055,30 @@ def install_to_casc(
         build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  Build: {build_config.build_name}")
 
+        # Automatic storage-mode dispatch (A2): a build config carrying
+        # build-file-db is a containerless build. Route to the containerless
+        # pipeline regardless of which command was invoked.
+        if build_config.get_file_db_info() is not None:
+            console.print(
+                "[cyan]Containerless mode[/cyan] "
+                "(build-file-db present; routing to containerless install)"
+            )
+            cdn_client.close()
+            ctx.invoke(
+                install_containerless,
+                build_config_hash=build_config_hash,
+                cdn_config_hash=cdn_config_hash,
+                install_path=install_path,
+                product=product,
+                region=region,
+                platform=platform,
+                arch=arch,
+                locale=locale,
+                max_archives=max_archives,
+                max_files=max_files,
+            )
+            return
+        console.print("[cyan]Container mode[/cyan] (CASC archives)")
         encoding_info = build_config.get_encoding_info()
         install_info = build_config.get_install_info()
         download_info = build_config.get_download_info()
@@ -1793,8 +2146,11 @@ def install_to_casc(
             if not version_str and existing_info.version:
                 version_str = existing_info.version
 
-        # Step 2: Load ecache or fetch encoding file
-        ecache_path = install_path / "Data" / "ecache"
+        # Step 2: Load ecache and fetch encoding file. The ecache accelerates
+        # CKey->EKey lookups only; the encoding file itself must still be
+        # fetched and written into the CASC store (cascette-rs reads it from
+        # the local archives, and the client expects it resident).
+        ecache_path = _ecache_path(install_path)
         ecache: EncodingCache | None = None
         encoding_parser: EncodingParser | None = None
         encoding_data: bytes | None = None
@@ -1804,38 +2160,35 @@ def install_to_casc(
         if ecache_path.exists():
             ecache = EncodingCache.load(ecache_path)
 
-        if ecache is not None and ecache.entry_count() > 0:
-            console.print("\n[cyan]Step 2:[/cyan] Using encoding cache (ecache)...")
-            console.print(f"  Entries: {ecache.entry_count():,}")
-            console.print("  [green]Skipping encoding file download[/green]")
-        else:
-            console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
-            encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
-            encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
-            console.print(f"  Size: {len(encoding_data_raw):,} bytes")
+        console.print("\n[cyan]Step 2:[/cyan] Fetching encoding file...")
+        encoding_ekey = bytes.fromhex(encoding_info.encoding_key)
+        encoding_data_raw = cdn_client.fetch_data(encoding_info.encoding_key)
+        console.print(f"  Size: {len(encoding_data_raw):,} bytes")
 
-            # Write raw encoding file to local CASC storage
-            storage.write_content(encoding_ekey, encoding_data_raw)
-            console.print("  Written to local storage")
+        # Write raw encoding file to local CASC storage
+        storage.write_content(encoding_ekey, encoding_data_raw)
+        console.print("  Written to local storage")
 
-            # Decompress for parsing
-            encoding_data = encoding_data_raw
-            if is_blte(encoding_data):
-                encoding_data = decompress_blte(encoding_data)
+        # Decompress for parsing
+        encoding_data = encoding_data_raw
+        if is_blte(encoding_data):
+            encoding_data = decompress_blte(encoding_data)
 
-            encoding_parser = EncodingParser()
-            encoding_file = encoding_parser.parse(encoding_data)
-            console.print(
-                f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages"
-            )
+        encoding_parser = EncodingParser()
+        encoding_file = encoding_parser.parse(encoding_data)
+        console.print(f"  Parsed: {encoding_file.header.ckey_page_count} CKey pages")
 
-            # Step 2a: Populate ecache from encoding file
+        # Step 2a: Populate ecache if it is empty/absent; otherwise reuse it
+        if ecache is None or ecache.entry_count() == 0:
             console.print("\n[cyan]Step 2a:[/cyan] Populating encoding cache...")
             ecache = _populate_ecache(
                 ecache_path, encoding_data, encoding_file, encoding_parser
             )
             console.print(f"  Cached {ecache.entry_count():,} CKey→EKey mappings")
-
+        else:
+            console.print(
+                f"  Using ecache ({ecache.entry_count():,} entries) for lookups"
+            )
         # Step 2b: Fetch and parse size manifest (if present)
         size_file: SizeFile | None = None
         if size_info and size_info.encoding_key:
@@ -2029,8 +2382,17 @@ def install_to_casc(
                 max_archives=max_archives,
             )
         )
+        # Step 5.5: Fetch patch config + patch indices (B1 alignment)
+        # The client fetches the patch config and all patch-archive index
+        # files into Data/config/ and Data/indices/ on a fresh install
+        # (verified against the client-built 1.13.2.31650 store: 135 extra
+        # indices = 131 patch-archives + archive-group + patch-archive-group
+        # + file-index + patch-file-index). cascette-py previously only
+        # fetched patch data during update(); the fresh install lacked it.
+        _fetch_patch_config_and_indices(
+            build_config, cdn_config, cdn_client, storage, console
+        )
 
-        # Step 6: Process install manifest (executables and DLLs)
         # Now we can fetch files using the archive indices
         install_entries_extracted = 0
         if install_info:
@@ -2538,7 +2900,7 @@ def update(
 
         # Step 5: Load old ecache
         console.print("\n[cyan]Step 5:[/cyan] Loading encoding cache...")
-        ecache_path = install_path / "Data" / "ecache"
+        ecache_path = _ecache_path(install_path)
         old_ecache = EncodingCache.load(ecache_path)
 
         if old_ecache is None or old_ecache.entry_count() == 0:
@@ -2881,11 +3243,12 @@ def build_ecache(
     """Bootstrap an encoding cache from CDN for an existing installation.
 
     Reads .build.info to find the build config, fetches the encoding file
-    from CDN, and populates Data/ecache/ with CKey->EKey mappings.
+    from CDN, and populates the cascette-py ecache (outside the client
+    install, under ~/.local/share/cascette-tools/ecache/) with CKey->EKey
+    mappings.
 
-    This is useful for old installations that lack an ecache directory,
+    This is useful for old installations that lack an ecache,
     enabling them to be used with the update command.
-
     INSTALL_PATH is the root of an existing installation (must contain .build.info).
     """
     config_obj, console, _verbose, _debug = _get_context_objects(ctx)
@@ -2941,7 +3304,7 @@ def build_ecache(
 
         # Step 4: Populate ecache
         console.print("\n[cyan]Step 4:[/cyan] Populating encoding cache...")
-        ecache_path = install_path / "Data" / "ecache"
+        ecache_path = _ecache_path(install_path)
         ecache = _populate_ecache(
             ecache_path, encoding_data, encoding_file, encoding_parser
         )
@@ -3218,13 +3581,40 @@ def install_containerless(
         build_config = BuildConfigParser().parse(build_config_data)
         console.print(f"  Build: {build_config.build_name}")
 
-        # Verify this is a containerless build
+        # Automatic storage-mode dispatch (A2): a build config WITHOUT
+        # build-file-db is a container (CASC) build. Route to the container
+        # pipeline regardless of which command was invoked.
         file_db_info = build_config.get_file_db_info()
         if file_db_info is None:
-            raise click.ClickException(
-                "Build config does not have build-file-db field. "
-                "This is not a containerless build."
+            console.print(
+                "[cyan]Container mode[/cyan] "
+                "(no build-file-db; routing to CASC container install)"
             )
+            cdn_client.close()
+            ctx.invoke(
+                install_to_casc,
+                build_config_hash=build_config_hash,
+                cdn_config_hash=cdn_config_hash,
+                install_path=install_path,
+                product=product,
+                max_archives=max_archives,
+                max_files=max_files,
+                priority=255,
+                platform=platform,
+                arch=arch,
+                locale=locale,
+                region=region,
+                resume=True,
+                force=False,
+                subfolder="_classic_",
+                loose_only=False,
+                shmem_version="5",
+            )
+            return
+        console.print(
+            f"[cyan]Containerless mode[/cyan] "
+            f"(build-file-db: {file_db_info.content_key})"
+        )
 
         cdn_config_data = cdn_client.fetch_config(
             cdn_config_hash,

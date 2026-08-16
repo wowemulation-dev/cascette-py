@@ -690,12 +690,15 @@ class LocalStorage:
         logger.info(f"Initializing CASC storage at {self.base_path}")
 
         # Create directories
+        # Create directories. shmem and ecache are deliberately NOT created:
+        # they are client-managed runtime artifacts that the client rebuilds
+        # when the core data (config/indices/data) is valid. Creating them
+        # with a guessed format pollutes the install and can trip the
+        # client's shared-memory bind check.
         for path in [
             self.data_path,
             self.indices_path,
             self.config_path,
-            self.shmem_path,
-            self.ecache_path,
         ]:
             path.mkdir(parents=True, exist_ok=True)
             logger.debug(f"Created directory: {path}")
@@ -870,6 +873,33 @@ class LocalStorage:
                 f.write(seg_header)
             self.current_archive_offset = SEGMENT_HEADER_SIZE
 
+            # Index the 16 reconstruction headers in the KMT (B3 fix).
+            # The client indexes each segment's reconstruction header in the
+            # .idx file of its seed-1 bucket: key = generated segment key,
+            # archive_id = this segment, archive_offset = bucket*30, size = 30
+            # (the header itself). Verified against the client-built
+            # 1.13.2.31650 store: 64 reconstruction entries (4 segments x 16
+            # buckets) present in the KMT.
+            for recon_slot in range(16):
+                lh = LocalFileHeader.from_bytes(
+                    seg_header[
+                        recon_slot * LOCAL_HEADER_SIZE : (recon_slot + 1)
+                        * LOCAL_HEADER_SIZE
+                    ]
+                )
+                recon_key = lh.original_encoding_key()[:9]
+                recon_bucket = compute_bucket(recon_key, seed=1)
+                entry = LocalIndexEntry(
+                    key=recon_key,
+                    archive_id=self.current_archive_id,
+                    archive_offset=recon_slot * LOCAL_HEADER_SIZE,
+                    size=LOCAL_HEADER_SIZE,
+                )
+                self.bucket_entries[recon_bucket].append(entry)
+            logger.debug(
+                "Indexed segment reconstruction headers",
+                segment=self.current_archive_id,
+            )
         # Global offset = segment base + file offset. Used for header checksums.
         global_offset = (
             self.current_archive_id * (1 << 30) + self.current_archive_offset
@@ -916,8 +946,9 @@ class LocalStorage:
             self._write_index_file(idx_path, bucket, entries_sorted)
             logger.info(f"Wrote index {idx_path.name}: {len(entries_sorted)} entries")
 
-        # Create shmem file
-        self._write_shmem_file()
+        # shmem is deliberately NOT written here: it is a client-managed
+        # runtime artifact the client rebuilds on startup. See the note in
+        # initialize().
 
     def _write_shmem_file(self) -> None:
         """Write the shmem control file using ShmemControl."""

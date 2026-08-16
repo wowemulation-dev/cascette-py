@@ -241,6 +241,32 @@ class WagoClient:
                     success INTEGER DEFAULT 1,
                     error_message TEXT
                 );
+                CREATE TABLE IF NOT EXISTS build_formats (
+                    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product TEXT NOT NULL,
+                    build TEXT NOT NULL,
+                    build_config TEXT NOT NULL,
+                    -- CDN-side formats (files the client downloads)
+                    root_version INTEGER,        -- root manifest (TVFS) version
+                    install_version INTEGER,     -- install manifest version
+                    download_version INTEGER,    -- download manifest version
+                    size_version INTEGER,        -- size manifest version
+                    encoding_version INTEGER,    -- encoding file version
+                    archive_index_version INTEGER, -- CDN archive index footer version
+                    blte_magic TEXT,             -- BLTE magic bytes (e.g. "424C5445")
+                    -- Container-side formats (client CAS container)
+                    idx_version INTEGER,         -- local KMT idx version (v7)
+                    local_header_version INTEGER, -- 30-byte LocalHeader version
+                    segment_header_bytes INTEGER, -- 480-byte segment header size
+                    shmem_version INTEGER,       -- shmem protocol version (v4)
+                    -- provenance
+                    source TEXT DEFAULT 'cdn',   -- cdn | container | manual
+                    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(product, build, build_config)
+                );
+                CREATE INDEX IF NOT EXISTS idx_build_formats_build_config
+                    ON build_formats(build_config);
+
             """)
         self._migrate_db()
         self._migrate_add_columns()
@@ -1038,6 +1064,118 @@ class WagoClient:
             raise
 
         return stats
+
+    def upsert_build_formats(
+        self,
+        product: str,
+        build: str,
+        build_config: str,
+        *,
+        root_version: int | None = None,
+        install_version: int | None = None,
+        download_version: int | None = None,
+        size_version: int | None = None,
+        encoding_version: int | None = None,
+        archive_index_version: int | None = None,
+        blte_magic: str | None = None,
+        idx_version: int | None = None,
+        local_header_version: int | None = None,
+        segment_header_bytes: int | None = None,
+        shmem_version: int | None = None,
+        source: str = "cdn",
+    ) -> bool:
+        """Upsert a build's detected file-format versions.
+
+        Records both CDN-side formats (root, install, download, size,
+        encoding manifests, archive indices, BLTE) and container-side
+        formats (idx, local headers, segment headers, shmem). One row per
+        (product, build, build_config); repeated scans update in place.
+
+        Returns:
+            True if inserted, False if updated.
+        """
+        # Detect insert vs update: SQLite's ON CONFLICT DO UPDATE does not
+        # reliably report rowcount for the conflict path, so check existence.
+        exists = self.conn.execute(
+            "SELECT 1 FROM build_formats WHERE product=? AND build=? AND build_config=?",
+            (product, build, build_config),
+        ).fetchone()
+        inserted = exists is None
+
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO build_formats (
+                    product, build, build_config,
+                    root_version, install_version, download_version,
+                    size_version, encoding_version, archive_index_version,
+                    blte_magic, idx_version, local_header_version,
+                    segment_header_bytes, shmem_version, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(product, build, build_config) DO UPDATE SET
+                    root_version = excluded.root_version,
+                    install_version = excluded.install_version,
+                    download_version = excluded.download_version,
+                    size_version = excluded.size_version,
+                    encoding_version = excluded.encoding_version,
+                    archive_index_version = excluded.archive_index_version,
+                    blte_magic = excluded.blte_magic,
+                    idx_version = excluded.idx_version,
+                    local_header_version = excluded.local_header_version,
+                    segment_header_bytes = excluded.segment_header_bytes,
+                    shmem_version = excluded.shmem_version,
+                    source = excluded.source,
+                    detected_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    product,
+                    build,
+                    build_config,
+                    root_version,
+                    install_version,
+                    download_version,
+                    size_version,
+                    encoding_version,
+                    archive_index_version,
+                    blte_magic,
+                    idx_version,
+                    local_header_version,
+                    segment_header_bytes,
+                    shmem_version,
+                    source,
+                ),
+            )
+        return inserted
+
+    def get_build_formats(
+        self, product: str | None = None, build: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Query recorded build format versions.
+
+        Args:
+            product: Optional product filter
+            build: Optional build-number filter
+
+        Returns:
+            List of rows as dicts (format columns + provenance).
+        """
+        query = "SELECT * FROM build_formats"
+        where: list[str] = []
+        params: list[str] = []
+        if product:
+            where.append("product = ?")
+            params.append(product)
+        if build:
+            where.append("build = ?")
+            params.append(build)
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY build DESC, product"
+        rows = self.conn.execute(query, params).fetchall()
+        cols = [
+            d[0] for d in self.conn.execute("SELECT * FROM build_formats").description
+        ]
+        return [dict(zip(cols, r, strict=False)) for r in rows]
 
     def get_database_builds(
         self, product: Product | str | None = None, limit: int | None = None

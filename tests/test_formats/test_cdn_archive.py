@@ -9,7 +9,9 @@ from io import BytesIO
 import pytest
 
 from cascette_tools.formats.cdn_archive import (
+    CdnArchiveEntry,
     CdnArchiveFooter,
+    CdnArchiveIndex,
     CdnArchiveParser,
     is_archive_group,
     is_cdn_archive_index,
@@ -575,3 +577,164 @@ class TestCdnArchiveEdgeCases:
         parser = CdnArchiveParser()
         with pytest.raises(ValueError, match="Unsupported CDN index footer version"):
             parser.parse(blob)
+
+
+class TestArchiveGroupMerge:
+    """Tests for locally-generated archive-group merging."""
+
+    def _make_entries(self, start: int, count: int) -> list[CdnArchiveEntry]:
+
+        return [
+            CdnArchiveEntry(
+                encoding_key=bytes([(i >> 8) & 0xFF, i & 0xFF] + [0xCC] * 14),
+                archive_index=None,
+                offset=i * 10,
+                size=i * 5,
+            )
+            for i in range(start, start + count)
+        ]
+
+    def _make_index(self, entries: list[CdnArchiveEntry]) -> CdnArchiveIndex:
+
+        # Build a regular (non-group) index blob via the parser's build(),
+        # then reparse so entries roundtrip with the format's invariants.
+        footer = CdnArchiveFooter(
+            toc_hash=b"\x00" * 8,
+            version=1,
+            reserved=b"\x00\x00",
+            page_size_kb=4,
+            offset_bytes=4,
+            size_bytes=4,
+            key_bytes=16,
+            footer_hash_bytes=8,
+            entry_count=len(entries),
+            footer_hash=b"\x00" * 8,
+        )
+        blob = CdnArchiveParser().build(CdnArchiveIndex(footer=footer, entries=entries))
+        return CdnArchiveParser().parse(blob)
+
+    def test_build_merged_roundtrip(self):
+        """Merged output parses back with expected entries."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveParser,
+            build_merged_archive_group,
+        )
+
+        idx0 = self._make_index(self._make_entries(0, 100))
+        idx1 = self._make_index(self._make_entries(100, 100))
+        blob = build_merged_archive_group([(0, idx0), (1, idx1)])
+        parsed = CdnArchiveParser().parse(blob)
+
+        assert parsed.footer.is_archive_group
+        assert parsed.footer.offset_bytes == 6
+        assert len(parsed.entries) == 200
+        assert parsed.entries[0].archive_index == 0
+        assert parsed.entries[100].archive_index == 1
+        # Sorted by key
+        keys = [e.encoding_key for e in parsed.entries]
+        assert keys == sorted(keys)
+
+    def test_build_merged_deduplicates(self):
+        """Duplicate key across archives keeps the first (lowest index)."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveEntry,
+            CdnArchiveParser,
+            build_merged_archive_group,
+        )
+
+        key = bytes([0xAA] * 16)
+        idx0 = self._make_index(
+            [CdnArchiveEntry(encoding_key=key, archive_index=None, offset=100, size=50)]
+        )
+        idx1 = self._make_index(
+            [CdnArchiveEntry(encoding_key=key, archive_index=None, offset=200, size=60)]
+        )
+        blob = build_merged_archive_group([(10, idx0), (20, idx1)])
+        parsed = CdnArchiveParser().parse(blob)
+
+        assert len(parsed.entries) == 1
+        assert parsed.entries[0].archive_index == 10
+        assert parsed.entries[0].offset == 100
+        assert parsed.entries[0].size == 50
+
+    def test_build_merged_empty(self):
+        """Empty archives produce a parseable empty group."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveParser,
+            build_merged_archive_group,
+        )
+
+        blob = build_merged_archive_group([])
+        parsed = CdnArchiveParser().parse(blob)
+        assert parsed.footer.offset_bytes == 6
+        assert len(parsed.entries) == 0
+
+    def test_footer_hash_roundtrip(self):
+        """Footer hash validates against a recomputed MD5 (client-verified algorithm)."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveParser,
+            _calculate_footer_hash,
+            build_merged_archive_group,
+        )
+
+        idx = self._make_index(self._make_entries(0, 5))
+        blob = build_merged_archive_group([(0, idx)])
+        parsed = CdnArchiveParser().parse(blob)
+
+        expected = _calculate_footer_hash(
+            version=parsed.footer.version,
+            reserved=parsed.footer.reserved,
+            page_size_kb=parsed.footer.page_size_kb,
+            offset_bytes=parsed.footer.offset_bytes,
+            size_bytes=parsed.footer.size_bytes,
+            key_bytes=parsed.footer.key_bytes,
+            footer_hash_bytes=parsed.footer.footer_hash_bytes,
+            entry_count=parsed.footer.entry_count,
+        )
+        assert parsed.footer.footer_hash == expected
+        assert len(parsed.footer.footer_hash) == 8
+
+    def test_generate_group_index_writes_file(self, tmp_path):
+        """generate_group_index merges saved index files into {group_hash}.index."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveParser,
+            generate_group_index,
+        )
+
+        idx0 = self._make_index(self._make_entries(0, 50))
+        idx1 = self._make_index(self._make_entries(50, 50))
+        # Save individual indices using the parser's build()
+        for key, index in (("aa", idx0), ("bb", idx1)):
+            blob = CdnArchiveParser().build(index)
+            (tmp_path / f"{key}.index").write_bytes(blob)
+
+        ok = generate_group_index(tmp_path, ["aa", "bb"], "group1")
+        assert ok
+        assert (tmp_path / "group1.index").exists()
+        parsed = CdnArchiveParser().parse((tmp_path / "group1.index").read_bytes())
+        assert len(parsed.entries) == 100
+        assert parsed.footer.is_archive_group
+
+    def test_generate_group_index_skips_missing(self, tmp_path):
+        """Missing individual indices do not abort generation (positional index kept)."""
+        from cascette_tools.formats.cdn_archive import (
+            CdnArchiveParser,
+            generate_group_index,
+        )
+
+        idx = self._make_index(self._make_entries(0, 10))
+        (tmp_path / "aa.index").write_bytes(CdnArchiveParser().build(idx))
+
+        ok = generate_group_index(tmp_path, ["aa", "bb"], "group2")
+        assert ok
+        parsed = CdnArchiveParser().parse((tmp_path / "group2.index").read_bytes())
+        assert len(parsed.entries) == 10
+        assert parsed.entries[0].archive_index == 0  # 'aa' is position 0
+
+    def test_generate_group_index_no_indices(self, tmp_path):
+        """No available indices -> returns False, writes nothing."""
+        from cascette_tools.formats.cdn_archive import generate_group_index
+
+        ok = generate_group_index(tmp_path, ["aa", "bb"], "group3")
+        assert not ok
+        assert not (tmp_path / "group3.index").exists()

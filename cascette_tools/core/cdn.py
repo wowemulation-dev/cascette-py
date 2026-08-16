@@ -39,6 +39,7 @@ class CDNClient:
         self.tact_client = TACTClient(region=region)
         self._client: httpx.Client | None = None
         self._async_client: httpx.AsyncClient | None = None
+        self._async_client_loop: asyncio.AbstractEventLoop | None = None
 
         # These will be populated from TACT cdns endpoint
         self.cdn_path: str | None = None  # e.g., "tpr/wow"
@@ -59,14 +60,51 @@ class CDNClient:
 
     @property
     def async_client(self) -> httpx.AsyncClient:
-        """Get or create async HTTP client."""
+        """Get or create async HTTP client.
+
+        An httpx.AsyncClient is bound to the event loop it was created in.
+        Reusing it inside a second ``asyncio.run()`` loop raises
+        ``RuntimeError('Event loop is closed')`` (observed: cascette-py
+        install runs Step 5 index download and Step 7 file download in
+        separate ``asyncio.run`` calls, causing intermittent range-request
+        failures). Detect the loop change and rebuild the client so each
+        loop gets a fresh one.
+        """
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if (
+            self._async_client is not None
+            and self._async_client_loop is not None
+            and running_loop is not None
+            and self._async_client_loop is not running_loop
+        ):
+            # The client is bound to a different (already closed) loop —
+            # nothing to close there. Drop it so the new loop creates a
+            # fresh client.
+            self._async_client = None
+            self._async_client_loop = None
         if self._async_client is None:
             self._async_client = httpx.AsyncClient(
                 timeout=self.config.timeout,
                 verify=self.config.verify_ssl,
                 follow_redirects=True,
             )
+            self._async_client_loop = running_loop
         return self._async_client
+
+    def reset_async_client(self) -> None:
+        """Drop the async client so the next access creates a fresh one.
+
+        Used after timeout/connection errors: httpx keeps a connection pool
+        on the client, and a stalled keep-alive connection can poison all
+        subsequent retries. Rebuilding the client forces new connections
+        (observed on 1.13.2.31882: a range request the server answered with
+        206 still timed out client-side on every retry).
+        """
+        self._async_client = None
+        self._async_client_loop = None
 
     def ensure_initialized(self) -> None:
         """Ensure CDN client is initialized with TACT data."""

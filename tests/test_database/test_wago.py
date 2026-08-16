@@ -787,3 +787,64 @@ class TestWagoClient:
     def test_api_base_constant(self):
         """Test that API base URL is correct."""
         assert WagoClient.API_BASE == "https://wago.tools/api"
+
+
+class TestBuildFormats:
+    """Test the build_formats table upsert/query methods."""
+
+    @pytest.fixture
+    def client(self, tmp_path):
+        """WagoClient with a fresh temp data dir (fresh build_formats table)."""
+        config = AppConfig()
+        config.data_dir = tmp_path / "fmt_data"
+        config.data_dir.mkdir(parents=True, exist_ok=True)
+        c = WagoClient(config)
+        yield c
+        c.close()
+
+    def test_upsert_insert(self, client):
+        """Upsert inserts a new row."""
+        inserted = client.upsert_build_formats(
+            "wow_classic",
+            "31650",
+            "bc_hash_1",
+            root_version=1,
+            install_version=1,
+            download_version=3,
+            encoding_version=1,
+            idx_version=7,
+            shmem_version=4,
+            source="container",
+        )
+        assert inserted is True
+        rows = client.get_build_formats(build="31650")
+        assert len(rows) == 1
+        assert rows[0]["root_version"] == 1
+        assert rows[0]["idx_version"] == 7
+        assert rows[0]["shmem_version"] == 4
+        assert rows[0]["source"] == "container"
+
+    def test_upsert_update(self, client):
+        """Repeated upsert updates in place (no duplicate rows)."""
+        client.upsert_build_formats("wow_classic", "31650", "bc_hash_1", root_version=1)
+        updated = client.upsert_build_formats(
+            "wow_classic", "31650", "bc_hash_1", root_version=1, shmem_version=4
+        )
+        assert updated is False  # updated, not inserted
+        rows = client.get_build_formats(build="31650")
+        assert len(rows) == 1
+        assert rows[0]["shmem_version"] == 4
+
+    def test_query_filters(self, client):
+        """Query filters by product and build independently."""
+        client.upsert_build_formats("wow", "50000", "bc_a", root_version=1)
+        client.upsert_build_formats("wow_classic", "31650", "bc_b", root_version=1)
+        client.upsert_build_formats("wow_classic", "31687", "bc_c", root_version=1)
+
+        wow_only = client.get_build_formats(product="wow")
+        assert len(wow_only) == 1
+        assert wow_only[0]["build"] == "50000"
+
+        classic_31650 = client.get_build_formats(build="31650")
+        assert len(classic_31650) == 1
+        assert classic_31650[0]["product"] == "wow_classic"
