@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
+from importlib import metadata
 
 import httpx
 import structlog
@@ -11,6 +13,23 @@ from cascette_tools.core.cache import DiskCache
 from cascette_tools.core.config import CDNConfig
 from cascette_tools.core.tact import TACTClient
 from cascette_tools.core.types import Product
+
+logger = structlog.get_logger()
+
+
+@lru_cache(maxsize=1)
+def _user_agent() -> str:
+    """Identify this tool to CDN servers.
+
+    Uses the installed package version (pyproject `version`); falls back
+    to the module constant when the package is not installed.
+    """
+    try:
+        version = metadata.version("cascette-tools")
+    except metadata.PackageNotFoundError:
+        version = "unknown"
+    return f"cascette-py/{version}"
+
 
 logger = structlog.get_logger()
 
@@ -55,6 +74,7 @@ class CDNClient:
                 timeout=self.config.timeout,
                 verify=self.config.verify_ssl,
                 follow_redirects=True,
+                headers={"User-Agent": _user_agent()},
             )
         return self._client
 
@@ -90,6 +110,7 @@ class CDNClient:
                 timeout=self.config.timeout,
                 verify=self.config.verify_ssl,
                 follow_redirects=True,
+                headers={"User-Agent": _user_agent()},
             )
             self._async_client_loop = running_loop
         return self._async_client

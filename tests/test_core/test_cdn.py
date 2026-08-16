@@ -363,6 +363,16 @@ class TestCDNClient:
         assert isinstance(async_client, httpx.AsyncClient)
         assert async_client is client.async_client  # Should reuse same instance
 
+    def test_user_agent_header(self):
+        """Both clients send cascette-py/{version} as the User-Agent."""
+        from cascette_tools.core.cdn import _user_agent
+
+        client = CDNClient(Product.WOW)
+        ua = _user_agent()
+        assert ua.startswith("cascette-py/")
+        assert client.client.headers["User-Agent"] == ua
+        assert client.async_client.headers["User-Agent"] == ua
+
     def test_reset_async_client(self):
         """reset_async_client drops the client so the next access rebuilds it."""
         client = CDNClient(Product.WOW)
