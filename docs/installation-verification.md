@@ -443,7 +443,7 @@ under `_classic_era_` (B11 fix, `default_subfolder`).
 | 42597 | 1.14.2 | wow_classic_era | wow_classic_era | Y | Y | Mar 5, 2022 — A2 target | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 43401 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | May 3, 2022 — A1 target | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 44016 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 7, 2022 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
-| 44170 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 15, 2022 | ⏳ pending |
+| 44170 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 15, 2022 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 44403 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 30, 2022 | ⏳ pending |
 | 44834 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jul 27, 2022 | ⏳ pending |
 | 46575 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Nov 9, 2022 | ⏳ pending |
