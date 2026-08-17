@@ -153,10 +153,24 @@ def get_product_enum(product_code: str) -> Product:
         raise ValueError(f"Unknown product code: {product_code}") from None
 
 
+def default_subfolder(product: str) -> str:
+    """Product subfolder for loose files, derived from the product code.
+
+    WoW Classic Era and Titan builds place their loose install files under
+    ``_classic_era_`` / ``_classic_titan_`` respectively; all other WoW
+    products use ``_classic_``. A ``None`` subfolder (user did not pass
+    ``--subfolder``) resolves to this value.
+    """
+    if product == Product.WOW_CLASSIC_ERA.value:
+        return "_classic_era_"
+    if product == Product.WOW_CLASSIC_TITAN.value:
+        return "_classic_titan_"
+    return "_classic_"
+
+
 @click.group()
 def install() -> None:
     """Install and manage game content via the NGDP/CASC pipeline."""
-    pass
 
 
 @install.command()
@@ -226,8 +240,10 @@ def install() -> None:
 @click.option(
     "--subfolder",
     type=str,
-    default="_classic_",
-    help="Product subfolder for loose files (container mode only)",
+    default=None,
+    help="Product subfolder for loose files (container mode only). "
+    "Defaults to _classic_era_ / _classic_titan_ for those products, "
+    "else _classic_.",
 )
 @click.option(
     "--loose-only",
@@ -256,7 +272,7 @@ def install_product(
     max_files: int,
     priority: int,
     force: bool,
-    subfolder: str,
+    subfolder: str | None,
     loose_only: bool,
     shmem_version: str,
 ) -> None:
@@ -268,7 +284,6 @@ def install_product(
     without it installs in container mode (CASC archives). This is the
     unified entry point; the mode-specific commands remain available for
     direct use and auto-dispatch the same way.
-
     BUILD_CONFIG_HASH and CDN_CONFIG_HASH are the hashes from the versions
     endpoint. INSTALL_PATH is the installation directory.
     """
@@ -1900,9 +1915,10 @@ def _resolve_ekey(
 @click.option(
     "--subfolder",
     type=str,
-    default="_classic_",
+    default=None,
     help="Product subfolder for loose files (e.g. _classic_, _retail_). "
-    "Empty string places loose files at the install root.",
+    "Empty string places loose files at the install root. Defaults to "
+    "_classic_era_ / _classic_titan_ for those products, else _classic_.",
 )
 @click.option(
     "--loose-only",
@@ -1934,7 +1950,7 @@ def install_to_casc(
     region: str | None,
     resume: bool,
     force: bool,
-    subfolder: str,
+    subfolder: str | None,
     loose_only: bool,
     shmem_version: str,
 ) -> None:
@@ -1951,6 +1967,7 @@ def install_to_casc(
     """
     config_obj, console, _verbose, _debug = _get_context_objects(ctx)
     region = region or config_obj.default_region
+    subfolder = subfolder if subfolder is not None else default_subfolder(product)
 
     try:
         # Step 0: Resume detection - check for existing .build.info
@@ -3606,7 +3623,7 @@ def install_containerless(
                 region=region,
                 resume=True,
                 force=False,
-                subfolder="_classic_",
+                subfolder=default_subfolder(product),
                 loose_only=False,
                 shmem_version="5",
             )

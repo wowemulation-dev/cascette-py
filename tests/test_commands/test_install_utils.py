@@ -248,3 +248,27 @@ class TestFilterEntriesByTags:
         ]
         result = filter_entries_by_tags(entries, sample_tags, locale="enUS")
         assert [e.priority for e in result] == [0, 1]
+
+
+class TestDefaultSubfolder:
+    """Product-aware loose-file subfolder resolution."""
+
+    def test_era_product(self) -> None:
+        from cascette_tools.commands.install import default_subfolder
+
+        assert default_subfolder("wow_classic_era") == "_classic_era_"
+
+    def test_titan_product(self) -> None:
+        from cascette_tools.commands.install import default_subfolder
+
+        assert default_subfolder("wow_classic_titan") == "_classic_titan_"
+
+    def test_classic_product(self) -> None:
+        from cascette_tools.commands.install import default_subfolder
+
+        assert default_subfolder("wow_classic") == "_classic_"
+
+    def test_retail_product(self) -> None:
+        from cascette_tools.commands.install import default_subfolder
+
+        assert default_subfolder("wow") == "_classic_"
