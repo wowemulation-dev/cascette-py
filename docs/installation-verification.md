@@ -434,7 +434,7 @@ under `_classic_era_` (B11 fix, `default_subfolder`).
 | 40962 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 8, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 41030 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 11, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 41077 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 17, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
-| 41137 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 19, 2021 | ⏳ pending |
+| 41137 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 19, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 41243 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Dec 2, 2021 | ⏳ pending |
 | 41511 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Dec 20, 2021 | ⏳ pending |
 | 41794 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Jan 10, 2022 | ⏳ pending |
