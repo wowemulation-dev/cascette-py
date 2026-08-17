@@ -339,27 +339,27 @@ list and was integration-tested on 31650 only. See
 | 33645 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 14, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 33728 | 1.13.4 | wow_classic | wow_classic | Y | Y | Mar 20, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
 | 33920 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 6, 2020 | ✅ format+container scan + client 2-run, 0 CDN requests (2026-08-15) |
-| 34219 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 29, 2020 | ✅ format scan (2026-08-15) |
-| 34266 | 1.13.4 | wow_classic | wow_classic | Y | Y | May 7, 2020 | ✅ format scan (2026-08-15) |
-| 34600 | 1.13.4 | wow_classic | wow_classic | Y | Y | Jun 4, 2020 | ✅ format scan (2026-08-15) |
-| 34835 | 1.13.4 | wow_classic | wow_classic | Y | Y | Jun 19, 2020 | ✅ format scan (2026-08-15) |
-| 35000 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 2, 2020 | ✅ format scan (2026-08-15) |
-| 35186 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 17, 2020 | ✅ format scan (2026-08-15) |
-| 35395 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 31, 2020 | ✅ format scan (2026-08-15) |
-| 35663 | 1.13.5 | wow_classic | wow_classic | Y | – | Aug 26, 2020 | ✅ format scan (2026-08-15) |
-| 35705 | 1.13.5 | wow_classic | wow_classic | Y | – | Aug 27, 2020 | ✅ format scan (2026-08-15) |
-| 35753 | 1.13.5 | wow_classic | wow_classic | Y | Y | Sep 2, 2020 | ✅ format scan (2026-08-15) |
-| 36035 | 1.13.5 | wow_classic | wow_classic | Y | Y | Sep 25, 2020 | ✅ format scan (2026-08-15) |
-| 36307 | 1.13.5 | wow_classic | wow_classic | Y | – | Oct 20, 2020 | ✅ format scan (2026-08-15) |
-| 36325 | 1.13.5 | wow_classic | wow_classic | Y | Y | Oct 23, 2020 | ✅ format scan (2026-08-15) |
-| 36714 | 1.13.6 | wow_classic | wow_classic | Y | Y | Nov 25, 2020 | ✅ format scan (2026-08-15) |
-| 36935 | 1.13.6 | wow_classic | wow_classic | Y | Y | Dec 18, 2020 | ✅ format scan (2026-08-15) |
-| 37497 | 1.13.6 | wow_classic | wow_classic | Y | Y | Feb 8, 2021 | ✅ format scan (2026-08-15) |
-| 38363 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 16, 2021 | ✅ format scan (2026-08-15) |
-| 38386 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 21, 2021 | ✅ format scan (2026-08-15) |
-| 38475 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 27, 2021 | ✅ format scan (2026-08-15) |
-| 38631 | 1.13.7 | wow_classic | wow_classic | Y | Y | May 11, 2021 | ✅ format scan (2026-08-15) |
-| 38704 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | May 18, 2021 — fork | ✅ format scan (2026-08-15) |
+| 34219 | 1.13.4 | wow_classic | wow_classic | Y | Y | Apr 29, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 34266 | 1.13.4 | wow_classic | wow_classic | Y | Y | May 7, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 34600 | 1.13.4 | wow_classic | wow_classic | Y | Y | Jun 4, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 34835 | 1.13.4 | wow_classic | wow_classic | Y | Y | Jun 19, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35000 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 2, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35186 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 17, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35395 | 1.13.5 | wow_classic | wow_classic | Y | Y | Jul 31, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35663 | 1.13.5 | wow_classic | wow_classic | Y | – | Aug 26, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35705 | 1.13.5 | wow_classic | wow_classic | Y | – | Aug 27, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 35753 | 1.13.5 | wow_classic | wow_classic | Y | Y | Sep 2, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 36035 | 1.13.5 | wow_classic | wow_classic | Y | Y | Sep 25, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 36307 | 1.13.5 | wow_classic | wow_classic | Y | – | Oct 20, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 36325 | 1.13.5 | wow_classic | wow_classic | Y | Y | Oct 23, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 36714 | 1.13.6 | wow_classic | wow_classic | Y | Y | Nov 25, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 36935 | 1.13.6 | wow_classic | wow_classic | Y | Y | Dec 18, 2020 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 37497 | 1.13.6 | wow_classic | wow_classic | Y | Y | Feb 8, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 38363 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 16, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 38386 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 21, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 38475 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 27, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 38631 | 1.13.7 | wow_classic | wow_classic | Y | Y | May 11, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
+| 38704 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | May 18, 2021 — fork | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 39605 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | Jul 30, 2021 | ✅ format scan (2026-08-15) |
 | 39692 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | Aug 16, 2021 | ✅ format scan (2026-08-15) |
 

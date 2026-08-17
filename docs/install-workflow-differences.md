@@ -242,6 +242,24 @@ only when the build config carries the corresponding keys. Verified on
 file-index + patch-file-index + 2 groups); the client's first run makes
 **0 index requests** (previously 36).
 
+### B11. Loose-file subfolder hardcoded to `_classic_` — RESOLVED (2026-08-17)
+
+**Original**: the `--subfolder` option defaulted to `_classic_` for every
+product, and `install_containerless` → `install_to_casc` routing passed
+`subfolder="_classic_"` unconditionally. Era builds (product
+`wow_classic_era`) place their loose files (WowClassic.exe, DLLs, locale
+packs) under `_classic_era_`; installing them under `_classic_` made the
+client enter the Battle.net agent bootstrap instead of launching the game
+(observed on 1.13.7.38704).
+
+**Fix (landed)**: `default_subfolder(product)` helper returns
+`_classic_era_` for `wow_classic_era`, `_classic_titan_` for
+`wow_classic_titan`, else `_classic_`. The `--subfolder` option defaults
+to `None` and resolves per-product in `install_to_casc`; the
+containerless→container route passes `default_subfolder(product)`.
+Verified on 1.13.7.38704: loose files land in `_classic_era_`, client
+reaches login UI with 0 CDN requests and byte-identical data files.
+
 ### B6. No 3-phase fetch/patch/finalize structure
 
 **Original**: `AsyncBuildUpdateState` = `fetch_files → apply_patches →
