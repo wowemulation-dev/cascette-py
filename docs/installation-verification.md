@@ -360,7 +360,7 @@ list and was integration-tested on 31650 only. See
 | 38475 | 1.13.7 | wow_classic | wow_classic | Y | Y | Apr 27, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
 | 38631 | 1.13.7 | wow_classic | wow_classic | Y | Y | May 11, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-15) |
 | 38704 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | May 18, 2021 — fork | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
-| 39605 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | Jul 30, 2021 | ✅ format scan (2026-08-15) |
+| 39605 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | Jul 30, 2021 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-17) |
 | 39692 | 1.13.7 | wow_classic_era | wow_classic_era | Y | Y | Aug 16, 2021 | ✅ format scan (2026-08-15) |
 
 ## 9. Client-Managed Runtime Files: shmem and ecache
