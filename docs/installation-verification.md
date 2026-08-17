@@ -406,3 +406,55 @@ mappings. Client rebuilds it on demand; presence is optional.
 
 `Data/data/wow_classic-us` — 42-byte placeholder file the client creates
 during bootstrap. Contents observed empty.
+
+## 10. 1.14 Build Verification Matrix
+
+The full set of 1.14.x Classic Era builds to iterate for installation
+verification, following the same gates as §8: install, F1-F6 format
+checks, cascette-rs cross-check, client-run acceptance (login UI, 0 CDN
+requests), container format versions recorded in the `build_formats`
+registry, and archival of the pristine install.
+
+CDN = mirror has the build's CDN data (verified: all 31 rows present in
+the mirror `versions` manifest with config files on disk). WPP =
+membership in WowPacketParser's `ClientVersionBuild` enum (`–` = absent;
+cross-checked against `WowPacketParser/Enums/ClientVersionBuild.cs`).
+The column does NOT describe wow-patcher support: wow-patcher is
+pattern-based with no build list and was integration-tested on 31650
+only.
+
+`wow_classic_era` is the product code for every row; loose files install
+under `_classic_era_` (B11 fix, `default_subfolder`).
+
+| Build | Patch | Product(s) | Use product | CDN | WPP | Date | Verification |
+|-------|-------|------------|-------------|-----|-----|------|--------------|
+| 40347 | 1.14.0 | wow_classic_era | wow_classic_era | Y | Y | Sep 25, 2021 | ⏳ pending |
+| 40441 | 1.14.0 | wow_classic_era | wow_classic_era | Y | Y | Oct 1, 2021 | ⏳ pending |
+| 40618 | 1.14.0 | wow_classic_era | wow_classic_era | Y | Y | Oct 13, 2021 — traced | ⏳ pending |
+| 40962 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 8, 2021 | ⏳ pending |
+| 41030 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 11, 2021 | ⏳ pending |
+| 41077 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 17, 2021 | ⏳ pending |
+| 41137 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Nov 19, 2021 | ⏳ pending |
+| 41243 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Dec 2, 2021 | ⏳ pending |
+| 41511 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Dec 20, 2021 | ⏳ pending |
+| 41794 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Jan 10, 2022 | ⏳ pending |
+| 42032 | 1.14.1 | wow_classic_era | wow_classic_era | Y | Y | Feb 1, 2022 — A2 target | ⏳ pending |
+| 42214 | 1.14.2 | wow_classic_era | wow_classic_era | Y | Y | Feb 8, 2022 | ⏳ pending |
+| 42597 | 1.14.2 | wow_classic_era | wow_classic_era | Y | Y | Mar 5, 2022 — A2 target | ⏳ pending |
+| 43401 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | May 3, 2022 — A1 target | ⏳ pending |
+| 44016 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 7, 2022 | ⏳ pending |
+| 44170 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 15, 2022 | ⏳ pending |
+| 44403 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jun 30, 2022 | ⏳ pending |
+| 44834 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Jul 27, 2022 | ⏳ pending |
+| 46575 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Nov 9, 2022 | ⏳ pending |
+| 47658 | 1.14.3 | wow_classic_era | wow_classic_era | Y | – | Jan 17, 2023 | ⏳ pending |
+| 48611 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Mar 20, 2023 | ⏳ pending |
+| 49229 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | Apr 21, 2023 | ⏳ pending |
+| 49821 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | May 30, 2023 — A1 target | ⏳ pending |
+| 51001 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Aug 18, 2023 | ⏳ pending |
+| 51056 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Aug 23, 2023 | ⏳ pending |
+| 51146 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Aug 29, 2023 | ⏳ pending |
+| 51311 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Sep 11, 2023 | ⏳ pending |
+| 51395 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Sep 19, 2023 | ⏳ pending |
+| 51535 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 27, 2023 | ⏳ pending |
+| 51829 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Oct 20, 2023 | ⏳ pending |
