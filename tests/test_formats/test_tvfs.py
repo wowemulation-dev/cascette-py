@@ -10,6 +10,7 @@ from cascette_tools.formats.tvfs import (
     TVFSFile,
     TVFSHeader,
     TVFSParser,
+    TVFSV3Parser,
 )
 
 
@@ -885,3 +886,134 @@ class TestTVFSBuilderAndEdgeCases:
         binary = parser.build(tvfs)
         parsed = parser.parse(binary)
         assert len(parsed.entries) == 2
+
+
+# ---------------------------------------------------------------------------
+# TVFS v3 (CASC v3) parser tests
+# ---------------------------------------------------------------------------
+
+
+def _build_v3_tvfs(paths: list[tuple[str, int]], cft: list[tuple[bytes, int]]) -> bytes:
+    """Build a minimal TVFS v3 file: path table (files), VFS table, CFT."""
+    # CFT: ekey(9) + encoded_size(4) + ckey(9) + est(1) + patch(1) for flags=7
+    # flags 0x07: include ckey + est + patch. cft sizes: cft_offs_size=1 (small), est_offs_size=1.
+    # Simplest: build CFT first (its size determines cft_offs_size).
+    cft_data = b""
+    for ekey, enc_size in cft:
+        assert len(ekey) == 9
+        cft_data += ekey + enc_size.to_bytes(4, "big")
+        cft_data += bytes(9)  # ckey
+        cft_data += b"\x00"  # est index (1 byte)
+        cft_data += b"\x00"  # patch offset (1 byte)
+    cft_size = len(cft_data)
+
+    # VFS table: for each path, one span: file_offset(4)+span_length(4)+cft_offset(1)
+    vfs_data = b""
+    for i, (_, vfs_off) in enumerate(paths):
+        _ = vfs_off
+        vfs_data += b"\x01"  # span_count = 1
+        vfs_data += (0).to_bytes(4, "big")  # file_offset
+        vfs_data += (100).to_bytes(4, "big")  # span_length
+        cft_off = i * (9 + 4 + 9 + 1 + 1)
+        vfs_data += cft_off.to_bytes(1, "big")
+    vfs_size = len(vfs_data)
+
+    # Path table: each path is a single-level fragment
+    path_data = b""
+    for path, vfs_off in paths:
+        # separator + name fragment (len byte + name) + 0xFF + NodeValue(vfs_off)
+        name = path.encode()
+        path_data += b"\x00" + bytes([len(name)]) + name
+        path_data += b"\xff" + vfs_off.to_bytes(4, "big")
+
+    path_off = 46
+    path_sz = len(path_data)
+    cft_off = path_off + path_sz
+    vfs_off = cft_off + cft_size
+
+    header = bytearray()
+    header += b"TVFS"
+    header += bytes([1, 46, 9, 9])  # version, header_size, ekey_size, pkey_size
+    header += (0x07).to_bytes(4, "big")  # flags: ckey+est+patch
+    header += path_off.to_bytes(4, "big")
+    header += path_sz.to_bytes(4, "big")
+    header += vfs_off.to_bytes(4, "big")
+    header += vfs_size.to_bytes(4, "big")
+    header += cft_off.to_bytes(4, "big")
+    header += cft_size.to_bytes(4, "big")
+    header += (1).to_bytes(2, "big")  # max_depth
+    header += path_off.to_bytes(4, "big")  # est offset (fake)
+    header += (0).to_bytes(4, "big")  # est size
+
+    blob = bytes(header) + path_data + cft_data + vfs_data
+    return blob
+
+
+class TestTVFSV3Parser:
+    """Tests for the CASC v3 TVFS parser."""
+
+    def test_parse_header_v3(self):
+        """Parse the 46-byte v3 header with EST fields."""
+        cft = [(bytes(range(1, 10)), 100), (bytes(range(10, 19)), 200)]
+        paths = [("dir/file1", 0), ("dir/file2", 10)]
+        data = _build_v3_tvfs(paths, cft)
+        parser = TVFSV3Parser()
+        tf = parser.parse(data)
+
+        assert tf.header.magic == b"TVFS"
+        assert tf.header.format_version == 1
+        assert tf.header.header_size == 46
+        assert tf.header.ekey_size == 9
+        assert tf.header.flags == 0x07
+        assert tf.header.has_encoding_spec()
+        assert tf.header.includes_content_keys()
+        assert tf.header.has_patch_support()
+
+    def test_parse_cft_entries(self):
+        """Parse CFT entries with all optional fields (flags=7)."""
+        cft = [(bytes(range(1, 10)), 100), (bytes(range(10, 19)), 200)]
+        paths = [("dir/file1", 0), ("dir/file2", 10)]
+        data = _build_v3_tvfs(paths, cft)
+        tf = TVFSV3Parser().parse(data)
+
+        assert len(tf.container_entries) == 2
+        e0 = tf.container_entries[0]
+        assert e0.ekey == bytes(range(1, 10))
+        assert e0.encoded_size == 100
+        assert e0.content_key is not None
+        assert e0.est_index == 0
+        assert e0.patch_offset == 0
+
+    def test_parse_paths_and_resolution(self):
+        """Resolve file paths to ekeys via path table -> VFS -> CFT."""
+        cft = [(bytes(range(1, 10)), 100), (bytes(range(10, 19)), 200)]
+        paths = [("dir/file1", 0), ("dir/file2", 10)]
+        data = _build_v3_tvfs(paths, cft)
+        tf = TVFSV3Parser().parse(data)
+
+        assert len(tf.path_files) == 2
+        p2e = tf.path_to_ekey()
+        assert len(p2e) == 2
+        # VFS offset 0 -> first CFT entry; offset 12 -> second
+        assert p2e["dir/file1"] == bytes(range(1, 10))
+        assert p2e["dir/file2"] == bytes(range(10, 19))
+
+    def test_cft_ekey_set(self):
+        """Distinct ekeys from the CFT."""
+        cft = [(bytes(range(1, 10)), 100), (bytes(range(10, 19)), 200)]
+        data = _build_v3_tvfs([("a", 0)], cft)
+        tf = TVFSV3Parser().parse(data)
+        assert tf.cft_ekey_set() == {bytes(range(1, 10)), bytes(range(10, 19))}
+
+    def test_rejects_short_data(self):
+        """Data shorter than the 38-byte header is rejected."""
+        with pytest.raises(ValueError):
+            TVFSV3Parser().parse(b"TVFS" + b"\x00" * 10)
+
+    def test_rejects_bad_magic(self):
+        """Non-TVFS magic is rejected."""
+        cft = [(bytes(range(1, 10)), 100)]
+        data = _build_v3_tvfs([("a", 0)], cft)
+        data = b"XXXX" + data[4:]
+        with pytest.raises(ValueError):
+            TVFSV3Parser().parse(data)

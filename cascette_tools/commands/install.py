@@ -1610,6 +1610,59 @@ def _fetch_patch_manifest(
     return lookup
 
 
+def _fetch_vfs_files(
+    build_config: Any,
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    console: Console,
+) -> int:
+    """Fetch the VFS (TVFS) manifest files referenced by the build config.
+
+    1.14.4+ builds carry a ``vfs-root``/``vfs-N`` block in the build config
+    (introduced with the CASC v3 TVFS layer). The client reads these
+    manifests on a fresh install; the download manifest does not include
+    them, so without this step the client re-fetches every VFS ekey from
+    the CDN on first start (observed: 149 requests on 1.14.4.51001).
+
+    The manifests are stored keyed by their encoding key (the second hash
+    in each vfs-* field), same as any other loose CDN file.
+
+    Returns the number of VFS files written.
+    """
+    vfs_info = build_config.get_vfs_root_info()
+    vfs_entries = build_config.get_vfs_entries()
+
+    targets: list[tuple[str, str]] = []
+    if vfs_info is not None and vfs_info.encoding_key:
+        targets.append(("vfs-root", vfs_info.encoding_key))
+    for index, info in vfs_entries:
+        if info.encoding_key:
+            targets.append((f"vfs-{index}", info.encoding_key))
+
+    if not targets:
+        return 0
+
+    console.print(
+        f"\n[cyan]Step 7.5:[/cyan] Fetching {len(targets)} VFS manifest files..."
+    )
+    written = 0
+    for name, ekey_hex in targets:
+        try:
+            ekey = bytes.fromhex(ekey_hex)
+            raw = cdn_client.fetch_data(ekey_hex)
+            storage.write_content(ekey, raw)
+            written += 1
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch/write VFS manifest", name=name, error=str(e)
+            )
+            console.print(
+                f"  [yellow]VFS manifest {name} unavailable: {e!s:.80}[/yellow]"
+            )
+    console.print(f"  Wrote {written}/{len(targets)} VFS manifest files")
+    return written
+
+
 async def _patch_casc_files(
     patchable: dict[bytes, tuple[bytes, bytes]],
     patch_lookup: dict[bytes, PatchEntry],
@@ -2624,6 +2677,11 @@ def install_to_casc(
 
         # Final state save after all downloads
         install_state.save()
+
+        # Step 7.5: Fetch VFS (TVFS) manifest files (1.14.4+ builds).
+        # The client reads these on a fresh install; without them it
+        # re-fetches every vfs-* ekey from the CDN on first start.
+        _fetch_vfs_files(build_config, cdn_client, storage, console)
 
         # Step 8: Update .build.info with last activated timestamp
         console.print("\n[cyan]Step 8:[/cyan] Updating .build.info timestamp...")
