@@ -501,7 +501,7 @@ under `_classic_era_` (B11 fix, `default_subfolder`).
 
 | Build | Patch | Product(s) | Use product | CDN | WPP | Date | Verification |
 |-------|-------|------------|-------------|-----|-----|------|--------------|
-| 52186 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 14, 2023 | ⏳ pending |
+| 52186 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 14, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 52212 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 17, 2023 | ⏳ pending |
 | 52302 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 28, 2023 | ⏳ pending |
 | 52409 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Dec 2, 2023 | ⏳ pending |
