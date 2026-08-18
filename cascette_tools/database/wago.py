@@ -254,6 +254,8 @@ class WagoClient:
                     encoding_version INTEGER,    -- encoding file version
                     archive_index_version INTEGER, -- CDN archive index footer version
                     blte_magic TEXT,             -- BLTE magic bytes (e.g. "424C5445")
+                    vfs_version INTEGER,         -- TVFS format version (1; NULL when absent)
+                    vfs_manifests INTEGER,       -- vfs-root + vfs-N manifest count (0 when absent)
                     -- Container-side formats (client CAS container)
                     idx_version INTEGER,         -- local KMT idx version (v7)
                     local_header_version INTEGER, -- 30-byte LocalHeader version
@@ -374,6 +376,21 @@ class WagoClient:
                 if name not in columns:
                     logger.info("migrating_builds_add_column", column=name)
                     self.conn.execute(f"ALTER TABLE builds ADD COLUMN {name} {coltype}")
+
+        # build_formats: vfs_version / vfs_manifests (added 2026-08-18)
+        cursor = self.conn.execute("PRAGMA table_info(build_formats)")
+        bf_columns = {row[1] for row in cursor.fetchall()}
+        bf_additions: list[tuple[str, str]] = [
+            ("vfs_version", "INTEGER"),
+            ("vfs_manifests", "INTEGER"),
+        ]
+        with self.conn:
+            for name, coltype in bf_additions:
+                if name not in bf_columns:
+                    logger.info("migrating_build_formats_add_column", column=name)
+                    self.conn.execute(
+                        f"ALTER TABLE build_formats ADD COLUMN {name} {coltype}"
+                    )
 
     def _is_cache_valid(self) -> bool:
         """Check if cached data is still valid.
@@ -1082,6 +1099,8 @@ class WagoClient:
         local_header_version: int | None = None,
         segment_header_bytes: int | None = None,
         shmem_version: int | None = None,
+        vfs_version: int | None = None,
+        vfs_manifests: int | None = None,
         source: str = "cdn",
     ) -> bool:
         """Upsert a build's detected file-format versions.
@@ -1109,9 +1128,10 @@ class WagoClient:
                     product, build, build_config,
                     root_version, install_version, download_version,
                     size_version, encoding_version, archive_index_version,
-                    blte_magic, idx_version, local_header_version,
+                    blte_magic, vfs_version, vfs_manifests,
+                    idx_version, local_header_version,
                     segment_header_bytes, shmem_version, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(product, build, build_config) DO UPDATE SET
                     root_version = excluded.root_version,
                     install_version = excluded.install_version,
@@ -1120,6 +1140,8 @@ class WagoClient:
                     encoding_version = excluded.encoding_version,
                     archive_index_version = excluded.archive_index_version,
                     blte_magic = excluded.blte_magic,
+                    vfs_version = excluded.vfs_version,
+                    vfs_manifests = excluded.vfs_manifests,
                     idx_version = excluded.idx_version,
                     local_header_version = excluded.local_header_version,
                     segment_header_bytes = excluded.segment_header_bytes,
@@ -1138,6 +1160,8 @@ class WagoClient:
                     encoding_version,
                     archive_index_version,
                     blte_magic,
+                    vfs_version,
+                    vfs_manifests,
                     idx_version,
                     local_header_version,
                     segment_header_bytes,

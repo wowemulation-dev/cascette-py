@@ -38,6 +38,8 @@ class BuildFormats:
     encoding_version: int | None = None
     archive_index_version: int | None = None
     blte_magic: str | None = None
+    vfs_version: int | None = None
+    vfs_manifests: int | None = None
 
     # Container-side (filled by a local install scan, not CDN)
     idx_version: int | None = None
@@ -58,6 +60,8 @@ class BuildFormats:
             "encoding_version": self.encoding_version,
             "archive_index_version": self.archive_index_version,
             "blte_magic": self.blte_magic,
+            "vfs_version": self.vfs_version,
+            "vfs_manifests": self.vfs_manifests,
         }
 
 
@@ -170,6 +174,28 @@ def detect_cdn_formats(
                     fmts.warnings.append(f"size (parse): {e}")
             except Exception as e:  # noqa: BLE001
                 fmts.warnings.append(f"size: {e}")
+        # VFS (TVFS) layer: present in 1.14.4+ build configs as
+        # vfs-root + vfs-N. Read the vfs-root manifest header version and
+        # count the numbered manifests. Absent on pre-1.14.4 builds.
+        vfs_root_info = bc.get_vfs_root_info()
+        vfs_entries = bc.get_vfs_entries()
+        if vfs_root_info is not None or vfs_entries:
+            fmts.vfs_manifests = 1 + len(vfs_entries)  # vfs-root + vfs-N
+            root_ekey = (
+                vfs_root_info.encoding_key
+                if vfs_root_info is not None
+                else (vfs_entries[0][1].encoding_key if vfs_entries else None)
+            )
+            if root_ekey:
+                try:
+                    vfs_raw = cdn.fetch_data(root_ekey)
+                    vfs_data = decompress_blte(vfs_raw) if is_blte(vfs_raw) else vfs_raw
+                    if len(vfs_data) >= 5 and vfs_data[:4] == b"TVFS":
+                        fmts.vfs_version = vfs_data[4]
+                except Exception as e:  # noqa: BLE001
+                    fmts.warnings.append(f"vfs: {e}")
+        else:
+            fmts.vfs_manifests = 0
 
         # Archive index footer version: parse the first archive's index
         if cc.archives:

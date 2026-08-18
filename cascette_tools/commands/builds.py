@@ -1246,6 +1246,8 @@ def scan_formats(
             ("encoding_version", "Encoding file"),
             ("archive_index_version", "CDN archive index footer"),
             ("blte_magic", "BLTE magic"),
+            ("vfs_version", "TVFS (VFS) version"),
+            ("vfs_manifests", "VFS manifests"),
             ("idx_version", "Local KMT idx"),
             ("local_header_version", "Local file header"),
             ("segment_header_bytes", "Segment header"),
@@ -1269,6 +1271,8 @@ def scan_formats(
                 encoding_version=fmts.encoding_version,
                 archive_index_version=fmts.archive_index_version,
                 blte_magic=fmts.blte_magic,
+                vfs_version=fmts.vfs_version,
+                vfs_manifests=fmts.vfs_manifests,
                 idx_version=fmts.idx_version,
                 local_header_version=fmts.local_header_version,
                 segment_header_bytes=fmts.segment_header_bytes,
@@ -1333,8 +1337,12 @@ def list_formats(ctx: click.Context, product: str | None, build: str | None) -> 
         table.add_column("Idx", justify="right")
         table.add_column("CDN-idx", justify="right")
         table.add_column("Shmem", justify="right")
+        table.add_column("VFS", justify="right")
         table.add_column("Source", style="dim")
         for r in rows:
+            vfs_disp = "-"
+            if r.get("vfs_manifests"):
+                vfs_disp = f"{r.get('vfs_version') or '-'}/{r.get('vfs_manifests')}"
             table.add_row(
                 r["build"],
                 r["product"],
@@ -1346,6 +1354,7 @@ def list_formats(ctx: click.Context, product: str | None, build: str | None) -> 
                 str(r.get("idx_version") or "-"),
                 str(r.get("archive_index_version") or "-"),
                 str(r.get("shmem_version") or "-"),
+                vfs_disp,
                 r.get("source") or "-",
             )
         console.print(table)
