@@ -1636,6 +1636,7 @@ def _fetch_vfs_files(
     vfs_info = build_config.get_vfs_root_info()
     vfs_entries = build_config.get_vfs_entries()
     patch_index_info = build_config.get_patch_index_info()
+    patch_config_hash = getattr(build_config, "patch_config", None)
 
     targets: list[tuple[str, str]] = []
     if vfs_info is not None and vfs_info.encoding_key:
@@ -1646,6 +1647,32 @@ def _fetch_vfs_files(
     if patch_index_info is not None and patch_index_info.encoding_key:
         targets.append(("patch-index", patch_index_info.encoding_key))
 
+    # 1.15.4+: the patch config carries `patch-entry = vfs:<shard>:` lines.
+    # Each record names a PATCHED VFS shard by its ekey (the first hash in
+    # the record group: patched_ekey patched_size patch_blob_ekey patch_blob_size).
+    # The client resolves the patched VFS tree on a fresh install; without
+    # these shards it re-fetches ~200 content files from the CDN (observed:
+    # 5382 requests on 1.15.4.56738).
+    patched_vfs_ekeys: list[str] = []
+    if patch_config_hash:
+        try:
+            patch_config_data = cdn_client.fetch_config(
+                patch_config_hash, config_type="patch"
+            )
+            for line in patch_config_data.decode("utf-8", errors="replace").splitlines():
+                if line.startswith("patch-entry = vfs:"):
+                    parts = line.split()
+                    # parts: [patch-entry, =, vfs:NAME:, ckey, csize, ekey,
+                    #         esize, espec, then record groups of 4]
+                    if len(parts) >= 10:
+                        rest = parts[8:]
+                        for i in range(0, len(rest) - 3, 4):
+                            patched_vfs_ekeys.append(rest[i])
+        except Exception as e:
+            logger.warning("Failed to parse patch config for VFS shards", error=str(e))
+
+    for i, ekey_hex in enumerate(patched_vfs_ekeys):
+        targets.append((f"vfs-patched-{i}", ekey_hex))
     if not targets:
         return 0
 
