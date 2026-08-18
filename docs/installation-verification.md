@@ -466,3 +466,104 @@ under `_classic_era_` (B11 fix, `default_subfolder`).
 | 51395 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Sep 19, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 51535 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 27, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 51829 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Oct 20, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
+
+## 11. 1.15 Build Verification Matrix
+
+The full set of 1.15.x Classic Era builds (Season of Discovery line) to
+iterate for installation verification, following the same gates as §8/§10:
+install, F1-F6 format checks, cascette-rs cross-check, client-run
+acceptance (login UI, 0 CDN requests), container format versions recorded
+in the `build_formats` registry, and archival of the pristine install.
+
+These builds continue the 1.14.4 generation: CASC v3 TVFS layer
+(vfs-root + vfs-N, 240 manifests) in the build config, shmem v5,
+4-archive container layout. The install's step 7.5 fetches all VFS
+manifests plus the patch-index manifest so the client makes 0 CDN
+requests on first start.
+
+Format change vs 1.14: the download manifest is **version 1** with
+`has_checksum=False` and `flag_size=0` across all 1.15 patches (1.14
+used v2/v3 with flag_size=1). Root/install/size/encoding remain v1,
+BLTE magic unchanged. CDN-side formats for all 66 builds are recorded in
+the `build_formats` registry (source=cdn); container-side columns are
+filled when a build is installed.
+
+CDN = mirror has the build's CDN data (verified: all 66 rows present in
+the mirror `versions` manifest with config files on disk). WPP =
+membership in WowPacketParser's `ClientVersionBuild` enum (`–` = absent;
+cross-checked against `WowPacketParser/Enums/ClientVersionBuild.cs`).
+The column does NOT describe wow-patcher support: wow-patcher is
+pattern-based with no build list and was integration-tested on 31650
+only.
+
+`wow_classic_era` is the product code for every row; loose files install
+under `_classic_era_` (B11 fix, `default_subfolder`).
+
+| Build | Patch | Product(s) | Use product | CDN | WPP | Date | Verification |
+|-------|-------|------------|-------------|-----|-----|------|--------------|
+| 52186 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 14, 2023 | ⏳ pending |
+| 52212 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 17, 2023 | ⏳ pending |
+| 52302 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Nov 28, 2023 | ⏳ pending |
+| 52409 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Dec 2, 2023 | ⏳ pending |
+| 52610 | 1.15.0 | wow_classic_era | wow_classic_era | Y | Y | Dec 18, 2023 | ⏳ pending |
+| 53181 | 1.15.1 | wow_classic_era | wow_classic_era | Y | – | Feb 1, 2024 | ⏳ pending |
+| 53247 | 1.15.1 | wow_classic_era | wow_classic_era | Y | Y | Feb 6, 2024 | ⏳ pending |
+| 53495 | 1.15.1 | wow_classic_era | wow_classic_era | Y | Y | Feb 27, 2024 | ⏳ pending |
+| 53623 | 1.15.1 | wow_classic_era | wow_classic_era | Y | Y | Mar 6, 2024 | ⏳ pending |
+| 54029 | 1.15.2 | wow_classic_era | wow_classic_era | Y | – | Apr 1, 2024 | ⏳ pending |
+| 54067 | 1.15.2 | wow_classic_era | wow_classic_era | Y | – | Apr 2, 2024 | ⏳ pending |
+| 54092 | 1.15.2 | wow_classic_era | wow_classic_era | Y | – | Apr 4, 2024 | ⏳ pending |
+| 54262 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | Apr 16, 2024 | ⏳ pending |
+| 54332 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | Apr 22, 2024 | ⏳ pending |
+| 54649 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | May 21, 2024 | ⏳ pending |
+| 54902 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | May 29, 2024 | ⏳ pending |
+| 55002 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | Jun 4, 2024 | ⏳ pending |
+| 55140 | 1.15.2 | wow_classic_era | wow_classic_era | Y | Y | Jun 14, 2024 | ⏳ pending |
+| 55515 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Jul 8, 2024 | ⏳ pending |
+| 55563 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Jul 9, 2024 | ⏳ pending |
+| 55646 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Jul 16, 2024 | ⏳ pending |
+| 55917 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Aug 2, 2024 | ⏳ pending |
+| 56488 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Sep 13, 2024 | ⏳ pending |
+| 56626 | 1.15.3 | wow_classic_era | wow_classic_era | Y | Y | Sep 16, 2024 | ⏳ pending |
+| 56738 | 1.15.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 24, 2024 | ⏳ pending |
+| 56760 | 1.15.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 25, 2024 | ⏳ pending |
+| 56817 | 1.15.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 27, 2024 | ⏳ pending |
+| 56857 | 1.15.4 | wow_classic_era | wow_classic_era | Y | Y | Oct 2, 2024 | ⏳ pending |
+| 57134 | 1.15.4 | wow_classic_era | wow_classic_era | Y | Y | Oct 29, 2024 | ⏳ pending |
+| 57638 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Nov 19, 2024 | ⏳ pending |
+| 57716 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Nov 21, 2024 | ⏳ pending |
+| 57807 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Nov 27, 2024 | ⏳ pending |
+| 57979 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Dec 7, 2024 | ⏳ pending |
+| 58534 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Jan 9, 2025 | ⏳ pending |
+| 58555 | 1.15.5 | wow_classic_era | wow_classic_era | Y | Y | Jan 10, 2025 | ⏳ pending |
+| 58797 | 1.15.6 | wow_classic_era | wow_classic_era | Y | Y | Jan 28, 2025 | ⏳ pending |
+| 58844 | 1.15.6 | wow_classic_era | wow_classic_era | Y | Y | Jan 29, 2025 | ⏳ pending |
+| 58866 | 1.15.6 | wow_classic_era | wow_classic_era | Y | Y | Jan 30, 2025 | ⏳ pending |
+| 58912 | 1.15.6 | wow_classic_era | wow_classic_era | Y | Y | Feb 4, 2025 | ⏳ pending |
+| 59415 | 1.15.6 | wow_classic_era | wow_classic_era | Y | Y | Feb 28, 2025 | ⏳ pending |
+| 60141 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Apr 4, 2025 | ⏳ pending |
+| 60191 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Apr 8, 2025 | ⏳ pending |
+| 60249 | 1.15.7 | wow_classic_era | wow_classic_era | Y | – | Apr 11, 2025 | ⏳ pending |
+| 60277 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Apr 15, 2025 | ⏳ pending |
+| 60663 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | May 13, 2025 | ⏳ pending |
+| 60932 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | May 21, 2025 | ⏳ pending |
+| 61124 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | May 28, 2025 | ⏳ pending |
+| 61186 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | May 30, 2025 | ⏳ pending |
+| 61257 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Jun 4, 2025 | ⏳ pending |
+| 61582 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Jun 23, 2025 | ⏳ pending |
+| 62797 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Aug 29, 2025 | ⏳ pending |
+| 62915 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Sep 3, 2025 | ⏳ pending |
+| 63306 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Sep 23, 2025 | ⏳ pending |
+| 63696 | 1.15.7 | wow_classic_era | wow_classic_era | Y | Y | Oct 9, 2025 | ⏳ pending |
+| 63829 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Oct 14, 2025 | ⏳ pending |
+| 64057 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Oct 25, 2025 | ⏳ pending |
+| 64130 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Oct 31, 2025 | ⏳ pending |
+| 64272 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Nov 7, 2025 | ⏳ pending |
+| 64344 | 1.15.8 | wow_classic_era | wow_classic_era | Y | – | Nov 18, 2025 | ⏳ pending |
+| 64858 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Dec 10, 2025 | ⏳ pending |
+| 64907 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Dec 12, 2025 | ⏳ pending |
+| 65300 | 1.15.8 | wow_classic_era | wow_classic_era | Y | – | Jan 10, 2026 | ⏳ pending |
+| 65888 | 1.15.8 | wow_classic_era | wow_classic_era | Y | – | Feb 13, 2026 | ⏳ pending |
+| 65989 | 1.15.8 | wow_classic_era | wow_classic_era | Y | – | Feb 19, 2026 | ⏳ pending |
+| 66129 | 1.15.8 | wow_classic_era | wow_classic_era | Y | Y | Feb 27, 2026 | ⏳ pending |
+| 69109 | 1.15.9 | wow_classic_era | wow_classic_era | – | – | Aug 3, 2026 | ⏳ pending |
