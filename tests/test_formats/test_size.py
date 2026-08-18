@@ -18,282 +18,137 @@ from cascette_tools.formats.size import (
 
 
 class TestSizeParser:
-    """Test size format parser."""
+    """Test size format parser (correct 15-byte DS layout)."""
+
+    def _build_manifest(
+        self,
+        entries: list[tuple[bytes, int]],
+        tags: list[tuple[str, int, bytes]] | None = None,
+        ekey_size: int = 9,
+        version: int = 1,
+    ) -> bytes:
+        """Build a size manifest with the real DS layout."""
+        tags = tags or []
+        total = sum(e for _, e in entries)
+        out = bytearray()
+        out += b"DS"
+        out += struct.pack("B", version)
+        out += struct.pack("B", ekey_size)
+        out += struct.pack(">I", len(entries))
+        out += struct.pack(">H", len(tags))
+        out += total.to_bytes(5, "big")
+        bitfield_len = (len(entries) + 7) // 8
+        for name, tag_type, mask in tags:
+            out += name.encode("utf-8") + b"\x00"
+            out += struct.pack(">H", tag_type)
+            out += mask.ljust(bitfield_len, b"\x00")[:bitfield_len]
+        for key, esize in entries:
+            assert len(key) == ekey_size
+            out += key
+            out += struct.pack(">I", esize)
+        return bytes(out)
 
     def test_is_size_function(self):
         """Test is_size detection function."""
-        # Valid size data with DS magic
         assert is_size(b"DS\x01\x00\x00\x00\x01\x00\x00\x80")
-
-        # Invalid magic
         assert not is_size(b"XX\x01\x10")
         assert not is_size(b"EN\x01\x10")
-
-        # Too short
         assert not is_size(b"D")
         assert not is_size(b"")
 
-    def test_parse_v1_header(self):
-        """Test parsing V1 size manifest header."""
-        parser = SizeParser()
-
-        # Build V1 header: DS + version=1 + flags=0 + entry_count=0 + key_size_bits=128
-        # V1 specific: total_size=0x1000 (4096) + esize_bytes=4
-        data = BytesIO()
-        data.write(b"DS")  # magic
-        data.write(struct.pack("B", 1))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", 0))  # entry_count (big-endian)
-        data.write(struct.pack(">H", 128))  # key_size_bits (big-endian)
-        data.write(struct.pack(">Q", 4096))  # total_size (big-endian)
-        data.write(struct.pack("B", 4))  # esize_bytes
-
-        size = parser.parse(data.getvalue())
-
+    def test_parse_header_real_layout(self):
+        """Parse the 15-byte DS header."""
+        data = self._build_manifest([(b"\x01" * 9, 100), (b"\x02" * 9, 200)])
+        size = SizeParser().parse(data)
         assert size.header.version == 1
-        assert size.header.flags == 0
-        assert size.header.entry_count == 0
-        assert size.header.key_size_bits == 128
-        assert size.header.total_size == 4096
-        assert size.header.esize_bytes == 4
+        assert size.header.ekey_size == 9
+        assert size.header.entry_count == 2
+        assert size.header.tag_count == 0
+        assert size.header.total_size == 300
 
-    def test_parse_v2_header(self):
-        """Test parsing V2 size manifest header."""
-        parser = SizeParser()
-
-        # Build V2 header: DS + version=2 + flags=0 + entry_count=0 + key_size_bits=128
-        # V2 specific: total_size=0x1000 (4096) as 5-byte uint40
-        data = BytesIO()
-        data.write(b"DS")  # magic
-        data.write(struct.pack("B", 2))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", 0))  # entry_count (big-endian)
-        data.write(struct.pack(">H", 128))  # key_size_bits (big-endian)
-        # 5-byte total_size (0x1000 = 4096 decimal)
-        data.write(struct.pack(">Q", 4096)[3:])  # Last 5 bytes of 8-byte value
-
-        size = parser.parse(data.getvalue())
-
-        assert size.header.version == 2
-        assert size.header.flags == 0
-        assert size.header.entry_count == 0
-        assert size.header.key_size_bits == 128
-        assert size.header.total_size == 4096
-        assert size.header.esize_bytes == 4  # Fixed at 4 for V2
-
-    def test_parse_v1_entries(self):
-        """Test parsing V1 size manifest entries."""
-        parser = SizeParser()
-
-        # Build V1 size manifest with entries
-        data = BytesIO()
-
-        # Header
-        data.write(b"DS")  # magic
-        data.write(struct.pack("B", 1))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", 2))  # entry_count
-        data.write(struct.pack(">H", 128))  # key_size_bits
-        data.write(struct.pack(">Q", 6144))  # total_size (1024 + 5120)
-        data.write(struct.pack("B", 4))  # esize_bytes
-
-        # Entry 1
-        data.write(b"file1.dat\x00")  # null-terminated key
-        data.write(struct.pack(">H", 0x1234))  # key_hash
-        data.write(struct.pack(">I", 1024))  # esize (4 bytes)
-
-        # Entry 2
-        data.write(b"file2.dat\x00")  # null-terminated key
-        data.write(struct.pack(">H", 0x5678))  # key_hash
-        data.write(struct.pack(">I", 5120))  # esize (4 bytes)
-
-        size = parser.parse(data.getvalue())
-
-        assert size.header.version == 1
+    def test_parse_entries(self):
+        """Parse fixed-stride entries: ekey + 4-byte esize."""
+        e1 = (b"\x11" * 9, 1024)
+        e2 = (b"\x22" * 9, 5120)
+        size = SizeParser().parse(self._build_manifest([e1, e2]))
         assert len(size.entries) == 2
+        assert size.entries[0].key == b"\x11" * 9
+        assert size.entries[0].esize == 1024
+        assert size.entries[1].key == b"\x22" * 9
+        assert size.entries[1].esize == 5120
 
-        entry1 = size.entries[0]
-        assert entry1.key == "file1.dat"
-        assert entry1.key_hash == 0x1234
-        assert entry1.esize == 1024
+    def test_parse_tags_between_header_and_entries(self):
+        """Tags live between the header and the entries."""
+        entries = [(bytes([i]) * 9, i * 10) for i in range(1, 6)]
+        mask = b"\xa8"  # files 0,2,4
+        tags = [("enUS", 4, mask), ("Windows", 1, b"\xe0")]
+        size = SizeParser().parse(self._build_manifest(entries, tags))
+        assert size.header.tag_count == 2
+        assert len(size.tags) == 2
+        assert size.tags[0].name == "enUS"
+        assert size.tags[0].tag_type == 4
+        assert size.tags[0].file_indices == [0, 2, 4]
+        assert size.tags[1].name == "Windows"
+        assert len(size.entries) == 5
 
-        entry2 = size.entries[1]
-        assert entry2.key == "file2.dat"
-        assert entry2.key_hash == 0x5678
-        assert entry2.esize == 5120
-
-    def test_parse_v2_entries(self):
-        """Test parsing V2 size manifest entries."""
-        parser = SizeParser()
-
-        # Build V2 size manifest with entries
-        data = BytesIO()
-
-        # Header
-        data.write(b"DS")  # magic
-        data.write(struct.pack("B", 2))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", 1))  # entry_count
-        data.write(struct.pack(">H", 128))  # key_size_bits
-        # 5-byte total_size
-        data.write(struct.pack(">Q", 2048)[3:])
-
-        # Entry
-        data.write(b"single.dat\x00")  # null-terminated key
-        data.write(struct.pack(">H", 0xABCD))  # key_hash
-        data.write(struct.pack(">I", 2048))  # esize (4 bytes, fixed for V2)
-
-        size = parser.parse(data.getvalue())
-
-        assert size.header.version == 2
-        assert len(size.entries) == 1
-
-        entry = size.entries[0]
-        assert entry.key == "single.dat"
-        assert entry.key_hash == 0xABCD
-        assert entry.esize == 2048
-
-    def test_invalid_key_hash(self):
-        """Test that invalid key hashes are rejected."""
-        parser = SizeParser()
-
-        # Build size manifest with invalid key hash (0x0000)
-        data = BytesIO()
-
-        # Header
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 1))
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 0))
-        data.write(struct.pack("B", 4))
-
-        # Entry with invalid key hash
-        data.write(b"test.dat\x00")
-        data.write(struct.pack(">H", 0x0000))  # Invalid: 0x0000
-        data.write(struct.pack(">I", 1024))
-
-        with pytest.raises(ValueError, match="Invalid key hash"):
-            parser.parse(data.getvalue())
-
-        # Try with 0xFFFF
-        data2 = BytesIO()
-
-        # Header
-        data2.write(b"DS")
-        data2.write(struct.pack("B", 1))
-        data2.write(struct.pack("B", 0))
-        data2.write(struct.pack(">I", 1))
-        data2.write(struct.pack(">H", 128))
-        data2.write(struct.pack(">Q", 0))
-        data2.write(struct.pack("B", 4))
-
-        # Entry with invalid key hash
-        data2.write(b"test.dat\x00")
-        data2.write(struct.pack(">H", 0xFFFF))  # Invalid: 0xFFFF
-        data2.write(struct.pack(">I", 1024))
-
-        with pytest.raises(ValueError, match="Invalid key hash"):
-            parser.parse(data2.getvalue())
+    def test_parse_ekey_size_16(self):
+        """Support 16-byte keys (ekey_size=16)."""
+        entries = [(b"\xab" * 16, 42)]
+        size = SizeParser().parse(self._build_manifest(entries, ekey_size=16))
+        assert size.header.ekey_size == 16
+        assert size.entries[0].key == b"\xab" * 16
 
     def test_unsupported_version(self):
-        """Test that unsupported versions are rejected."""
-        parser = SizeParser()
+        """Version 0 and >2 rejected."""
+        data = self._build_manifest([])
+        with pytest.raises(ValueError, match="version"):
+            SizeParser().parse(data[:2] + b"\x00" + data[3:])
+        with pytest.raises(ValueError, match="version"):
+            SizeParser().parse(data[:2] + b"\x03" + data[3:])
 
-        # Version 0
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 0))
-        data.write(struct.pack(">H", 128))
-
-        with pytest.raises(ValueError, match="Unsupported size manifest version"):
-            parser.parse(data.getvalue())
-
-        # Version 3
-        data2 = BytesIO()
-        data2.write(b"DS")
-        data2.write(struct.pack("B", 3))
-        data2.write(struct.pack("B", 0))
-        data2.write(struct.pack(">I", 0))
-        data2.write(struct.pack(">H", 128))
-
-        with pytest.raises(ValueError, match="Unsupported size manifest version"):
-            parser.parse(data2.getvalue())
+    def test_invalid_ekey_size(self):
+        """ekey_size 0 or >16 rejected."""
+        data = self._build_manifest([(b"a" * 9, 1)])
+        with pytest.raises(ValueError, match="eKey"):
+            SizeParser().parse(data[:3] + b"\x00" + data[4:])
+        with pytest.raises(ValueError, match="eKey"):
+            SizeParser().parse(data[:3] + b"\x11" + data[4:])
 
     def test_size_tag_has_file(self):
-        """Test SizeTag.has_file method using file_indices fallback."""
+        """Tag.has_file uses MSB bit ordering."""
         tag = SizeTag(
-            name="test", tag_id=1, tag_type=1, file_indices=[0, 2, 5, 10, 100]
+            name="t",
+            tag_id=0,
+            tag_type=1,
+            file_indices=[0, 2, 4],
+            bit_mask=b"\xa8",
         )
-
         assert tag.has_file(0) is True
         assert tag.has_file(1) is False
         assert tag.has_file(2) is True
-        assert tag.has_file(5) is True
-        assert tag.has_file(10) is True
-        assert tag.has_file(99) is False
-        assert tag.has_file(100) is True
-        assert tag.has_file(101) is False
+        assert tag.has_file(4) is True
+        assert tag.has_file(3) is False
 
-    def test_build_v1(self):
-        """Test building V1 size manifest."""
-        entries = [
-            SizeEntry(key="file1.dat", key_hash=0x1234, esize=1024),
-            SizeEntry(key="file2.dat", key_hash=0x5678, esize=5120),
-        ]
-
-        size_file = SizeBuilder.create_with_entries(entries, version=1)
-        data = SizeBuilder().build(size_file)
-
-        # Verify can re-parse
-        parser = SizeParser()
-        reparsed = parser.parse(data)
-
-        assert reparsed.header.version == 1
-        assert reparsed.header.entry_count == 2
-        assert len(reparsed.entries) == 2
-
-        assert reparsed.entries[0].key == "file1.dat"
-        assert reparsed.entries[0].key_hash == 0x1234
-        assert reparsed.entries[0].esize == 1024
-
-        assert reparsed.entries[1].key == "file2.dat"
-        assert reparsed.entries[1].key_hash == 0x5678
-        assert reparsed.entries[1].esize == 5120
-
-    def test_build_v2(self):
-        """Test building V2 size manifest."""
-        entries = [SizeEntry(key="file.dat", key_hash=0xABCD, esize=2048)]
-
-        size_file = SizeBuilder.create_with_entries(entries, version=2)
-        data = SizeBuilder().build(size_file)
-
-        # Verify can re-parse
-        parser = SizeParser()
-        reparsed = parser.parse(data)
-
-        assert reparsed.header.version == 2
-        assert reparsed.header.entry_count == 1
-        assert len(reparsed.entries) == 1
-
-        assert reparsed.entries[0].key == "file.dat"
-        assert reparsed.entries[0].key_hash == 0xABCD
-        assert reparsed.entries[0].esize == 2048
+    def test_build_roundtrip(self):
+        """build() produces bytes parse() reads back identically."""
+        entries = [(bytes([i]) * 9, i * 100) for i in range(1, 4)]
+        mask = b"\xe0"
+        tags = [("enUS", 4, mask)]
+        blob = SizeParser().build(
+            SizeParser().parse(self._build_manifest(entries, tags))
+        )
+        size = SizeParser().parse(blob)
+        assert size.header.ekey_size == 9
+        assert [e.esize for e in size.entries] == [100, 200, 300]
+        assert size.tags[0].name == "enUS"
 
     def test_create_empty(self):
-        """Test creating empty size manifest."""
-        v1_empty = SizeBuilder.create_empty(version=1)
-        assert v1_empty.header.version == 1
-        assert v1_empty.header.entry_count == 0
-        assert len(v1_empty.entries) == 0
-
-        v2_empty = SizeBuilder.create_empty(version=2)
-        assert v2_empty.header.version == 2
-        assert v2_empty.header.entry_count == 0
-        assert len(v2_empty.entries) == 0
+        """SizeBuilder.create_empty produces a valid empty manifest."""
+        size = SizeBuilder.create_empty(version=1)
+        assert size.header.version == 1
+        assert size.header.ekey_size == 9
+        assert size.header.entry_count == 0
+        assert len(size.entries) == 0
 
 
 class TestTagQuery:
@@ -484,381 +339,134 @@ class TestTagQuery:
 class TestSizeParserEdgeCases:
     """Test error paths and edge cases in SizeParser."""
 
-    def _build_v1_header(self, entry_count: int = 0, esize_bytes: int = 4) -> bytes:
-        """Build a minimal V1 size manifest header."""
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", entry_count))
-        data.write(struct.pack(">H", 128))  # key_size_bits
-        data.write(struct.pack(">Q", 0))  # total_size
-        data.write(struct.pack("B", esize_bytes))
-        return data.getvalue()
-
-    def _build_v2_header(self, entry_count: int = 0) -> bytes:
-        """Build a minimal V2 size manifest header."""
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 2))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", entry_count))
-        data.write(struct.pack(">H", 128))  # key_size_bits
-        data.write(struct.pack(">Q", 0)[3:])  # 5-byte total_size
-        return data.getvalue()
+    def _build_manifest(
+        self,
+        entries: list[tuple[bytes, int]],
+        tags: list[tuple[str, int, bytes]] | None = None,
+        ekey_size: int = 9,
+    ) -> bytes:
+        tags = tags or []
+        total = sum(e for _, e in entries)
+        out = bytearray()
+        out += b"DS"
+        out += struct.pack("B", 1)
+        out += struct.pack("B", ekey_size)
+        out += struct.pack(">I", len(entries))
+        out += struct.pack(">H", len(tags))
+        out += total.to_bytes(5, "big")
+        bitfield_len = (len(entries) + 7) // 8
+        for name, tag_type, mask in tags:
+            out += name.encode("utf-8") + b"\x00"
+            out += struct.pack(">H", tag_type)
+            out += mask.ljust(bitfield_len, b"\x00")[:bitfield_len]
+        for key, esize in entries:
+            out += key + struct.pack(">I", esize)
+        return bytes(out)
 
     def test_parse_stream_input(self):
-        """Test parse() accepts a BytesIO stream directly (not just bytes)."""
-        header = self._build_v2_header(entry_count=0)
-        stream = BytesIO(header)
-        parser = SizeParser()
-        size = parser.parse(stream)
-        assert size.header.version == 2
-        assert len(size.entries) == 0
+        """Parser accepts a BinaryIO stream."""
+        data = self._build_manifest([(b"\x01" * 9, 1)])
+        size = SizeParser().parse(BytesIO(data))
+        assert len(size.entries) == 1
 
     def test_parse_insufficient_header(self):
-        """Test that truncated header raises ValueError."""
-        parser = SizeParser()
-        with pytest.raises(ValueError, match="Insufficient data for header"):
-            parser.parse(b"DS\x01\x00")  # Only 4 bytes instead of 10
+        """Data shorter than the 15-byte header is rejected."""
+        with pytest.raises(ValueError, match="Insufficient data"):
+            SizeParser().parse(b"DS\x01" + b"\x00" * 8)
 
     def test_parse_invalid_magic(self):
-        """Test that invalid magic bytes raise ValueError."""
-        parser = SizeParser()
-        data = b"XX\x01\x00\x00\x00\x00\x00\x00\x80"
-        with pytest.raises(ValueError, match="Invalid magic"):
-            parser.parse(data)
+        """Non-DS magic is rejected."""
+        data = self._build_manifest([(b"\x01" * 9, 1)])
+        with pytest.raises(ValueError, match="magic"):
+            SizeParser().parse(b"XX" + data[2:])
 
-    def test_parse_v1_header_esize_bytes_zero(self):
-        """Test V1 header with esize_bytes=0 raises ValueError."""
-        parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))  # version
-        data.write(struct.pack("B", 0))  # flags
-        data.write(struct.pack(">I", 0))  # entry_count
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 0))  # total_size
-        data.write(struct.pack("B", 0))  # esize_bytes = 0 (invalid)
-        with pytest.raises(ValueError, match="Invalid eSize byte count"):
-            parser.parse(data.getvalue())
+    def test_parse_entries_truncated(self):
+        """Entries shorter than the declared count are rejected."""
+        data = self._build_manifest([(b"\x01" * 9, 1)])
+        with pytest.raises(ValueError, match="Insufficient data"):
+            SizeParser().parse(data[:-5])
 
-    def test_parse_v1_header_esize_bytes_too_large(self):
-        """Test V1 header with esize_bytes=9 raises ValueError."""
+    def test_parse_tag_entries_end_marker(self):
+        """Tag parsing stops at end markers 0x0000/0xFFFF."""
         parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 0))
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 0))
-        data.write(struct.pack("B", 9))  # esize_bytes = 9 (invalid, max=8)
-        with pytest.raises(ValueError, match="Invalid eSize byte count"):
-            parser.parse(data.getvalue())
-
-    def test_parse_v1_header_truncated_v1_fields(self):
-        """Test V1 with insufficient V1-specific header data."""
-        parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 0))
-        data.write(struct.pack(">H", 128))
-        data.write(b"\x00\x00")  # Only 2 bytes instead of 9 for V1 extra
-        with pytest.raises(ValueError, match="Insufficient data for V1 header"):
-            parser.parse(data.getvalue())
-
-    def test_parse_v2_header_truncated(self):
-        """Test V2 with insufficient V2-specific header data."""
-        parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 2))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 0))
-        data.write(struct.pack(">H", 128))
-        data.write(b"\x00\x00")  # Only 2 bytes instead of 5 for V2 extra
-        with pytest.raises(ValueError, match="Insufficient data for V2 header"):
-            parser.parse(data.getvalue())
-
-    def test_parse_v1_esize_1_byte(self):
-        """Test V1 with esize_bytes=1 (uint8 esize)."""
-        parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 1))  # 1 entry
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 200))  # total_size
-        data.write(struct.pack("B", 1))  # esize_bytes = 1
-        # Entry
-        data.write(b"small.dat\x00")
-        data.write(struct.pack(">H", 0x1234))
-        data.write(struct.pack("B", 200))  # 1-byte esize
-        size = parser.parse(data.getvalue())
-        assert size.entries[0].esize == 200
-        assert size.header.esize_bytes == 1
-
-    def test_parse_v1_esize_2_bytes(self):
-        """Test V1 with esize_bytes=2 (uint16 esize)."""
-        parser = SizeParser()
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 1))
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 1000))
-        data.write(struct.pack("B", 2))  # esize_bytes = 2
-        # Entry
-        data.write(b"medium.dat\x00")
-        data.write(struct.pack(">H", 0x5678))
-        data.write(struct.pack(">H", 1000))  # 2-byte esize
-        size = parser.parse(data.getvalue())
-        assert size.entries[0].esize == 1000
-        assert size.header.esize_bytes == 2
-
-    def test_parse_v1_esize_8_bytes(self):
-        """Test V1 with esize_bytes=8 (uint64 esize)."""
-        parser = SizeParser()
-        large_size = 0x1_0000_0000  # 4 GiB, needs 8 bytes
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 1))
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", large_size))
-        data.write(struct.pack("B", 8))  # esize_bytes = 8
-        # Entry
-        data.write(b"huge.dat\x00")
-        data.write(struct.pack(">H", 0xABCD))
-        data.write(struct.pack(">Q", large_size))  # 8-byte esize
-        size = parser.parse(data.getvalue())
-        assert size.entries[0].esize == large_size
-        assert size.header.esize_bytes == 8
-
-    def test_parse_entry_key_hash_truncated(self):
-        """Test that truncated key hash raises ValueError."""
-        parser = SizeParser()
-        header = self._build_v1_header(entry_count=1)
-        # Add a key but truncate before key_hash
-        data = header + b"test.dat\x00\x12"  # Only 1 byte of hash instead of 2
-        with pytest.raises(ValueError, match="Insufficient data for key hash"):
-            parser.parse(data)
-
-    def test_parse_entry_esize_truncated(self):
-        """Test that truncated esize raises ValueError."""
-        parser = SizeParser()
-        header = self._build_v1_header(entry_count=1, esize_bytes=4)
-        # Add key + key_hash but truncate before esize
-        data = (
-            header + b"test.dat\x00" + struct.pack(">H", 0x1234) + b"\x00\x00"
-        )  # only 2 of 4 esize bytes
-        with pytest.raises(ValueError, match="Insufficient data for eSize"):
-            parser.parse(data)
+        # tag with 0x0000 type = end marker
+        blob = b"enUS\x00" + struct.pack(">H", 0) + b"\x00"
+        tags = parser.parse_tag_entries(blob, tag_count=1, entry_count=8)
+        assert tags == []
+        blob2 = b"enUS\x00" + struct.pack(">H", 0xFFFF) + b"\x00"
+        tags2 = parser.parse_tag_entries(blob2, tag_count=1, entry_count=8)
+        assert tags2 == []
 
     def test_build_v2_total_size_too_large(self):
-        """Test that V2 build raises if total_size >= 2^40."""
-        from cascette_tools.formats.size import SizeFile, SizeHeader
-
-        header = SizeHeader(
-            version=2,
-            flags=0,
-            entry_count=0,
-            key_size_bits=128,
-            total_size=(1 << 40),  # Exactly 2^40 — too large for 5-byte uint40
-            esize_bytes=4,
+        """Total size exceeding 40 bits is rejected on build."""
+        size = SizeBuilder.create_with_entries(
+            [SizeEntry(key=b"\x01" * 9, esize=1 << 40)]
         )
-        obj = SizeFile(header=header, entries=[], tags=[])
-        parser = SizeParser()
-        with pytest.raises(ValueError, match="Total size too large"):
-            parser.build(obj)
-
-    def test_build_esize_1_byte(self):
-        """Test building V1 with esize_bytes=1 round-trips correctly."""
-        from cascette_tools.formats.size import SizeFile, SizeHeader
-
-        entry = SizeEntry(key="tiny.dat", key_hash=0x1234, esize=42)
-        header = SizeHeader(
-            version=1,
-            flags=0,
-            entry_count=1,
-            key_size_bits=128,
-            total_size=42,
-            esize_bytes=1,
-        )
-        obj = SizeFile(header=header, entries=[entry], tags=[])
-        parser = SizeParser()
-        data = parser.build(obj)
-        reparsed = parser.parse(data)
-        assert reparsed.entries[0].esize == 42
-
-    def test_build_esize_2_bytes(self):
-        """Test building V1 with esize_bytes=2 round-trips correctly."""
-        from cascette_tools.formats.size import SizeFile, SizeHeader
-
-        entry = SizeEntry(key="small.dat", key_hash=0x5678, esize=1000)
-        header = SizeHeader(
-            version=1,
-            flags=0,
-            entry_count=1,
-            key_size_bits=128,
-            total_size=1000,
-            esize_bytes=2,
-        )
-        obj = SizeFile(header=header, entries=[entry], tags=[])
-        parser = SizeParser()
-        data = parser.build(obj)
-        reparsed = parser.parse(data)
-        assert reparsed.entries[0].esize == 1000
-
-    def test_build_esize_8_bytes(self):
-        """Test building V1 with esize_bytes=8 round-trips correctly."""
-        from cascette_tools.formats.size import SizeFile, SizeHeader
-
-        large = 0x1_0000_0000
-        entry = SizeEntry(key="huge.dat", key_hash=0xABCD, esize=large)
-        header = SizeHeader(
-            version=1,
-            flags=0,
-            entry_count=1,
-            key_size_bits=128,
-            total_size=large,
-            esize_bytes=8,
-        )
-        obj = SizeFile(header=header, entries=[entry], tags=[])
-        parser = SizeParser()
-        data = parser.build(obj)
-        reparsed = parser.parse(data)
-        assert reparsed.entries[0].esize == large
+        size.header.total_size = 1 << 40
+        with pytest.raises(ValueError, match="too large"):
+            SizeParser().build(size)
 
     def test_builder_build_delegates(self):
-        """Test that SizeBuilder.build() delegates to SizeParser.build()."""
-        size_file = SizeBuilder.create_empty(version=2)
-        builder = SizeBuilder()
-        data = builder.build(size_file)
-        parser = SizeParser()
-        reparsed = parser.parse(data)
-        assert reparsed.header.version == 2
-        assert len(reparsed.entries) == 0
+        """SizeBuilder.build delegates to SizeParser.build."""
+        size = SizeBuilder.create_with_entries([SizeEntry(key=b"\x01" * 9, esize=5)])
+        blob = SizeBuilder().build(size)
+        parsed = SizeParser().parse(blob)
+        assert parsed.entries[0].esize == 5
 
     def test_builder_create_empty_v1(self):
-        """Test SizeBuilder.create_empty(version=1) sets correct defaults."""
-        size_file = SizeBuilder.create_empty(version=1)
-        assert size_file.header.version == 1
-        assert size_file.header.total_size == 0
-        assert size_file.header.key_size_bits == 128
-        assert len(size_file.entries) == 0
-        assert len(size_file.tags) == 0
+        """create_empty(version=1) defaults ekey_size to 9."""
+        size = SizeBuilder.create_empty(version=1)
+        assert size.header.ekey_size == 9
+        blob = SizeParser().build(size)
+        assert SizeParser().parse(blob).header.entry_count == 0
 
     def test_builder_create_with_entries_computes_total_size(self):
-        """Test that create_with_entries computes total_size from entry esizes."""
+        """create_with_entries sums esize into total_size."""
         entries = [
-            SizeEntry(key="a.dat", key_hash=0x1111, esize=100),
-            SizeEntry(key="b.dat", key_hash=0x2222, esize=200),
-            SizeEntry(key="c.dat", key_hash=0x3333, esize=300),
+            SizeEntry(key=b"\x01" * 9, esize=100),
+            SizeEntry(key=b"\x02" * 9, esize=200),
         ]
-        size_file = SizeBuilder.create_with_entries(entries, version=2)
-        assert size_file.header.total_size == 600
-        assert size_file.header.entry_count == 3
-        assert len(size_file.entries) == 3
+        size = SizeBuilder.create_with_entries(entries)
+        assert size.header.total_size == 300
+        assert size.header.entry_count == 2
 
     def test_apply_tag_query_unknown_tag_continues(self):
-        """Test apply_tag_query ignores unknown tags and still returns a bitmap."""
-        tags = [
-            SizeTag(
-                name="enUS", tag_id=1, tag_type=4, file_indices=[0, 1], bit_mask=b"\xc0"
-            ),
-        ]
-        # "nonexistent" is not in tags; should be silently skipped
-        bitmap = apply_tag_query(tags, "enUS,nonexistent", 5)
-        assert len(bitmap) == 1
-        # "enUS" is additive: files 0,1 selected; nonexistent skipped
-        assert bitmap[0] & 0x80  # file 0 selected
-        assert bitmap[0] & 0x40  # file 1 selected
-
-    def test_parse_v1_esize_3_bytes(self):
-        """Test V1 with esize_bytes=3 uses the generic int.from_bytes fallback path."""
-        parser = SizeParser()
-        # 3-byte esize is valid per header (1-8 range) but hits the else branch in build/parse
-        data = BytesIO()
-        data.write(b"DS")
-        data.write(struct.pack("B", 1))
-        data.write(struct.pack("B", 0))
-        data.write(struct.pack(">I", 1))
-        data.write(struct.pack(">H", 128))
-        data.write(struct.pack(">Q", 500))
-        data.write(struct.pack("B", 3))  # esize_bytes = 3 → hits else branch
-        # Entry: key + hash + 3-byte esize
-        data.write(b"three.dat\x00")
-        data.write(struct.pack(">H", 0x1234))
-        data.write(b"\x00\x01\xf4")  # 500 in big-endian 3 bytes
-        size = parser.parse(data.getvalue())
-        assert size.entries[0].esize == 500
-        assert size.header.esize_bytes == 3
-
-    def test_build_esize_3_bytes(self):
-        """Test build() with esize_bytes=3 uses the generic to_bytes fallback path."""
-        from cascette_tools.formats.size import SizeFile, SizeHeader
-
-        entry = SizeEntry(key="three.dat", key_hash=0x1234, esize=500)
-        header = SizeHeader(
-            version=1,
-            flags=0,
-            entry_count=1,
-            key_size_bits=128,
-            total_size=500,
-            esize_bytes=3,
+        """Unknown tag names are skipped, not fatal."""
+        tag = SizeTag(
+            name="Windows", tag_id=0, tag_type=1, file_indices=[0], bit_mask=b"\x80"
         )
-        obj = SizeFile(header=header, entries=[entry], tags=[])
-        parser = SizeParser()
-        data = parser.build(obj)
-        reparsed = parser.parse(data)
-        assert reparsed.entries[0].esize == 500
+        bitmap = apply_tag_query([tag], "Windows,Nonexistent", 1)
+        assert is_file_selected(bitmap, 0) is True
 
     def test_parse_tag_entries_stream_input(self):
-        """Test parse_tag_entries accepts a BytesIO stream (not just bytes)."""
+        """parse_tag_entries accepts a stream."""
         parser = SizeParser()
-        blob = BytesIO()
-        blob.write(b"enUS\x00")
-        blob.write(struct.pack(">H", 4))
-        blob.write(b"\xc0")
-        blob.seek(0)
-        # Pass a stream (BytesIO) directly instead of bytes to hit the else branch
-        tags = parser.parse_tag_entries(blob, tag_count=1, entry_count=2)
-        assert len(tags) == 1
+        blob = b"enUS\x00" + struct.pack(">H", 4) + b"\xa8"
+        tags = parser.parse_tag_entries(BytesIO(blob), tag_count=1, entry_count=5)
         assert tags[0].name == "enUS"
+        assert tags[0].file_indices == [0, 2, 4]
 
     def test_apply_tag_query_bitmask_longer_than_file_count(self):
-        """Test apply_tag_query breaks early when tag bitmask exceeds file_count bitmap size."""
-        # Tag bitmask is 4 bytes but file_count only needs 1 byte (8 files)
-        # The loop should break at i >= bitmap_size (line 546)
-        tags = [
-            SizeTag(
-                name="wide",
-                tag_id=1,
-                tag_type=4,
-                file_indices=[0, 1],
-                bit_mask=b"\xc0\xff\xff\xff",
-            ),
-        ]
-        bitmap = apply_tag_query(tags, "wide", 8)
-        # bitmap_size = 1, tag bitmask has 4 bytes — only first byte should be applied
+        """Bitmask longer than needed is trimmed."""
+        tag = SizeTag(
+            name="t", tag_id=0, tag_type=1, file_indices=[0], bit_mask=b"\x80\xff"
+        )
+        bitmap = apply_tag_query([tag], "t", 1)
         assert len(bitmap) == 1
-        assert bitmap[0] == 0xC0  # Only first byte of the 4-byte mask applied
+        assert is_file_selected(bitmap, 0) is True
 
     def test_parse_tag_entries_truncated_tag_type(self):
-        """Test that truncated tag type data logs warning and stops parsing."""
+        """Truncated tag type logs a warning and stops."""
         parser = SizeParser()
-        # Write tag name but only 1 byte of tag_type (needs 2)
-        blob = b"enUS\x00\xff"  # Only 1 byte of tag_type instead of 2
-        # Should break early (warning logged), returning 0 tags
-        tags = parser.parse_tag_entries(blob, tag_count=1, entry_count=2)
-        assert len(tags) == 0
+        blob = b"enUS\x00" + b"\x00"
+        tags = parser.parse_tag_entries(blob, tag_count=1, entry_count=5)
+        assert tags == []
+
+    def test_parse_entry_ekey_size_mismatch_build(self):
+        """build rejects an entry key length not matching ekey_size."""
+        size = SizeBuilder.create_with_entries([SizeEntry(key=b"\x01" * 8, esize=1)])
+        with pytest.raises(ValueError, match="key length"):
+            SizeParser().build(size)
 
 
 class TestTagEntries:

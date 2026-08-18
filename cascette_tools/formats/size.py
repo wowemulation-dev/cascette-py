@@ -1,4 +1,30 @@
-"""Size manifest format parser for NGDP/CASC."""
+"""Size manifest format parser for NGDP/CASC.
+
+The size manifest (``DS`` magic) maps partial encoding keys to estimated
+file sizes (eSize). It is used for pre-download space allocation and
+progress reporting.
+
+Binary layout (per CascLib / cascette-rs / wowdev.wiki, verified against
+real builds):
+
+    [Header: 15 bytes]
+      magic[2]        "DS"
+      version[1]      Format version (1; the only version seen in the wild)
+      ekey_size[1]    EKey length per entry in bytes (typically 9)
+      num_files[4]    Number of file entries (big-endian u32)
+      num_tags[2]     Number of tags between header and file entries (BE u16)
+      total_size[5]   40-bit big-endian sum of all entry esizes
+    [Tags: variable]
+      num_tags × (null-terminated name + u16 BE type + bitmap of
+      ceil(num_files/8) bytes)
+    [Entries: fixed stride]
+      num_files × (ekey[ekey_size] + esize[4] BE), sorted by esize desc
+
+Earlier versions of this parser assumed a legacy layout (10-byte header,
+null-terminated string keys, key hashes) that does not match the real
+format; that caused ``Invalid eSize byte count`` errors when parsing
+real manifests.
+"""
 
 from __future__ import annotations
 
@@ -33,12 +59,6 @@ class SizeTag(BaseModel):
 
         Uses bitmap if available, otherwise checks indices list.
         Bitmap uses MSB bit ordering (bit 7 is LSB, bit 0 is MSB).
-
-        Args:
-            file_index: Index of file to check
-
-        Returns:
-            True if file has this tag
         """
         if self.bit_mask:
             byte_index = file_index >> 3  # Divide by 8
@@ -49,27 +69,31 @@ class SizeTag(BaseModel):
 
 
 class SizeEntry(BaseModel):
-    """Size manifest file entry."""
+    """Size manifest file entry.
 
-    key: str = Field(description="Content key (null-terminated string)")
-    key_hash: int = Field(description="16-bit hash/identifier")
+    A partial encoding key (``ekey_size`` bytes) mapped to an estimated
+    file size. On disk each entry is ``ekey_size + 4`` bytes, fixed
+    stride, sorted descending by esize.
+    """
+
+    key: bytes = Field(description="Partial encoding key (ekey_size bytes)")
     esize: int = Field(description="Estimated file size")
+
+    def __str__(self) -> str:
+        """String representation."""
+        return f"SizeEntry(key={self.key.hex()[:16]}…, esize={self.esize})"
 
 
 class SizeHeader(BaseModel):
-    """Size manifest header."""
+    """Size manifest header (15 bytes)."""
 
     version: int = Field(description="Format version (1 or 2)")
-    flags: int = Field(description="Flags byte")
-    entry_count: int = Field(description="Number of entries")
-    key_size_bits: int = Field(description="Key size in bits")
-    total_size: int | None = Field(
-        default=None, description="Total size across all entries"
-    )
-    esize_bytes: int | None = Field(
-        default=None, description="Byte width of eSize (V1 only)"
-    )
+    ekey_size: int = Field(default=9, description="EKey length per entry in bytes")
+    entry_count: int = Field(description="Number of file entries")
     tag_count: int = Field(default=0, description="Number of tag entries")
+    total_size: int | None = Field(
+        default=None, description="Total size across all entries (40-bit)"
+    )
 
 
 class SizeFile(BaseModel):
@@ -83,145 +107,131 @@ class SizeFile(BaseModel):
 
 
 class SizeParser(FormatParser[SizeFile]):
-    """Parser for size format."""
+    """Parser for the size manifest (DS) format."""
+
+    HEADER_SIZE = 15
 
     def parse(self, data: bytes | BinaryIO) -> SizeFile:
-        """Parse size manifest.
+        """Parse a size manifest.
 
         Args:
-            data: Binary data or stream
+            data: Binary data or stream (decompressed)
 
         Returns:
             Parsed size manifest
+
+        Raises:
+            ValueError: If data is invalid or corrupted
         """
         if isinstance(data, bytes):
-            stream = BytesIO(data)
+            raw = data
         else:
-            stream = data
+            raw = data.read()
 
-        # Parse common header (10 bytes minimum)
-        # magic(2) + version(1) + flags(1) + entry_count(4) + key_size_bits(2) = 10
-        header_data = stream.read(10)
-        if len(header_data) < 10:
-            raise ValueError("Insufficient data for header")
+        if len(raw) < self.HEADER_SIZE:
+            raise ValueError(
+                f"Insufficient data for header: {len(raw)} bytes, "
+                f"expected {self.HEADER_SIZE}"
+            )
+        if raw[:2] != b"DS":
+            raise ValueError(f"Invalid magic: {raw[:2].hex()}, expected 4453 (DS)")
 
-        magic = header_data[0:2]
-        if magic != b"DS":
-            raise ValueError(f"Invalid magic: {magic.hex()}, expected 4453 (DS)")
+        version = raw[2]
+        ekey_size = raw[3]
+        entry_count = struct.unpack(">I", raw[4:8])[0]
+        tag_count = struct.unpack(">H", raw[8:10])[0]
+        total_size = int.from_bytes(raw[10:15], "big")
 
-        version = header_data[2]
-        flags = header_data[3]
-        entry_count = struct.unpack(">I", header_data[4:8])[0]  # big-endian
-        key_size_bits = struct.unpack(">H", header_data[8:10])[0]  # big-endian
-
-        # Validate version
         if version == 0 or version > 2:
             raise ValueError(f"Unsupported size manifest version: {version}")
-
-        logger.debug(
-            "Parsed size header",
-            version=version,
-            flags=flags,
-            entry_count=entry_count,
-            key_size_bits=key_size_bits,
-        )
-
-        # Parse version-specific header fields
-        total_size = None
-        esize_bytes = None
-
-        if version == 1:
-            # V1: total_size (8 bytes) + esize_bytes (1 byte)
-            v1_extra = stream.read(9)
-            if len(v1_extra) < 9:
-                raise ValueError("Insufficient data for V1 header fields")
-            total_size = struct.unpack(">Q", v1_extra[0:8])[0]  # big-endian
-            esize_bytes = v1_extra[8]
-
-            if esize_bytes < 1 or esize_bytes > 8:
-                raise ValueError(f"Invalid eSize byte count: {esize_bytes}")
-
-        elif version == 2:
-            # V2: total_size (5 bytes)
-            v2_extra = stream.read(5)
-            if len(v2_extra) < 5:
-                raise ValueError("Insufficient data for V2 header fields")
-            # Pad to 8 bytes for unpacking
-            total_size = struct.unpack(">Q", b"\x00\x00\x00" + v2_extra)[0]
-            esize_bytes = 4  # Fixed at 4 bytes for V2
+        if ekey_size == 0 or ekey_size > 16:
+            raise ValueError(f"Invalid eKey byte count: {ekey_size}")
 
         header = SizeHeader(
             version=version,
-            flags=flags,
+            ekey_size=ekey_size,
             entry_count=entry_count,
-            key_size_bits=key_size_bits,
+            tag_count=tag_count,
             total_size=total_size,
-            esize_bytes=esize_bytes,
         )
 
-        # Parse entries
+        pos = self.HEADER_SIZE
+        bitfield_len = (entry_count + 7) // 8
+
+        # Tags between header and entries
+        tags: list[SizeTag] = []
+        for tag_idx in range(tag_count):
+            if pos >= len(raw):
+                raise ValueError(f"Insufficient data for tag {tag_idx}")
+            end = raw.index(0, pos) if 0 in raw[pos:] else len(raw)
+            name = raw[pos:end].decode("utf-8", errors="replace")
+            pos = end + 1
+            if pos + 2 > len(raw):
+                raise ValueError(f"Insufficient data for tag type at tag {tag_idx}")
+            tag_type = struct.unpack(">H", raw[pos : pos + 2])[0]
+            pos += 2
+            if tag_type == 0 or tag_type == 0xFFFF:
+                break  # end marker
+            if pos + bitfield_len > len(raw):
+                raise ValueError(f"Insufficient data for tag bitmap at tag {tag_idx}")
+            bitmap = raw[pos : pos + bitfield_len]
+            pos += bitfield_len
+
+            file_indices: list[int] = []
+            for byte_idx, byte_val in enumerate(bitmap):
+                if byte_val == 0:
+                    continue
+                for bit_idx in range(8):
+                    if byte_val & (0x80 >> bit_idx):
+                        file_indices.append(byte_idx * 8 + bit_idx)
+
+            tags.append(
+                SizeTag(
+                    name=name,
+                    tag_id=tag_idx,
+                    tag_type=tag_type,
+                    file_indices=file_indices,
+                    bit_mask=bitmap,
+                )
+            )
+
+        # Fixed-stride entries
+        stride = ekey_size + 4
+        needed = pos + stride * entry_count
+        if len(raw) < needed:
+            raise ValueError(
+                f"Insufficient data for entries: need {needed}, have {len(raw)}"
+            )
+
         entries: list[SizeEntry] = []
-        for i in range(entry_count):
-            # Read null-terminated key
-            key_bytes = bytearray()
-            while True:
-                byte = stream.read(1)
-                if not byte or byte == b"\x00":
-                    break
-                key_bytes.extend(byte)
+        for _ in range(entry_count):
+            key = raw[pos : pos + ekey_size]
+            pos += ekey_size
+            esize = struct.unpack(">I", raw[pos : pos + 4])[0]
+            pos += 4
+            entries.append(SizeEntry(key=key, esize=esize))
 
-            key = key_bytes.decode("utf-8", errors="replace")
-
-            # Read key hash (2 bytes big-endian)
-            key_hash_data = stream.read(2)
-            if len(key_hash_data) < 2:
-                raise ValueError(f"Insufficient data for key hash at entry {i}")
-            key_hash = struct.unpack(">H", key_hash_data)[0]
-
-            # Validate key hash (cannot be 0x0000 or 0xFFFF)
-            if key_hash == 0x0000 or key_hash == 0xFFFF:
-                raise ValueError(f"Invalid key hash 0x{key_hash:04X} at entry {i}")
-
-            # Read eSize data
-            if esize_bytes is None:
-                raise ValueError("eSize byte width not set in header")
-            esize_data = stream.read(esize_bytes)
-            if len(esize_data) < esize_bytes:
-                raise ValueError(f"Insufficient data for eSize at entry {i}")
-
-            # Parse eSize based on byte width
-            if esize_bytes == 1:
-                esize = esize_data[0]
-            elif esize_bytes == 2:
-                esize = struct.unpack(">H", esize_data)[0]
-            elif esize_bytes == 4:
-                esize = struct.unpack(">I", esize_data)[0]
-            elif esize_bytes == 8:
-                esize = struct.unpack(">Q", esize_data)[0]
-            else:
-                esize = int.from_bytes(esize_data, byteorder="big")
-
-            entries.append(SizeEntry(key=key, key_hash=key_hash, esize=esize))
-
-        return SizeFile(
-            header=header,
-            entries=entries,
-            tags=[],  # Tags are parsed separately with parse_tag_entries()
+        logger.debug(
+            "Parsed size manifest",
+            version=version,
+            ekey_size=ekey_size,
+            entry_count=entry_count,
+            tag_count=len(tags),
+            total_size=total_size,
         )
+        return SizeFile(header=header, entries=entries, tags=tags)
 
     def parse_tag_entries(
         self, data: bytes | BinaryIO, tag_count: int, entry_count: int
     ) -> list[SizeTag]:
-        """Parse tag entries from size manifest tag blob.
+        """Parse tag entries from a size manifest tag blob.
 
         Tag Entry Structure (variable length, inline):
             - Null-terminated tag name string
-            - 2-byte BE tag type (determines tag category)
+            - 2-byte BE tag type
             - Bitmap data: (entry_count + 7) >> 3 bytes
 
-        The 2-byte BE tag type indicates:
-            - Tag category (Platform=0x0001, Architecture=0x0002, etc.)
-            - End markers: 0x0000 or 0xFFFF stops parsing
+        End markers 0x0000 or 0xFFFF stop parsing.
 
         Args:
             data: Binary tag blob data
@@ -239,9 +249,9 @@ class SizeParser(FormatParser[SizeFile]):
         tags: list[SizeTag] = []
         ptr = 0
         entry_index = 0
+        bitmap_size = (entry_count + 7) >> 3
 
         while entry_index < tag_count:
-            # 1. Read null-terminated string starting at ptr
             stream.seek(ptr)
             name_bytes = b""
             while True:
@@ -249,23 +259,17 @@ class SizeParser(FormatParser[SizeFile]):
                 if not byte or byte == b"\x00":
                     break
                 name_bytes += byte
-
             tag_name = name_bytes.decode("utf-8", errors="replace")
-            null_offset = (
-                stream.tell() - 1
-            )  # Position of null terminator (current pos - 1 for the byte we just read)
+            null_offset = stream.tell() - 1
 
-            # 2. Read 2-byte BE tag type at null + 1
             tag_type_offset = null_offset + 1
             stream.seek(tag_type_offset)
             tag_type_data = stream.read(2)
             if len(tag_type_data) < 2:
                 logger.warning("Incomplete tag entry header at index %d", entry_index)
                 break
-
             tag_type = struct.unpack(">H", tag_type_data)[0]
 
-            # 3. Check for end markers (0x0000 or 0xFFFF)
             if tag_type == 0 or tag_type == 0xFFFF:
                 logger.debug(
                     "End of tag entries at index %d (marker: 0x%04x)",
@@ -274,13 +278,10 @@ class SizeParser(FormatParser[SizeFile]):
                 )
                 break
 
-            # 4. Bitmap starts at null + 3 (after null and tag type)
-            bitmap_size = (entry_count + 7) >> 3
             bitmap_offset = null_offset + 3
             stream.seek(bitmap_offset)
             bitmap = stream.read(bitmap_size)
 
-            # 5. Decode file indices from bitmap (MSB bit ordering)
             file_indices: list[int] = []
             for byte_idx, byte_val in enumerate(bitmap):
                 if byte_val == 0:
@@ -289,19 +290,15 @@ class SizeParser(FormatParser[SizeFile]):
                     if byte_val & (0x80 >> bit_idx):
                         file_indices.append(byte_idx * 8 + bit_idx)
 
-            tag_id = entry_index
-
             tags.append(
                 SizeTag(
                     name=tag_name,
-                    tag_id=tag_id,
+                    tag_id=entry_index,
                     tag_type=tag_type,
                     file_indices=file_indices,
                     bit_mask=bitmap,
                 )
             )
-
-            # 6. Advance to next entry
             ptr = bitmap_offset + bitmap_size
             entry_index += 1
 
@@ -318,50 +315,40 @@ class SizeParser(FormatParser[SizeFile]):
             Binary size data
         """
         result = BytesIO()
+        ekey_size = obj.header.ekey_size or 9
+        entry_count = len(obj.entries)
+        total_size = obj.header.total_size or 0
 
-        # Write common header
-        result.write(b"DS")  # Magic
-        result.write(struct.pack("B", obj.header.version))  # Version
-        result.write(struct.pack("B", obj.header.flags))  # Flags
-        result.write(struct.pack(">I", len(obj.entries)))  # Entry count (big-endian)
-        result.write(
-            struct.pack(">H", obj.header.key_size_bits)
-        )  # Key size bits (big-endian)
+        # Header
+        result.write(b"DS")
+        result.write(struct.pack("B", obj.header.version))
+        result.write(struct.pack("B", ekey_size))
+        result.write(struct.pack(">I", entry_count))
+        result.write(struct.pack(">H", len(obj.tags)))
+        if total_size >= (1 << 40):
+            raise ValueError(f"Total size too large: {total_size}")
+        result.write(total_size.to_bytes(5, "big"))
 
-        # Write version-specific fields
-        if obj.header.version == 1:
-            result.write(struct.pack(">Q", obj.header.total_size or 0))  # Total size
-            result.write(
-                struct.pack("B", obj.header.esize_bytes or 4)
-            )  # eSize byte width
-        elif obj.header.version == 2:
-            total_size = obj.header.total_size or 0
-            if total_size >= (1 << 40):
-                raise ValueError(f"Total size too large: {total_size}")
-            size_bytes = struct.pack(">Q", total_size)[3:]  # Take last 5 bytes
-            result.write(size_bytes)
-
-        # Write entries
-        for entry in obj.entries:
-            # Write null-terminated key
-            result.write(entry.key.encode("utf-8"))
+        # Tags (null-terminated name + u16 BE type + bitmap)
+        bitfield_len = (entry_count + 7) // 8
+        for tag in obj.tags:
+            result.write(tag.name.encode("utf-8"))
             result.write(b"\x00")
+            result.write(struct.pack(">H", tag.tag_type))
+            mask = tag.bit_mask
+            if len(mask) < bitfield_len:
+                mask = mask + b"\x00" * (bitfield_len - len(mask))
+            result.write(mask[:bitfield_len])
 
-            # Write key hash (2 bytes big-endian)
-            result.write(struct.pack(">H", entry.key_hash))
-
-            # Write eSize data
-            esize_bytes = obj.header.esize_bytes or 4
-            if esize_bytes == 1:
-                result.write(struct.pack("B", entry.esize))
-            elif esize_bytes == 2:
-                result.write(struct.pack(">H", entry.esize))
-            elif esize_bytes == 4:
-                result.write(struct.pack(">I", entry.esize))
-            elif esize_bytes == 8:
-                result.write(struct.pack(">Q", entry.esize))
-            else:
-                result.write(entry.esize.to_bytes(esize_bytes, byteorder="big"))
+        # Entries (ekey + 4-byte esize, fixed stride)
+        for entry in obj.entries:
+            key = entry.key
+            if len(key) != ekey_size:
+                raise ValueError(
+                    f"Entry key length {len(key)} != header ekey_size {ekey_size}"
+                )
+            result.write(key)
+            result.write(struct.pack(">I", entry.esize))
 
         return result.getvalue()
 
@@ -369,7 +356,7 @@ class SizeParser(FormatParser[SizeFile]):
 class SizeBuilder:
     """Builder for size manifest files."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize size builder."""
         pass
 
@@ -386,7 +373,7 @@ class SizeBuilder:
         return parser.build(obj)
 
     @classmethod
-    def create_empty(cls, version: int = 2) -> SizeFile:
+    def create_empty(cls, version: int = 1) -> SizeFile:
         """Create an empty size file.
 
         Args:
@@ -397,40 +384,38 @@ class SizeBuilder:
         """
         header = SizeHeader(
             version=version,
-            flags=0,
+            ekey_size=9,
             entry_count=0,
-            key_size_bits=128,  # 16 bytes = 128 bits (MD5)
+            tag_count=0,
             total_size=0,
-            esize_bytes=4 if version == 2 else 4,
         )
-
         return SizeFile(header=header, entries=[], tags=[])
 
     @classmethod
     def create_with_entries(
-        cls, entries: list[SizeEntry], version: int = 2
+        cls,
+        entries: list[SizeEntry],
+        version: int = 1,
+        ekey_size: int = 9,
     ) -> SizeFile:
         """Create size file with given entries.
 
         Args:
             entries: List of size entries
             version: Size manifest version (1 or 2)
+            ekey_size: EKey length per entry in bytes (default 9)
 
         Returns:
             Size file object
         """
         total_size = sum(entry.esize for entry in entries)
-        key_size_bits = 128  # Default to MD5 (16 bytes = 128 bits)
-
         header = SizeHeader(
             version=version,
-            flags=0,
+            ekey_size=ekey_size,
             entry_count=len(entries),
-            key_size_bits=key_size_bits,
+            tag_count=0,
             total_size=total_size,
-            esize_bytes=4 if version == 2 else 4,
         )
-
         return SizeFile(header=header, entries=entries, tags=[])
 
 
@@ -445,8 +430,6 @@ def is_size(data: bytes) -> bool:
     """
     if len(data) < 2:
         return False
-
-    # Check for DS magic
     return data[:2] == b"DS"
 
 

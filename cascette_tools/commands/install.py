@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
@@ -2297,20 +2296,10 @@ def install_to_casc(
                             f"  Total build size: {_fmt_size(size_file.header.total_size)}"
                         )
 
-                    # Parse tag entries from remaining data after entries
-                    # The tag blob starts after the entry data in the stream
-                    if size_file.header.tag_count > 0:
-                        # Re-parse to get stream position after entries
-                        stream = BytesIO(size_data)
-                        _ = size_parser.parse(stream)
-                        remaining = stream.read()
-                        if remaining:
-                            size_file.tags = size_parser.parse_tag_entries(
-                                remaining,
-                                size_file.header.tag_count,
-                                len(size_file.entries),
-                            )
-                            console.print(f"  Tags: {len(size_file.tags)}")
+                    # Tags are parsed by SizeParser.parse() (they live between
+                    # the header and the entries in the DS layout).
+                    if size_file.tags:
+                        console.print(f"  Tags: {len(size_file.tags)}")
                 except Exception as e:
                     logger.warning(
                         "Failed to fetch/parse size manifest, continuing without it",

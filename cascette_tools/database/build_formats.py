@@ -156,9 +156,7 @@ def detect_cdn_formats(
             except Exception as e:  # noqa: BLE001
                 fmts.warnings.append(f"download: {e}")
 
-        # Size manifest: read the version byte from the raw header even if
-        # the full parse fails (the 1.13.2 size manifest has esize_bytes=0
-        # which the parser rejects, though the client accepts it).
+        # Size manifest: version from the 15-byte DS header (byte 2).
         size_info = bc.get_size_info()
         if size_info and size_info.encoding_key:
             try:
