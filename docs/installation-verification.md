@@ -461,7 +461,7 @@ under `_classic_era_` (B11 fix, `default_subfolder`).
 | 49821 | 1.14.3 | wow_classic_era | wow_classic_era | Y | Y | May 30, 2023 — A1 target | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 51001 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Aug 18, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 51056 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Aug 23, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
-| 51146 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Aug 29, 2023 | ⏳ pending |
+| 51146 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Aug 29, 2023 | ✅ format+container scan + client 1-run, 0 CDN requests (2026-08-18) |
 | 51311 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Sep 11, 2023 | ⏳ pending |
 | 51395 | 1.14.4 | wow_classic_era | wow_classic_era | Y | – | Sep 19, 2023 | ⏳ pending |
 | 51535 | 1.14.4 | wow_classic_era | wow_classic_era | Y | Y | Sep 27, 2023 | ⏳ pending |
