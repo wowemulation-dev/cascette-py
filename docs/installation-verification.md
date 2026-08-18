@@ -415,6 +415,14 @@ checks, cascette-rs cross-check, client-run acceptance (login UI, 0 CDN
 requests), container format versions recorded in the `build_formats`
 registry, and archival of the pristine install.
 
+The `build_formats` registry carries two VFS columns: `vfs_version`
+(TVFS format version, read from the vfs-root manifest header) and
+`vfs_manifests` (count of vfs-root + vfs-N manifests). 1.14.4+ builds
+introduce the CASC v3 TVFS layer (vfs_root = 1, 240 manifests on
+51001); pre-1.14.4 builds record `vfs_manifests = 0`. The install's
+step 7.5 fetches all VFS manifests plus the patch-index manifest so the
+client makes 0 CDN requests on first start (fix landed 2026-08-18).
+
 CDN = mirror has the build's CDN data (verified: all 31 rows present in
 the mirror `versions` manifest with config files on disk). WPP =
 membership in WowPacketParser's `ClientVersionBuild` enum (`–` = absent;
