@@ -1659,7 +1659,9 @@ def _fetch_vfs_files(
             patch_config_data = cdn_client.fetch_config(
                 patch_config_hash, config_type="patch"
             )
-            for line in patch_config_data.decode("utf-8", errors="replace").splitlines():
+            for line in patch_config_data.decode(
+                "utf-8", errors="replace"
+            ).splitlines():
                 if line.startswith("patch-entry = vfs:"):
                     parts = line.split()
                     # parts: [patch-entry, =, vfs:NAME:, ckey, csize, ekey,
@@ -1694,6 +1696,212 @@ def _fetch_vfs_files(
             )
             console.print(f"  [yellow]{name} unavailable: {e!s:.80}[/yellow]")
     console.print(f"  Wrote {written}/{len(targets)} loose files")
+    return written
+
+
+def _resolve_root_content(
+    build_config: Any,
+    root_ckey: str | None,
+    ecache: EncodingCache | None,
+    encoding_parser: EncodingParser,
+    encoding_data: bytes,
+    encoding_file: EncodingFile,
+    download_entries: list[DownloadEntry],
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    console: Console,
+    fetcher: CdnArchiveFetcher,
+    loose_only: bool,
+) -> None:
+    """Resolve the root manifest and fetch its content (agent install model).
+
+    The root manifest drives the content set; the download manifest only
+    tag-filters it. Without this pass, 1.15.4+ clients re-fetch content
+    (WDC5/BLP2/REVM) from the CDN on first start.
+    """
+    if not root_ckey or loose_only:
+        return
+    try:
+        root_ekeys = _resolve_ekey(
+            bytes.fromhex(root_ckey),
+            ecache,
+            encoding_parser,
+            encoding_data,
+            encoding_file,
+        )
+        if not root_ekeys:
+            return
+        sel_prefixes = {e.ekey.hex()[:18] for e in download_entries}
+        asyncio.run(
+            _fetch_root_content(
+                build_config,
+                root_ekeys[0],
+                cdn_client,
+                storage,
+                console,
+                encoding_parser,
+                encoding_data,
+                encoding_file,
+                sel_prefixes,
+                fetcher,
+            )
+        )
+    except Exception as e:
+        logger.warning("Root content resolution failed", error=str(e))
+        console.print(
+            f"  [yellow]Root content resolution unavailable: {e!s:.80}[/yellow]"
+        )
+
+
+async def _fetch_root_content(
+    build_config: Any,
+    root_ekey: bytes,
+    cdn_client: CDNClient,
+    storage: LocalStorage,
+    console: Console,
+    encoding_parser: EncodingParser,
+    encoding_data: bytes,
+    encoding_file: EncodingFile,
+    selected_ekey_prefixes: set[str],
+    fetcher: CdnArchiveFetcher,
+) -> int:
+    """Fetch content files resolved from the root manifest.
+
+    Mirrors the agent's install model (battle.net-agent install_operation):
+    the ROOT manifest drives the content set, not the download manifest.
+    The download manifest is used only for tag selection; the root manifest
+    (TVFS CFT ekeys, or MFST/TSFM content keys resolved through the
+    encoding table) enumerates the actual content to fetch.
+
+    1.15.4+ (e.g. 1.15.4.56738) uses a MFST/TSFM root with 214k content
+    keys; the patched VFS tree references content beyond the download
+    manifest's 141k selected ekeys. Without this pass the client re-fetches
+    ~544 content files (WDC5/BLP2/REVM) from the CDN on first start
+    (observed: 7200 requests, no login).
+
+    Args:
+        build_config: Parsed build config
+        root_ekey: Encoding key of the root manifest
+        cdn_client: CDN client
+        storage: Local storage
+        console: Rich console
+        encoding_parser/encoding_data/encoding_file: encoding table access
+        selected_ekey_prefixes: 9-byte ekey prefixes from the tag filter
+        fetcher: Archive fetcher with loaded indices
+
+    Returns:
+        Number of content files written.
+    """
+    from cascette_tools.formats.root import RootParser
+    from cascette_tools.formats.tvfs import TVFSV3Parser
+
+    try:
+        raw = cdn_client.fetch_data(root_ekey.hex())
+        data = decompress_blte(raw) if is_blte(raw) else raw
+    except Exception as e:
+        logger.warning("Failed to fetch root manifest", error=str(e))
+        return 0
+
+    # Enumerate root entries -> (ckey or ekey, is_ekey)
+    root_entries: list[tuple[bytes, bool]] = []
+    if len(data) >= 4 and data[:4] == b"TVFS":
+        tvfs = TVFSV3Parser().parse(data)
+        for ce in tvfs.container_entries:
+            root_entries.append((ce.ekey, True))
+    else:
+        rf = RootParser().parse(data)
+        for blk in rf.blocks:
+            for rec in blk.records:
+                root_entries.append((rec.content_key, False))
+
+    console.print(
+        f"\n[cyan]Step 7.4:[/cyan] Resolving {len(root_entries):,} root entries..."
+    )
+
+    # Resolve each entry to a candidate ekey (9-byte prefix for store lookup)
+    target_ekey_prefixes: set[str] = set()
+    if root_entries and root_entries[0][1]:
+        # TVFS root: CFT ekeys directly
+        target_ekey_prefixes = {e[0].hex()[:18] for e in root_entries}
+    else:
+        # MFST/TSFM root: ckey -> encoding table -> ekey
+        for ckey, _is_ekey in root_entries:
+            ekeys = encoding_parser.find_content_key(encoding_data, encoding_file, ckey)
+            if ekeys:
+                for ek in ekeys:
+                    target_ekey_prefixes.add(ek.hex()[:18])
+
+    console.print(f"  Resolved {len(target_ekey_prefixes):,} candidate ekeys")
+
+    # Tag filter: keep only entries whose ekey prefix is in the selection
+    if selected_ekey_prefixes:
+        target_ekey_prefixes &= selected_ekey_prefixes
+
+    # Determine which are already in the store (KMT 9-byte prefixes)
+    store_prefixes: set[str] = set()
+    for bucket in storage.bucket_entries.values():
+        for entry in bucket:
+            store_prefixes.add(entry.key.hex())
+    missing_prefixes = sorted(
+        p for p in target_ekey_prefixes if p not in store_prefixes
+    )
+    console.print(
+        f"  After tag filter: {len(target_ekey_prefixes):,}; "
+        f"missing from store: {len(missing_prefixes):,}"
+    )
+
+    if not missing_prefixes:
+        return 0
+
+    # Fetch missing files by full ekey: resolve each 9-byte prefix to the
+    # full 16-byte key via the CDN index (matches on the full key), then
+    # range-fetch from the archive with a loose fallback.
+    from cascette_tools.core.download_queue import DownloadQueue, DownloadResult
+
+    queue = DownloadQueue(max_concurrency=12, max_per_host=3, max_retries=3)
+    for prefix in missing_prefixes:
+        prefix_bytes = bytes.fromhex(prefix)
+
+        async def make_factory(p: bytes = prefix_bytes) -> DownloadResult:
+            # Try archive fetch first (range request by full key).
+            data = await fetcher.fetch_file_via_cdn_async(
+                cdn_client, p, decompress=False, verify=False
+            )
+            source = ""
+            loc = fetcher.index_map.find(p)
+            if loc:
+                source = loc.archive_hash
+            # Fall back to the loose CDN blob.
+            if data is None:
+                try:
+                    data = await cdn_client.fetch_data_async(p.hex(), quiet=True)
+                    source = "loose"
+                except Exception:
+                    data = None
+            return DownloadResult(
+                ekey=p,
+                data=data,
+                error=None if data is not None else "not found",
+                source=source,
+            )
+
+        await queue.submit(priority=0, ekey=prefix_bytes, coro_factory=make_factory)
+
+    written = 0
+    async for result in queue.run(total=len(missing_prefixes)):
+        if result.data is None:
+            continue
+        try:
+            storage.write_content(result.ekey, result.data)
+            written += 1
+        except Exception as e:
+            logger.warning(
+                "Failed to write root content",
+                ekey=result.ekey.hex()[:12],
+                error=str(e),
+            )
+
+    console.print(f"  Wrote {written}/{len(missing_prefixes)} root content files")
     return written
 
 
@@ -2701,6 +2909,27 @@ def install_to_casc(
 
         # Final state save after all downloads
         install_state.save()
+
+        # Step 7.4: Fetch content resolved from the ROOT manifest (agent
+        # install model: the root drives the content set, the download
+        # manifest only tag-filters). 1.15.4+ roots (MFST/TSFM or TVFS)
+        # reference content beyond the download-manifest selection; the
+        # client re-fetches it from the CDN otherwise.
+        root_ckey = getattr(build_config, "root", None)
+        _resolve_root_content(
+            build_config,
+            root_ckey,
+            ecache,
+            encoding_parser,
+            encoding_data,
+            encoding_file,
+            download_entries,
+            cdn_client,
+            storage,
+            console,
+            fetcher,
+            loose_only,
+        )
 
         # Step 7.5: Fetch VFS (TVFS) manifest files (1.14.4+ builds).
         # The client reads these on a fresh install; without them it
